@@ -162,3 +162,20 @@ Layout: `firmware/` is the Arduino sketch (`firmware.ino` + all C++ sources + ve
 - **Git + GitHub Actions:** run `scripts/init_repo.ps1 -Remote <url>` once. `.github/workflows/build.yml` then compiles the
   firmware and runs `flutter analyze` + a debug APK build on every push; a tag `vX.Y.Z` (matching `FW_VERSION` in
   `firmware/diag.h`) publishes a release with the `.bin` and the `.apk`.
+
+## Firmware updates over Wi-Fi
+
+The watch updates itself from this repository's GitHub releases (`hal_fwupdate.h/.cpp`, screen in `app_fwupdate.cpp`):
+
+- **Automatic:** about once a day (`FW_UPDATE_CHECK_HOURS` in `firmware/config.h`), while the watch is on Wi-Fi - or
+  WiFi is switched on in Settings and a network is saved - it asks the GitHub API for the latest release of
+  `FW_UPDATE_REPO`. If the release tag is newer than `FW_VERSION`, a pop-up asks "Update available - Update / Later".
+  "Update" downloads the `AmoledSmartWatchOS-x.y.z.bin` asset straight into the spare OTA slot, verifies it and restarts.
+  The pop-up waits until the screen is on and no game is running; nothing is checked below 20 % battery (unless charging).
+- **Manual:** Settings > Software update > Check now.
+- **Publishing:** tag `vX.Y.Z` (matching `FW_VERSION`); CI builds and publishes the release the watch picks up.
+  Drafts and pre-releases are ignored.
+- **Signed updates:** with a key in `ota_pubkey.h` only a validly signed image is installed - the release then needs the
+  `*.signed.bin`. CI makes it when the repository secret `OTA_PRIVATE_KEY` holds the contents of `keys/ota_private.pem`.
+- The connection to GitHub is verified against the root CAs in `firmware/fw_update_ca.h`. A failed or interrupted
+  update leaves the current firmware in place, and a new one that doesn't survive its first minute is rolled back.

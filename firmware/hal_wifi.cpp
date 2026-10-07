@@ -14,8 +14,10 @@ static bool s_connecting = false;
 static char s_ssid[64] = {0};
 static char s_pass[64] = {0};
 static const char *s_error = nullptr;
+static bool s_hold = false, s_off_pending = false;
 
 void wifi_enable() {
+    s_off_pending = false;   // someone wants it on again
     if (s_enabled) return;
     // The Wi-Fi driver needs ~50 KB of internal RAM (its buffers can't go
     // to PSRAM in this core build). With Bluetooth connected there may not
@@ -63,6 +65,7 @@ void wifi_disable() {
     // A recordings transfer owns the radio until it ends (NTP finishing,
     // battery saver...). It calls this itself when done.
     if (wifi_xfer_active()) return;
+    if (s_hold) { s_off_pending = true; return; }   // done when wifi_hold(false)
     WiFi.disconnect(true);
     // Only actually power the radio down if ESP-NOW isn't also using
     // it right now - both features share one physical radio via the
@@ -73,6 +76,11 @@ void wifi_disable() {
     s_connecting = false;
     s_enabled = false;
     DEBUG_PRINTF("[wifi] radio off\n");
+}
+
+void wifi_hold(bool on) {
+    s_hold = on;
+    if (!on && s_off_pending) { s_off_pending = false; wifi_disable(); }
 }
 
 bool wifi_is_enabled() {
@@ -105,6 +113,7 @@ bool wifi_has_credentials() {
 void wifi_enable() {}
 void wifi_disable() {}
 void wifi_connect_now() {}
+void wifi_hold(bool) {}
 bool wifi_is_enabled() { return false; }
 const char *wifi_last_error() { return nullptr; }
 bool wifi_is_connected() { return false; }

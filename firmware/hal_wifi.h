@@ -20,6 +20,11 @@ void wifi_disable();
 // reconnects if it's on). Used after the credentials change.
 void wifi_connect_now();
 
+// While held, wifi_disable() is deferred until the hold is released (the
+// update checker uses this so an NTP sync finishing doesn't drop the
+// connection in the middle of a download).
+void wifi_hold(bool on);
+
 // Returns true if the radio has been powered on (whether connected or
 // still connecting). False means the radio is fully off.
 bool wifi_is_enabled();

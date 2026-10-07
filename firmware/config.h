@@ -29,6 +29,13 @@
 #define FEATURE_WIFI        1
 #define FEATURE_BLE         1
 
+// ---- Firmware updates over Wi-Fi (hal_fwupdate.h) ---------------------------
+// GitHub repo whose latest release is checked, and the start of the asset
+// name CI gives the firmware (.github/workflows/build.yml).
+#define FW_UPDATE_REPO          "MikeCheek/CustomOS-ESP32-S3-1.75"
+#define FW_UPDATE_ASSET_PREFIX  "AmoledSmartWatchOS-"
+#define FW_UPDATE_CHECK_HOURS   24   // automatic check at most this often
+
 // ---- Serial / debug ------------------------------------------------------
 #define SERIAL_BAUD         115200
 #define DEBUG_PRINTF(...)   Serial.printf(__VA_ARGS__)
