@@ -1,0 +1,12 @@
+# Arduino libraries from the Library Manager, pinned to the versions the
+# firmware is built and tested with. Used by CI (.github/workflows/build.yml).
+# minimp3, libhelix and ESP_H264_Decoder aren't in the registry: they are
+# vendored in libraries/ (compile with --libraries libraries).
+ArduinoJson@7.4.3
+GFX Library for Arduino@1.6.8
+JPEGDEC@1.8.4
+NimBLE-Arduino@2.5.0
+PubSubClient@2.8
+SensorLib@0.4.1
+TinyGPSPlus@1.0.3
+XPowersLib@0.3.3

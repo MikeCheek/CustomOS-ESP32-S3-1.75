@@ -1,0 +1,38 @@
+# Backups and deploy bundles
+_backup_*/
+*.tar
+*.zip
+pkgs_ref.tgz
+README (1).md
+
+# Arduino / build output
+build/
+*.bin
+*.elf
+*.map
+
+# Flutter companion app
+companion_app/build/
+companion_app/.dart_tool/
+companion_app/.flutter-plugins
+companion_app/.flutter-plugins-dependencies
+companion_app/.idea/
+companion_app/*.iml
+companion_app/lib_old/
+companion_app/android/.gradle/
+companion_app/android/local.properties
+companion_app/android/app/debug/
+companion_app/android/app/profile/
+companion_app/android/app/release/
+companion_app/android/key.properties
+companion_app/android/*.jks
+companion_app/android/app/*.jks
+
+# Signing keys (OTA signing, step 3) - never commit
+keys/
+*.pem
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/

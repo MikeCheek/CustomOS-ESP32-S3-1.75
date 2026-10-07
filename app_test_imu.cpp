@@ -1,0 +1,2 @@
+// Stub
+#include "config.h"
