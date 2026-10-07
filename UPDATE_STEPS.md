@@ -4,7 +4,7 @@ All files are already in this folder (141 changed or new, verified by checksum).
 Previous versions: `_backup_before_ui_pipeline/before_v32.tar`. List: `_backup_before_ui_pipeline/CHANGED_FILES_v32.txt`.
 
 ## 1. Flash the watch (USB)
-1. Open `AmoledSmartWatchOS.ino` in the Arduino IDE (same board settings as before: ESP32S3 Dev Module, OPI PSRAM,
+1. Open `firmware\firmware.ino` in the Arduino IDE (same board settings as before: ESP32S3 Dev Module, OPI PSRAM,
    16 MB flash, "16M Flash (3MB APP/9.9MB FATFS)", USB CDC On Boot enabled). No new libraries to install.
 2. On the watch: Settings > USB Mode > **Firmware & Debug** (or **Reboot to flash**). Close the Serial Monitor.
 3. Upload. If "Write timeout": hold BOOT, press RESET, release BOOT, pick the new COM port, upload, then press RESET.
@@ -37,7 +37,7 @@ Previous versions: `_backup_before_ui_pipeline/before_v32.tar`. List: `_backup_b
 1. `pip install cryptography`, then `python scripts/ota_keygen.py` (creates `keys/ota_private.pem` - back it up,
    never commit it - and writes your public key into `ota_pubkey.h`).
 2. Flash that build once over USB.
-3. For every Bluetooth update: `python scripts/sign_firmware.py <build>/AmoledSmartWatchOS.ino.bin`, send the
+3. For every Bluetooth update: `python scripts/sign_firmware.py <build>/firmware.ino.bin`, send the
    `.signed.bin` from the app. Unsigned or older images are refused; USB flashing always works.
 
 ## 7. What to test and report back

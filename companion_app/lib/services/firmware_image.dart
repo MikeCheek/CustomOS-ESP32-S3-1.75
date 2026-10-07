@@ -35,7 +35,7 @@ class FirmwareImage {
     // and merged (bootloader + partitions + app) images don't.
     if (ByteData.sublistView(bytes).getUint32(0x20, Endian.little) != 0xABCD5432) {
       throw const FormatException(
-          'This is a bootloader or merged image. Pick AmoledSmartWatchOS.ino.bin (the app only).');
+          'This is a bootloader or merged image. Pick firmware.ino.bin (the app only), or a .bin from the GitHub build.');
     }
     if (bytes.length > maxSize) {
       throw const FormatException('The image is bigger than the watch\'s 3 MB app slot.');

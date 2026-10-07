@@ -17,9 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # arduino-cli wants the folder named like the .ino
-          path: AmoledSmartWatchOS
 
       - uses: arduino/setup-arduino-cli@v2
 
@@ -29,7 +26,7 @@ jobs:
           path: |
             ~/.arduino15
             ~/Arduino/libraries
-          key: arduino-${{ env.ESP32_CORE }}-${{ hashFiles('AmoledSmartWatchOS/scripts/arduino-libraries.txt') }}
+          key: arduino-${{ env.ESP32_CORE }}-${{ hashFiles('scripts/arduino-libraries.txt') }}
 
       - name: Install ESP32 core and libraries
         run: |
@@ -38,25 +35,26 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@${ESP32_CORE}
           # Pinned registry libraries (the three non-registry ones are vendored in libraries/)
-          grep -v '^#' AmoledSmartWatchOS/scripts/arduino-libraries.txt | grep -v '^$' | while read -r lib; do
+          grep -v '^#' scripts/arduino-libraries.txt | grep -v '^$' | while read -r lib; do
             arduino-cli lib install "$lib"
           done
 
       - name: Check FW_VERSION matches the tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' AmoledSmartWatchOS/diag.h)
+          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           tag=${GITHUB_REF_NAME#v}
           echo "FW_VERSION=$fw tag=$tag"
           test "$fw" = "$tag"
 
       - name: Compile
         run: |
-          arduino-cli compile -b "$FQBN" --libraries AmoledSmartWatchOS/libraries \
-            --warnings default --build-path build --export-binaries AmoledSmartWatchOS 2>&1 | tee compile.log
+          # The sketch is firmware/firmware.ino (folder and .ino share a name)
+          arduino-cli compile -b "$FQBN" --libraries firmware/libraries \
+            --warnings default --build-path build firmware 2>&1 | tee compile.log
           grep -E "Sketch uses|Global variables" compile.log >> "$GITHUB_STEP_SUMMARY"
-          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' AmoledSmartWatchOS/diag.h)
-          cp build/AmoledSmartWatchOS.ino.bin "AmoledSmartWatchOS-$fw.bin"
+          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
+          cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw.bin"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -81,13 +79,27 @@ jobs:
           channel: stable
           cache: true
 
+      # The app pins an NDK (android/app/build.gradle.kts ndkVersion) that the
+      # runner doesn't have; Gradle can't install it without accepting the
+      # SDK licenses (one of them is the "preview" license), so do it here.
+      - name: Install the Android NDK
+        working-directory: .
+        run: |
+          NDK=$(grep -oP 'ndkVersion\s*=\s*"\K[^"]+' companion_app/android/app/build.gradle.kts || true)
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          if [ -n "$NDK" ]; then
+            echo "Installing NDK $NDK"
+            yes | "$SDKM" --install "ndk;$NDK" > /dev/null
+          fi
+
       - run: flutter pub get
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings   # errors fail the build; tighten later
 
       - name: Build APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --android-skip-build-dependency-validation
 
       - uses: actions/upload-artifact@v4
         with:

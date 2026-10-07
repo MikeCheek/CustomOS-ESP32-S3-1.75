@@ -149,11 +149,16 @@ this same board, re-implemented for this project's Arduino_GFX renderer.)
 
 ## Building and CI
 
+Layout: `firmware/` is the Arduino sketch (`firmware.ino` + all C++ sources + vendored `libraries/`),
+`companion_app/` the Flutter app, `scripts/` the build/signing helpers, `.github/workflows/` the CI.
+
+- **Arduino IDE:** open `firmware/firmware.ino`.
+
 - **Arduino IDE:** board "ESP32S3 Dev Module", core esp32 3.3.10, PSRAM "OPI PSRAM", Flash 16 MB, partition
   "16M Flash (3MB APP/9.9MB FATFS)", USB CDC On Boot "Enabled". Library versions are pinned in
   `scripts/arduino-libraries.txt`; `minimp3`, `libhelix` and `ESP_H264_Decoder` are not in the Library Manager and are
-  vendored in `libraries/` (copy them to your Arduino `libraries` folder if the IDE can't find them).
-- **arduino-cli:** `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries libraries .`
+  vendored in `firmware/libraries/` (copy them to your Arduino `libraries` folder if the IDE can't find them).
+- **arduino-cli:** `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries firmware/libraries firmware` (from the repository root)
 - **Git + GitHub Actions:** run `scripts/init_repo.ps1 -Remote <url>` once. `.github/workflows/build.yml` then compiles the
   firmware and runs `flutter analyze` + a debug APK build on every push; a tag `vX.Y.Z` (matching `FW_VERSION` in
-  `diag.h`) publishes a release with the `.bin` and the `.apk`.
+  `firmware/diag.h`) publishes a release with the `.bin` and the `.apk`.

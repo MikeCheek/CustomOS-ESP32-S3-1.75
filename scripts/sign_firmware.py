@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Signs a firmware image for Bluetooth updates.
 
-  python scripts/sign_firmware.py build/AmoledSmartWatchOS.ino.bin [keys/ota_private.pem]
+  python scripts/sign_firmware.py <build folder>/firmware.ino.bin [keys/ota_private.pem]
 
 Writes <name>.signed.bin = image + signature (64 bytes, ECDSA P-256 r||s over
 SHA-256 of the image) + b"AWSIG001". The app strips the trailer and sends the

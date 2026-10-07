@@ -8,7 +8,7 @@
  *                                           secret, it's git-ignored - and rewrites
  *                                           this file with your public key)
  *   2. flash this build once over USB
- *   3. from then on sign every update:  python scripts/sign_firmware.py build/AmoledSmartWatchOS.ino.bin
+ *   3. from then on sign every update:  python scripts/sign_firmware.py <build>/firmware.ino.bin
  *      and send the resulting *.signed.bin from the app.
  * Flashing over USB always works, signed or not (that's the recovery path).
  */

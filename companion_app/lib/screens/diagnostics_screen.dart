@@ -127,7 +127,7 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> with Widg
               padding: EdgeInsets.fromLTRB(4, 10, 4, 0),
               child: Text(
                 'Decode the backtrace on your computer with:\n'
-                'xtensa-esp32s3-elf-addr2line -pfiaC -e AmoledSmartWatchOS.ino.elf <addresses>',
+                'xtensa-esp32s3-elf-addr2line -pfiaC -e firmware.ino.elf <addresses>',
                 style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.4),
               ),
             ),

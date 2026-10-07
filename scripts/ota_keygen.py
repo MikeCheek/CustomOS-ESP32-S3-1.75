@@ -18,7 +18,7 @@ with open(key_path, "wb") as f:
     f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                               serialization.NoEncryption()))
 pub = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-hdr = os.path.join(root, "ota_pubkey.h")
+hdr = os.path.join(root, "firmware", "ota_pubkey.h")
 text = open(hdr).read()
 start = text.index("#define OTA_PUBKEY_SET")
 arr = ", ".join(f"0x{b:02x}" for b in pub)

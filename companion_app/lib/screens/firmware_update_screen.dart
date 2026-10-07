@@ -149,7 +149,7 @@ class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
                       const SizedBox(height: 2),
                       Text(
                         img == null
-                            ? 'AmoledSmartWatchOS.ino.bin from the Arduino build folder'
+                            ? 'firmware.ino.bin from the Arduino build folder, or the .bin from GitHub'
                             : 'Version ${img.version} · ${(img.bytes.length / 1024).round()} KB${img.isSigned ? ' · signed' : ''}',
                         style: const TextStyle(color: AppColors.textDim, fontSize: 13),
                       ),
