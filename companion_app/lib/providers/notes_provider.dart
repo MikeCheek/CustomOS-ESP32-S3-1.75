@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/ble_service.dart';
 import '../services/ble_protocol.dart';
 import '../services/notes_storage.dart';
@@ -262,6 +263,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
 
       // Auto-download missing files in background
       _autoDownloadMissing(watchFiles);
+      // Phone memos the watch doesn't have yet
+      Future(() => _flushPending(onWatch: watchFiles.map((w) => w.name).toSet()));
 
       final waiter = _listWait;
       _listWait = null;
@@ -865,36 +868,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
     state = state.copyWith(uploadingName: name, uploadProgress: 0, error: null);
     String msg;
     try {
-      String? saved;
-      final big = size > BleService.maxRecordingSize;
-      if (_wifiAllowed() && _ble.fastTransfers && (big || size > 512 * 1024) &&
-          (big || DateTime.now().isAfter(_wifiBackoffUntil))) {
-        var acquired = false;
-        try {
-          final s = await _acquireWifi();
-          acquired = true;
-          saved = await s.upload(name, src, onProgress: (sent, total) {
-            if (mounted) state = state.copyWith(uploadProgress: total > 0 ? sent / total : 0);
-          });
-        } catch (e) {
-          if (big) rethrow;
-          print('[Notes] Wi-Fi upload failed, using Bluetooth: $e');
-        } finally {
-          if (acquired) await _releaseWifi();
-        }
-      }
+      final saved = await _sendToWatch(name, src, size);
       if (saved == null) {
-        if (size > BleService.maxRecordingSize) {
-          throw Exception('Over 4 MB: needs Wi-Fi (set up Wi-Fi on the watch, same network as the phone)');
-        }
-        await _prio(true);
-        try {
-          await _ble.sendRecording(name, await src.readAsBytes(), onProgress: (sent) {
-            if (mounted) state = state.copyWith(uploadProgress: sent / size);
-          });
-        } finally {
-          await _prio(false);
-        }
         // Only on the watch once the user taps Add there: the next sync picks
         // it up (and downloads it back - the watch may have renamed it).
         msg = 'Sent - tap Add on the watch to keep "$name"';
@@ -921,6 +896,129 @@ class NotesNotifier extends StateNotifier<NotesState> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted && _ble.isConnected) syncFromWatch();
     });
+    return msg;
+  }
+
+  /// Puts [src] in the watch's recordings as [name]: over Wi-Fi when possible
+  /// (any size, no confirmation) - returns the name the watch saved it as -
+  /// otherwise Bluetooth (max 4 MB) - returns null: it's kept once the user
+  /// taps Add on the watch. Progress goes to state.uploadProgress.
+  Future<String?> _sendToWatch(String name, File src, int size) async {
+    String? saved;
+    final big = size > BleService.maxRecordingSize;
+    if (_wifiAllowed() && _ble.fastTransfers && (big || size > 512 * 1024) &&
+        (big || DateTime.now().isAfter(_wifiBackoffUntil))) {
+      var acquired = false;
+      try {
+        final s = await _acquireWifi();
+        acquired = true;
+        saved = await s.upload(name, src, onProgress: (sent, total) {
+          if (mounted) state = state.copyWith(uploadProgress: total > 0 ? sent / total : 0);
+        });
+      } catch (e) {
+        if (big) rethrow;
+        print('[Notes] Wi-Fi upload failed, using Bluetooth: $e');
+      } finally {
+        if (acquired) await _releaseWifi();
+      }
+    }
+    if (saved != null) return saved;
+    if (big) throw Exception('Over 4 MB: needs Wi-Fi (set up Wi-Fi on the watch, same network as the phone)');
+    await _prio(true);
+    try {
+      await _ble.sendRecording(name, await src.readAsBytes(), onProgress: (sent) {
+        if (mounted) state = state.copyWith(uploadProgress: sent / size);
+      });
+    } finally {
+      await _prio(false);
+    }
+    return null;
+  }
+
+  // ---- Memos recorded on the phone ----------------------------------------------
+
+  static const _pendingKey = 'notes_pending_to_watch';
+  bool _flushing = false;
+
+  /// File name for a memo recorded on the phone now ("phone_261008_171230.wav").
+  static String phoneMemoName([DateTime? at]) {
+    final t = at ?? DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return 'phone_${two(t.year % 100)}${two(t.month)}${two(t.day)}_${two(t.hour)}${two(t.minute)}${two(t.second)}.wav';
+  }
+
+  /// Where the phone recorder writes [name] (the memos folder).
+  static Future<String> phoneMemoPath(String name) async => (await _localFile(name)).path;
+
+  /// A memo just recorded with the phone's microphone (already at
+  /// phoneMemoPath(name)): it's a memo here right away, gets transcribed and
+  /// summarized when auto-processing is on, and is copied to the watch -
+  /// now, or the next time the watch connects. Returns a message for the user.
+  Future<String> addPhoneRecording(String name, int durationMs) async {
+    final f = await _localFile(name);
+    if (!await f.exists()) throw Exception('The recording was not saved');
+    final size = await f.length();
+    await NotesStorage.save(RecordingEntry(
+        name: name, size: size, recordedAt: DateTime.now(), durationSec: (durationMs / 1000).round()));
+    final entries = await NotesStorage.loadAll();
+    if (mounted) {
+      state = state.copyWith(recordings: entries, downloadedFiles: Set<String>.from(state.downloadedFiles)..add(name));
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_pendingKey, [...?prefs.getStringList(_pendingKey), name]);
+
+    if (_autoProcess()) Future(() => processRecording(name));
+
+    if (!_ble.isConnected) return 'Memo saved - it goes to the watch when it connects';
+    final sent = await _flushPending();
+    return sent ?? 'Memo saved';
+  }
+
+  /// Copies phone memos the watch doesn't have yet ([onWatch]: its current
+  /// file list, when known). One at a time, when the Bluetooth link is free.
+  /// Returns a message about the last one, or null if nothing was sent.
+  Future<String?> _flushPending({Set<String>? onWatch}) async {
+    if (_flushing || !_ble.isConnected) return null;
+    _flushing = true;
+    String? msg;
+    var sentAny = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pending = [...?prefs.getStringList(_pendingKey)];
+      for (final name in List<String>.from(pending)) {
+        final f = await _localFile(name);
+        if ((onWatch?.contains(name) ?? false) || !await f.exists()) {
+          pending.remove(name);
+          await prefs.setStringList(_pendingKey, pending);
+          continue;
+        }
+        while (_tempName != null || _downloadFilename.isNotEmpty || _batchRunning || state.uploadingName != null) {
+          await Future.delayed(const Duration(milliseconds: 250));
+          if (!_ble.isConnected || !mounted) return msg;
+        }
+        state = state.copyWith(uploadingName: name, uploadProgress: 0);
+        try {
+          final saved = await _sendToWatch(name, f, await f.length());
+          msg = saved != null ? 'Memo saved and copied to the watch' : 'Memo saved - tap Add on the watch to keep it there too';
+          sentAny = true;
+        } catch (e) {
+          msg = 'Memo saved on the phone - not copied to the watch: ${e.toString().replaceFirst('Exception: ', '')}';
+          break;
+        } finally {
+          if (mounted) state = state.copyWith(uploadingName: null, uploadProgress: 0);
+        }
+        // One try each: a Bluetooth copy the user declines on the watch isn't re-sent.
+        pending.remove(name);
+        await prefs.setStringList(_pendingKey, pending);
+      }
+    } finally {
+      _flushing = false;
+    }
+    if (sentAny) {
+      Future.delayed(const Duration(seconds: 8), () {
+        if (mounted && _ble.isConnected) syncFromWatch();
+      });
+    }
     return msg;
   }
 

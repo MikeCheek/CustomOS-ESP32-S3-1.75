@@ -13,9 +13,11 @@ import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'ai_settings_screen.dart';
 import 'memo_insights.dart';
+import 'phone_record_sheet.dart';
 import 'recording_detail.dart';
 
-/// Voice memos recorded on the watch: download, transcribe, summarize.
+/// Voice memos - recorded on the watch or on the phone: download,
+/// transcribe, summarize.
 class NotesScreen extends ConsumerStatefulWidget {
   const NotesScreen({super.key});
 
@@ -116,6 +118,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'record_memo',
+        onPressed: () => showPhoneRecordSheet(context),
+        backgroundColor: AppColors.accent3,
+        foregroundColor: AppColors.text,
+        icon: const Icon(Icons.mic_rounded),
+        label: const Text('Record'),
+      ),
       body: TabBarView(
         children: [
       RefreshIndicator(
@@ -186,8 +196,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   icon: ble.isConnected ? Icons.mic_none_rounded : Icons.watch_off_outlined,
                   title: ble.isConnected ? 'No memos yet' : 'Watch not connected',
                   subtitle: ble.isConnected
-                      ? 'Record with the Recorder app on the watch, then pull down to sync.'
-                      : 'Memos you already synced appear here. Connect the watch to get new ones.',
+                      ? 'Record with the Recorder app on the watch and pull down to sync, or tap Record to use the phone.'
+                      : 'Tap Record to make a memo with the phone. Watch memos appear once it connects.',
                 ),
               )
             else ...[
@@ -375,6 +385,13 @@ class _MemoCard extends StatelessWidget {
                       if (entry.favorite) ...[
                         const SizedBox(width: 4),
                         const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
+                      ],
+                      if (entry.name.startsWith('phone_')) ...[
+                        const SizedBox(width: 4),
+                        const Tooltip(
+                          message: 'Recorded on the phone',
+                          child: Icon(Icons.smartphone_rounded, size: 14, color: AppColors.textDim),
+                        ),
                       ],
                     ]),
                     const SizedBox(height: 2),

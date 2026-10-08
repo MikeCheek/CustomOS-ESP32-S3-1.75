@@ -28,6 +28,9 @@ class CompanionApp : Application() {
     lateinit var player: MemoPlayer
         private set
 
+    lateinit var recorder: MemoRecorder
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -36,6 +39,7 @@ class CompanionApp : Application() {
         // they keep working when there is no Activity.
         bridge = PhoneBridge(this, engine.dartExecutor.binaryMessenger)
         player = MemoPlayer(this, engine.dartExecutor.binaryMessenger)
+        recorder = MemoRecorder(this, engine.dartExecutor.binaryMessenger)
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
     }

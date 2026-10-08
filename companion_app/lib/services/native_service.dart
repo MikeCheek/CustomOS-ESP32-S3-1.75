@@ -145,6 +145,9 @@ class NativeService {
   /// The phone's DND switching on / off.
   Stream<bool> get dndChanges => _dnd ??= _dndStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
 
+  /// Opens a web link in the browser. False if there's none to open it.
+  Future<bool> openUrl(String url) async => (await _call<bool>('openUrl', {'url': url})) ?? false;
+
   // ---- app updates ------------------------------------------------------------------
 
   /// versionName of the installed app ("3.2.0").

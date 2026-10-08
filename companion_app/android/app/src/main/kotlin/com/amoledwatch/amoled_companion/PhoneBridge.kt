@@ -157,6 +157,16 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                         app.startActivity(i)
                         result.success(true)
                     }
+                    "openUrl" -> {
+                        val i = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: ""))
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try {
+                            app.startActivity(i)
+                            result.success(true)
+                        } catch (e: android.content.ActivityNotFoundException) {
+                            result.success(false)   // no browser
+                        }
+                    }
                     // ---- app updates (UpdateService.dart) ----
                     "getAppVersion" -> result.success(
                         app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: ""
