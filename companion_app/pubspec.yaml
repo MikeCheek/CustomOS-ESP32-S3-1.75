@@ -1,7 +1,7 @@
 name: amoled_companion
 description: "Companion app for AmoledSmartWatchOS"
 publish_to: 'none'
-version: 3.2.0+1   # CI sets --build-name from FW_VERSION
+version: 3.3.0+1   # CI sets --build-name from FW_VERSION
 
 environment:
   sdk: ^3.10.8
