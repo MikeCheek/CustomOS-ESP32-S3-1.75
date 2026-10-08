@@ -915,16 +915,32 @@ void ble_update() {
     }
 }
 
+// Sends `data` to the connected phone now. A bare notify() only marks the
+// value as changed and the stack sends whatever the value is when it gets
+// to it - two quick setValue()+notify() pairs then collapse into one
+// notification with the second value (a file list's header vanished that
+// way and the app's sync timed out). This hands NimBLE its own copy of the
+// bytes instead, and retries briefly while the stack is out of buffers.
+static bool notify_now(NimBLECharacteristic *c, const uint8_t *data, int len) {
+    if (!c || !s_connected) return false;
+    c->setValue(data, len);   // what a read returns
+    for (int tries = 0; tries < 25; tries++) {
+        if (c->notify(data, len, s_conn_handle)) return true;
+        if (!s_connected) return false;
+        delay(4);
+    }
+    DEBUG_PRINTF("[ble] notify failed (%d bytes)\n", len);
+    return false;
+}
+
 bool ble_ota_notify(const uint8_t *data, int len) {
     if (!s_connected || !s_otaChar) return false;
-    s_otaChar->setValue(data, len);
-    return s_otaChar->notify();
+    return notify_now(s_otaChar, data, len);
 }
 
 void ble_update_battery(uint8_t pct) {
     if (s_batChar && s_connected) {
-        s_batChar->setValue(&pct, 1);
-        s_batChar->notify();
+        notify_now(s_batChar, &pct, 1);
     }
 }
 
@@ -1157,8 +1173,7 @@ bool ble_link_send(const char *json) {
     if (room > 500) room = 500;
     uint8_t pkt[503];
     if (len <= room) {
-        s_linkChar->setValue((const uint8_t *)json, len);
-        return s_linkChar->notify();
+        return notify_now(s_linkChar, (const uint8_t *)json, len);
     }
     // Longer than one notification: 0x01 + total + data, then 0x02 + data.
     int off = 0;
@@ -1170,11 +1185,9 @@ bool ble_link_send(const char *json) {
         pkt[0] = first ? 0x01 : 0x02;
         if (first) { pkt[1] = len & 0xFF; pkt[2] = (len >> 8) & 0xFF; }
         memcpy(pkt + hdr, json + off, n);
-        s_linkChar->setValue(pkt, hdr + n);
-        if (!s_linkChar->notify()) return false;
+        if (!notify_now(s_linkChar, pkt, hdr + n)) return false;
         off += n;
         first = false;
-        delay(4); // let the stack take it before the value buffer is reused
     }
     return true;
 }
@@ -1231,9 +1244,7 @@ bool ble_notes_send_file_list(const char *json_data) {
     hdr[3] = len & 0xFF;
     hdr[4] = (len >> 8) & 0xFF;
     hdr[5] = (len >> 16) & 0xFF;
-    s_notesChar->setValue(hdr, 6);
-    s_notesChar->notify();
-    delay(10); // Let NimBLE transmit before overwriting value buffer
+    if (!notify_now(s_notesChar, hdr, 6)) return false;
 
     // Send data chunks
     for (int i = 0; i < totalChunks; i++) {
@@ -1247,9 +1258,7 @@ bool ble_notes_send_file_list(const char *json_data) {
         pkt[1] = i & 0xFF;
         pkt[2] = (i >> 8) & 0xFF;
         memcpy(pkt + 3, json_data + offset, chunkLen);
-        s_notesChar->setValue(pkt, 3 + chunkLen);
-        s_notesChar->notify();
-        delay(10);
+        if (!notify_now(s_notesChar, pkt, 3 + chunkLen)) return false;
     }
 
     DEBUG_PRINTF("[ble] notes: sent file list (%d bytes, %d chunks)\n", len, totalChunks);
@@ -1275,9 +1284,7 @@ bool ble_notes_send_file_chunk(int chunk_idx, int total_chunks, const uint8_t *d
 bool ble_notes_send_transfer_complete() {
     if (!s_connected || !s_notesChar) return false;
     uint8_t pkt[1] = {0x13};
-    s_notesChar->setValue(pkt, 1);
-    s_notesChar->notify();
-    return true;
+    return notify_now(s_notesChar, pkt, 1);
 }
 
 const char *ble_notes_get_transcript() {

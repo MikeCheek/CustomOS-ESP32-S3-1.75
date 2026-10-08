@@ -771,7 +771,21 @@ class BleService {
       };
     } else if (cmd == 0x11) {
       final reassembly = _notesReassembly['fileList'] as Map<String, dynamic>?;
-      if (reassembly == null) return;
+      if (reassembly == null) {
+        // Firmware up to 3.2.0 could lose the header (its notifications
+        // collapsed into one): a whole list in a single chunk still works.
+        if (value.length > 4 && value[1] == 0 && value[2] == 0) {
+          final jsonStr = String.fromCharCodes(value.sublist(3));
+          final t = jsonStr.trim();
+          if (t.startsWith('[') && t.endsWith(']')) {
+            try {
+              jsonDecode(t);
+              _notesController.add({'type': 'fileList', 'data': t});
+            } catch (_) {}
+          }
+        }
+        return;
+      }
       final chunks = reassembly['chunks'] as Map<int, List<int>>;
 
       // Chunk: 0x11 + chunkIdx(2 LE) + data
