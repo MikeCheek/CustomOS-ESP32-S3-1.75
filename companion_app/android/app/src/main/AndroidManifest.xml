@@ -22,6 +22,8 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY"/>
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <!-- Installing app updates downloaded from GitHub releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="AmoledWatch"
         android:name=".CompanionApp"
@@ -68,6 +70,15 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/watch_widget_info" />
         </receiver>
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

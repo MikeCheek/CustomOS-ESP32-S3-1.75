@@ -32,3 +32,11 @@ uint32_t    ota_total();
 uint32_t    ota_written();
 const char *ota_error();
 void        ota_cancel();          // user cancelled on the watch
+
+// Shared with the Wi-Fi updater (hal_fwupdate.cpp).
+// ECDSA P-256 check of an image's SHA-256 against ota_pubkey.h; always true
+// when no key is set.
+bool ota_signature_valid(const uint8_t hash[32], const uint8_t sig[64]);
+bool ota_signing_required();       // a key is set in ota_pubkey.h
+// -1 / 0 / 1 for "a" older / same / newer than "b" ("3.10.0" > "3.9.2").
+int  ota_compare_versions(const char *a, const char *b);

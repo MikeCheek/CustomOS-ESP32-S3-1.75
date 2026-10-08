@@ -3,14 +3,16 @@
 extern Screen lock_anim_screen;
 
 // Configure the transition before pushing lock_anim_screen:
-//   waking = true  -> particles burst outward from a point into a
-//                      spinning shape (sphere/torus/cube, randomly
-//                      picked each time), then it pops itself.
-//   waking = false -> particles contract from a spinning shape down
-//                      to a point.
-//   sleep_after    -> if true, calls sleep_force_sleep() itself once
-//                      the contract animation finishes, right before
-//                      popping - lets the visual "lock" finish before
-//                      the display actually goes to sleep, instead of
-//                      sleeping first and hiding the animation.
+//   waking = true  -> unlock: a CRT line flashes on, then the screen
+//                      underneath swings up from the distance into place.
+//   waking = false -> lock: what's on screen tilts away into the distance
+//                      and switches off like an old CRT, to a line, to a dot.
+//   sleep_after    -> lock only: calls sleep_force_sleep() itself once the
+//                      animation finishes, so the display doesn't go dark
+//                      before the lock has been seen.
 void lock_anim_set_mode(bool waking, bool sleep_after);
+
+// Power-on instead: a swarm of particles streams in, forms a spinning
+// sphere, folds into a ring around the name, then warps outward as the
+// watch face flies in. A tap skips it.
+void lock_anim_set_boot();

@@ -25,6 +25,8 @@ import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.app.NotificationManager
+import androidx.core.content.FileProvider
+import java.io.File
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -152,6 +154,28 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     "openDndAccess" -> {
                         val i = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
                         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        app.startActivity(i)
+                        result.success(true)
+                    }
+                    // ---- app updates (UpdateService.dart) ----
+                    "getAppVersion" -> result.success(
+                        app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: ""
+                    )
+                    "canInstallApks" -> result.success(
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || app.packageManager.canRequestPackageInstalls()
+                    )
+                    "openInstallPermission" -> {
+                        val i = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        app.startActivity(i)
+                        result.success(true)
+                    }
+                    "installApk" -> {
+                        val file = File(call.argument<String>("path") ?: "")
+                        val uri = FileProvider.getUriForFile(app, "${app.packageName}.updates", file)
+                        val i = Intent(Intent.ACTION_VIEW)
+                        i.setDataAndType(uri, "application/vnd.android.package-archive")
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                         app.startActivity(i)
                         result.success(true)
                     }

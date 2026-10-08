@@ -175,6 +175,7 @@ extern Screen settings_mic_screen;
 extern Screen settings_comp_screen;
 extern Screen settings_battery_screen;
 extern Screen diagnostics_screen;
+extern Screen fwup_screen;
 
 enum RowKind { ROW_TOGGLE, ROW_SUBSCREEN };
 struct SettingsRow {
@@ -227,6 +228,7 @@ static SettingsRow S_ROWS[] = {
       gps_row_available, "No GPS module on this board" },
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
     { "Joystick Pairing", "ESP-NOW radio for a physical controller", ROW_TOGGLE, get_espnow, tap_espnow, nullptr, ICON_WIFI },
+    { "Software update", "Check GitHub for new firmware", ROW_SUBSCREEN, nullptr, nullptr, &fwup_screen, nullptr },
     { "Diagnostics", "Version, memory, last crash report", ROW_SUBSCREEN, nullptr, nullptr, &diagnostics_screen, nullptr },
 };
 static const int S_ROW_COUNT = sizeof(S_ROWS) / sizeof(S_ROWS[0]);

@@ -14,6 +14,7 @@
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/ecp.h>
 #include "ota_pubkey.h"
+#include "hal_fwupdate.h"
 
 // Protocol (characteristic 19B1000A):
 //  app -> watch  0x01 size(4 LE) [md5 hex(32)]   begin
@@ -59,9 +60,8 @@ static bool s_sha_on = false;
 static uint8_t s_sig[64];
 static volatile bool s_has_sig = false;
 
-static bool signature_ok(const uint8_t hash[32]) {
+bool ota_signature_valid(const uint8_t hash[32], const uint8_t sig[64]) {
 #if OTA_PUBKEY_SET
-    if (!s_has_sig) return false;
     mbedtls_ecp_group grp;
     mbedtls_ecp_point q;
     mbedtls_mpi r, sv;
@@ -71,8 +71,8 @@ static bool signature_ok(const uint8_t hash[32]) {
     mbedtls_mpi_init(&sv);
     bool ok = mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1) == 0 &&
               mbedtls_ecp_point_read_binary(&grp, &q, OTA_PUBKEY, sizeof(OTA_PUBKEY)) == 0 &&
-              mbedtls_mpi_read_binary(&r, s_sig, 32) == 0 &&
-              mbedtls_mpi_read_binary(&sv, s_sig + 32, 32) == 0 &&
+              mbedtls_mpi_read_binary(&r, sig, 32) == 0 &&
+              mbedtls_mpi_read_binary(&sv, sig + 32, 32) == 0 &&
               mbedtls_ecdsa_verify(&grp, hash, 32, &q, &r, &sv) == 0;
     mbedtls_mpi_free(&sv);
     mbedtls_mpi_free(&r);
@@ -81,8 +81,16 @@ static bool signature_ok(const uint8_t hash[32]) {
     return ok;
 #else
     (void)hash;
+    (void)sig;
     return true;   // no key set: unsigned updates allowed
 #endif
+}
+
+bool ota_signing_required() { return OTA_PUBKEY_SET; }
+
+static bool signature_ok(const uint8_t hash[32]) {
+    if (OTA_PUBKEY_SET && !s_has_sig) return false;
+    return ota_signature_valid(hash, s_sig);
 }
 
 // Version of the incoming image, read from its "AMOLEDWATCH_FW=" marker as
@@ -111,8 +119,7 @@ static void scan_version(const uint8_t *d, uint32_t n) {
     }
 }
 
-// -1 / 0 / 1 for "a" older / same / newer than "b" ("3.10.0" > "3.9.2").
-static int cmp_version(const char *a, const char *b) {
+int ota_compare_versions(const char *a, const char *b) {
     for (int part = 0; part < 3; part++) {
         long x = strtol(a, (char **)&a, 10), y = strtol(b, (char **)&b, 10);
         if (x != y) return x < y ? -1 : 1;
@@ -186,6 +193,7 @@ static void fail(const char *why, uint8_t op, uint8_t code) {
 
 static void handle_begin(uint32_t size) {
     const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
+    if (fwup_installing()) { notify(0x81, 1, 1); return; }   // already updating over Wi-Fi
     if (s_state == OTA_RECEIVING) Update.abort();
     s_state = OTA_IDLE;
     if (!slot) { notify(0x81, 1, 1); return; }
@@ -287,7 +295,7 @@ void ota_update() {
 #if OTA_PUBKEY_SET
         // With signing on, an older (validly signed) build can't be sent
         // back to reopen a fixed bug. Downgrades stay possible over USB.
-        if (s_new_ver[0] && cmp_version(s_new_ver, diag_fw_version()) < 0) {
+        if (s_new_ver[0] && ota_compare_versions(s_new_ver, diag_fw_version()) < 0) {
             fail("Older than the installed firmware", 0x84, 11);
             return;
         }

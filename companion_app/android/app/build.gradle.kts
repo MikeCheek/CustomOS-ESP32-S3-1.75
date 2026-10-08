@@ -30,15 +30,37 @@ android {
         versionName = flutter.versionName
     }
 
+    // Android only installs an update signed with the same key as the
+    // installed app. CI passes a fixed keystore (repository secrets, see
+    // build.yml) so every release APK can update the previous one; without
+    // it the build uses the machine's own debug key.
+    val keystore = System.getenv("ANDROID_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystore != null && file(keystore).exists()) {
+            create("stable") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        val signing = signingConfigs.findByName("stable") ?: signingConfigs.getByName("debug")
+        debug {
+            signingConfig = signing
+        }
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")   // FileProvider for app updates
 }

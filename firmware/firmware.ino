@@ -48,6 +48,7 @@
 #include "ui_font.h"
 #include "diag.h"
 #include "hal_ota.h"
+#include "hal_fwupdate.h"
 #include "hal_wifi_xfer.h"
 #include "wifi_cfg.h"
 void pairing_update();       // app_pairing.cpp
@@ -572,13 +573,10 @@ void setup() {
         // animation's self-pop already does on every other boot.
         ui_push(&onboarding_screen);
     } else {
-        // Power-on animation - reuses the same particle-burst effect the
-        // lock screen already plays on wake (see anim_lock.cpp), pushed on
-        // top of the fresh watchface so it plays once at boot then
-        // self-pops to reveal it underneath. Genuinely reused, not a
-        // separate new animation system, since it's the same visual and
-        // there's no reason to duplicate it.
-        lock_anim_set_mode(true, false);
+        // Power-on animation (anim_lock.cpp), pushed on top of the fresh
+        // watchface: it plays once, flying the face in at the end, then
+        // pops itself to reveal it.
+        lock_anim_set_boot();
         ui_push(&lock_anim_screen);
     }
 
@@ -606,6 +604,7 @@ void loop() {
     bool asleep = sleep_update();
     diag_loop();
     ota_update();                // firmware update from the phone (flash writes)
+    fwup_update();               // firmware update from GitHub over Wi-Fi
     wifi_xfer_update();          // recordings over Wi-Fi, when the app asks
     wifi_cfg_update();           // Wi-Fi setup / check from the app
     pairing_update();            // shows the pairing code when a phone pairs
@@ -713,7 +712,7 @@ void loop() {
         // processing rate to roughly a third of what it was.
         // With all radios off it light-sleeps through the wait instead
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
-        bool keep_awake = ota_active();
+        bool keep_awake = ota_active() || fwup_busy();
 #if FEATURE_AUDIO
         keep_awake = keep_awake || audio_is_playing() || audio_is_recording();
 #endif

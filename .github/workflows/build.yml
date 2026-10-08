@@ -56,6 +56,18 @@ jobs:
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw.bin"
 
+      # The watch only installs signed updates when a key is set in
+      # ota_pubkey.h; it then downloads the *.signed.bin from the release.
+      - name: Sign the firmware (if the OTA_PRIVATE_KEY secret is set)
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
+        run: |
+          if [ -z "$OTA_PRIVATE_KEY" ]; then echo "No OTA_PRIVATE_KEY secret - unsigned build only"; exit 0; fi
+          pip install --quiet cryptography
+          printf '%s\n' "$OTA_PRIVATE_KEY" > "$RUNNER_TEMP/ota_private.pem"
+          python3 scripts/sign_firmware.py AmoledSmartWatchOS-*.bin "$RUNNER_TEMP/ota_private.pem"
+          rm -f "$RUNNER_TEMP/ota_private.pem"
+
       - uses: actions/upload-artifact@v4
         with:
           name: firmware
@@ -98,13 +110,34 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings   # errors fail the build; tighten later
 
+      # The app updates itself from releases (lib/services/update_service.dart):
+      # its version is FW_VERSION, and Android only installs an update
+      # signed with the same key - set the ANDROID_KEYSTORE_BASE64 (base64 of
+      # a .jks), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
+      # ANDROID_KEY_PASSWORD secrets, or every build gets a new debug key.
       - name: Build APK
-        run: flutter build apk --debug --android-skip-build-dependency-validation
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' ../firmware/diag.h)
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret - the APK can't update a previous build in place"
+          fi
+          flutter build apk --debug --android-skip-build-dependency-validation \
+            --build-name="$fw" --build-number="${{ github.run_number }}"
+          cp build/app/outputs/flutter-apk/app-debug.apk "AmoledWatch-$fw.apk"
+          rm -f "$RUNNER_TEMP/release.jks"
 
       - uses: actions/upload-artifact@v4
         with:
           name: app
-          path: companion_app/build/app/outputs/flutter-apk/app-debug.apk
+          path: companion_app/AmoledWatch-*.apk
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -118,4 +151,4 @@ jobs:
         with:
           files: |
             firmware/*.bin
-            app/app-debug.apk
+            app/*.apk

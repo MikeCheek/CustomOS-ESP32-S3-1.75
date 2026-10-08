@@ -6,6 +6,7 @@ import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/notes_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/updates_screen.dart';
 import 'screens/watchface/watchface_library.dart';
 
 class AmoledCompanionApp extends StatelessWidget {
@@ -34,7 +35,7 @@ class _Gate extends ConsumerWidget {
     if (!s.loaded) return const Scaffold(backgroundColor: AppColors.bg);
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 350),
-      child: s.onboarded ? const RootShell() : const OnboardingScreen(),
+      child: s.onboarded ? const UpdatePrompter(child: RootShell()) : const OnboardingScreen(),
     );
   }
 }
