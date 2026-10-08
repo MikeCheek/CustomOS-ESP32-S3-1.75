@@ -97,13 +97,21 @@ jobs:
       - name: Install the Android NDK
         working-directory: .
         run: |
-          NDK=$(grep -oP 'ndkVersion\s*=\s*"\K[^"]+' companion_app/android/app/build.gradle.kts || true)
+          # The app's NDK, plus Flutter's default one that plugins (e.g. jni)
+          # build with - otherwise Gradle downloads it mid-build, and a bad
+          # download there fails the job ("Archive is not a ZIP archive").
+          NDKS=$( { grep -oP 'ndkVersion\s*=\s*"\K[^"]+' companion_app/android/app/build.gradle.kts
+                    grep -rhoP 'ndkVersion\s*(:\s*String)?\s*=\s*"\K[0-9.]+' "$FLUTTER_ROOT/packages/flutter_tools/gradle" ; } 2>/dev/null | sort -u)
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
-          if [ -n "$NDK" ]; then
+          for NDK in $NDKS; do
             echo "Installing NDK $NDK"
-            yes | "$SDKM" --install "ndk;$NDK" > /dev/null
-          fi
+            for try in 1 2 3; do
+              yes | "$SDKM" --install "ndk;$NDK" > /dev/null && break
+              [ $try = 3 ] && exit 1
+              echo "retrying"; rm -rf "$ANDROID_HOME/ndk/$NDK"; sleep 10
+            done
+          done
 
       - run: flutter pub get
 
