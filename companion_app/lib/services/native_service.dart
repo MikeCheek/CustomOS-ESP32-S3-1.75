@@ -145,6 +145,19 @@ class NativeService {
   /// The phone's DND switching on / off.
   Stream<bool> get dndChanges => _dnd ??= _dndStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
 
+  // ---- app updates ------------------------------------------------------------------
+
+  /// versionName of the installed app ("3.2.0").
+  Future<String?> appVersion() => _call<String>('getAppVersion');
+
+  /// Whether Android lets this app open the installer ("Install unknown apps").
+  Future<bool> canInstallApks() async => (await _call<bool>('canInstallApks')) ?? false;
+
+  Future<void> openInstallPermission() => _call('openInstallPermission');
+
+  /// Opens the system installer for an .apk in the cache's updates/ folder.
+  Future<bool> installApk(String path) async => (await _call<bool>('installApk', {'path': path})) ?? false;
+
   /// Taps on the widget's buttons ("find").
   Stream<String> get widgetActions =>
       _widget ??= _widgetStream.receiveBroadcastStream().map((e) => e.toString()).asBroadcastStream();

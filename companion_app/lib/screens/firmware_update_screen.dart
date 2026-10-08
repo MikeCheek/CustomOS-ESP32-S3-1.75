@@ -4,19 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
+import '../providers/update_provider.dart';
 import '../services/firmware_image.dart';
+import '../services/update_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-/// Pick a firmware .bin and install it on the watch over Bluetooth.
+/// Get a firmware .bin - from the latest GitHub release, or a file - and
+/// install it on the watch over Bluetooth.
 class FirmwareUpdateScreen extends ConsumerStatefulWidget {
-  const FirmwareUpdateScreen({super.key});
+  /// Download the latest release's firmware and install it straight away
+  /// (the "Watch update available" prompt).
+  final bool installLatest;
+  const FirmwareUpdateScreen({super.key, this.installLatest = false});
 
   @override
   ConsumerState<FirmwareUpdateScreen> createState() => _FirmwareUpdateScreenState();
 }
 
-enum _Phase { pick, ready, sending, done, failed }
+enum _Phase { pick, downloading, ready, sending, done, failed }
 
 class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
   FirmwareImage? _image;
@@ -25,6 +31,60 @@ class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
   String? _error;
   bool _cancel = false;
   DateTime? _startedAt;
+  double _dlProgress = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.installLatest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _downloadLatest(install: true));
+    }
+  }
+
+  Future<void> _downloadLatest({bool install = false}) async {
+    var rel = ref.read(updateProvider).latest;
+    if (rel == null) {
+      await ref.read(updateProvider.notifier).check();
+      rel = ref.read(updateProvider).latest;
+    }
+    if (!mounted) return;
+    if (rel?.firmwareUrl == null) {
+      setState(() => _error = ref.read(updateProvider).error ?? 'No firmware in the latest release');
+      return;
+    }
+    setState(() {
+      _phase = _Phase.downloading;
+      _dlProgress = 0;
+      _cancel = false;
+      _error = null;
+    });
+    try {
+      final bytes = await UpdateService.download(
+        rel!.firmwareUrl!,
+        onProgress: (r, t) {
+          final total = t > 0 ? t : rel!.firmwareSize;
+          if (mounted && total > 0) setState(() => _dlProgress = (r / total).clamp(0.0, 1.0));
+        },
+        cancel: () => _cancel || !mounted,
+      );
+      final img = FirmwareImage.parse(rel.firmwareUrl!.split('/').last, bytes);
+      if (!mounted) return;
+      setState(() {
+        _image = img;
+        _phase = _Phase.ready;
+      });
+      if (install && ref.read(bleServiceProvider).supportsOta) await _install();
+    } on FormatException catch (e) {
+      if (mounted) setState(() { _phase = _Phase.pick; _error = e.message; });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _phase = _Phase.pick;
+          _error = e.toString().replaceFirst('HttpException: ', '').replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
 
   Future<void> _pick() async {
     try {
@@ -97,7 +157,9 @@ class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
     final svc = ref.read(bleServiceProvider);
     final img = _image;
     final current = link.watchFirmware;
-    final busy = _phase == _Phase.sending;
+    final busy = _phase == _Phase.sending || _phase == _Phase.downloading;
+    final upd = ref.watch(updateProvider);
+    final rel = upd.latest;
 
     return PopScope(
       canPop: !busy,
@@ -136,7 +198,38 @@ class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
                 text: 'This watch is running firmware without Bluetooth updates. Flash version 2.5 or later '
                     'once over USB from the Arduino IDE - after that, updates can be installed from here.',
               ),
+            if (_phase == _Phase.downloading)
+              Panel(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Downloading ${rel?.version ?? ''} from GitHub…',
+                      style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 10),
+                  LinearProgressIndicator(value: _dlProgress > 0 ? _dlProgress : null),
+                ]),
+              ),
             if (_phase == _Phase.pick || _phase == _Phase.ready) ...[
+              Panel(
+                onTap: busy ? null : () => _downloadLatest(),
+                child: Row(children: [
+                  const IconChip(Icons.cloud_download_rounded, color: AppColors.accent),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Latest release from GitHub',
+                          style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(
+                        rel == null
+                            ? (upd.checked ? 'No release published yet' : 'Tap to check and download')
+                            : 'Version ${rel.version}${rel.firmwareSize > 0 ? ' · ${(rel.firmwareSize / 1024).round()} KB' : ''}',
+                        style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+                      ),
+                    ]),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
+                ]),
+              ),
+              const SizedBox(height: 10),
               Panel(
                 onTap: busy ? null : _pick,
                 child: Row(children: [
@@ -178,7 +271,7 @@ class _FirmwareUpdateScreenState extends ConsumerState<FirmwareUpdateScreen> {
                 label: const Text('Install on watch'),
                 onPressed: ble.isConnected && svc.supportsOta ? _install : null,
               ),
-            if (_phase == _Phase.sending)
+            if (_phase == _Phase.sending || _phase == _Phase.downloading)
               OutlinedButton(
                 onPressed: () => setState(() => _cancel = true),
                 child: const Text('Cancel'),

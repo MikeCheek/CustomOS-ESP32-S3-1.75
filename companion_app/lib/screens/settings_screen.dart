@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/update_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'ai_settings_screen.dart';
@@ -12,6 +13,7 @@ import 'dnd_replies_screen.dart';
 import 'watch_slots_screen.dart';
 import 'diagnostics_screen.dart';
 import 'firmware_update_screen.dart';
+import 'updates_screen.dart';
 import 'onboarding_screen.dart';
 import 'media_screen.dart';
 import 'notifications_screen.dart';
@@ -27,6 +29,9 @@ class SettingsScreen extends ConsumerWidget {
     final ble = ref.watch(bleProvider);
     final setter = ref.read(settingsProvider.notifier);
     void push(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
+    final upd = ref.watch(updateProvider);
+    final watchFw = ref.watch(companionProvider).watchFirmware;
+    final updates = (upd.appUpdate ? 1 : 0) + (upd.firmwareUpdateFor(watchFw) ? 1 : 0);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -181,10 +186,19 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => push(const DiagnosticsScreen()),
             ),
             NavRow(
+              icon: Icons.cloud_download_rounded,
+              color: updates > 0 ? AppColors.success : AppColors.accent,
+              title: 'Software updates',
+              subtitle: updates > 0
+                  ? '$updates update${updates > 1 ? 's' : ''} available'
+                  : 'App and watch firmware from GitHub',
+              onTap: () => push(const UpdatesScreen()),
+            ),
+            NavRow(
               icon: Icons.system_update_rounded,
               color: AppColors.accent2,
               title: 'Update watch firmware',
-              subtitle: 'Over Bluetooth',
+              subtitle: 'From GitHub or a .bin file, over Bluetooth',
               onTap: () => push(const FirmwareUpdateScreen()),
             ),
             NavRow(
@@ -215,8 +229,8 @@ class SettingsScreen extends ConsumerWidget {
                         style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w700)),
                   ]),
                 ),
-                _InfoRow('App', '3.2.0'),
-                _InfoRow('Watch firmware', ref.watch(companionProvider).watchFirmware ?? '—'),
+                _InfoRow('App', upd.appVersion ?? '—'),
+                _InfoRow('Watch firmware', watchFw ?? '—'),
                 _InfoRow('Watch', ble.deviceName ?? s.lastDeviceName ?? '—'),
                 _InfoRow('Status', ble.isConnected ? 'Connected' : (ble.isConnecting ? 'Reconnecting' : 'Not connected')),
                 _InfoRow('Watch battery', ble.batteryLevel >= 0 ? '${ble.batteryLevel}%' : '—'),
