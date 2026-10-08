@@ -237,9 +237,66 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          const SectionLabel('Author'),
+          const _AuthorCard(),
         ],
       ),
     );
+  }
+}
+
+/// Who made the app, with links to support them and to their work.
+class _AuthorCard extends ConsumerWidget {
+  const _AuthorCard();
+
+  static const _koFi = 'https://ko-fi.com/michelepulvirenti';
+  static const _portfolio = 'https://michelepulvirenti.vercel.app/';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    Future<void> open(String url) async {
+      final ok = await ref.read(nativeServiceProvider).openUrl(url);
+      if (!ok && context.mounted) showSnack(context, 'No browser to open $url');
+    }
+
+    return RowGroup(children: [
+      const Padding(
+        padding: EdgeInsets.fromLTRB(14, 14, 14, 10),
+        child: Row(children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: AppColors.surfaceHigh,
+            child: Text('MP', style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w700)),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Michele Pulvirenti',
+                  style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700)),
+              SizedBox(height: 2),
+              Text('Made AmoledWatch OS and this app',
+                  style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+            ]),
+          ),
+        ]),
+      ),
+      NavRow(
+        icon: Icons.coffee_rounded,
+        color: AppColors.warning,
+        title: 'Buy me a coffee',
+        subtitle: 'Support the project on Ko-fi',
+        trailing: const Icon(Icons.open_in_new_rounded, color: AppColors.textFaint, size: 20),
+        onTap: () => open(_koFi),
+      ),
+      NavRow(
+        icon: Icons.language_rounded,
+        color: AppColors.accent2,
+        title: 'Portfolio',
+        subtitle: 'michelepulvirenti.vercel.app',
+        trailing: const Icon(Icons.open_in_new_rounded, color: AppColors.textFaint, size: 20),
+        onTap: () => open(_portfolio),
+      ),
+    ]);
   }
 }
 
