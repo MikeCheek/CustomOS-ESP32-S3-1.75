@@ -124,8 +124,29 @@ jobs:
         run: |
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' ../firmware/diag.h)
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+            KS="$RUNNER_TEMP/release.jks"
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -di > "$KS"
+            export ANDROID_KEYSTORE_PATH="$KS"
+            # Check the keystore before a 6-minute build finds out. Values are
+            # trimmed (a trailing newline in a pasted secret is a common slip).
+            export ANDROID_KEYSTORE_PASSWORD="$(printf '%s' "$ANDROID_KEYSTORE_PASSWORD" | tr -d '\r\n')"
+            export ANDROID_KEY_PASSWORD="$(printf '%s' "$ANDROID_KEY_PASSWORD" | tr -d '\r\n')"
+            alias_want="$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -d '\r\n' | xargs)"
+            if ! listing=$(keytool -list -keystore "$KS" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>&1); then
+              echo "::error::Can't open the keystore in ANDROID_KEYSTORE_BASE64 with ANDROID_KEYSTORE_PASSWORD: $(echo "$listing" | tail -1)"
+              exit 1
+            fi
+            aliases=$(echo "$listing" | grep -i 'PrivateKeyEntry' | cut -d, -f1)
+            match=$(echo "$aliases" | grep -ixF -- "$alias_want" | head -1)
+            if [ -n "$match" ]; then
+              export ANDROID_KEY_ALIAS="$match"
+            elif [ "$(echo "$aliases" | grep -c .)" = 1 ]; then
+              echo "::warning::ANDROID_KEY_ALIAS doesn't match the keystore - using its only key, '$aliases'. Update the secret to that name."
+              export ANDROID_KEY_ALIAS="$aliases"
+            else
+              echo "::error::ANDROID_KEY_ALIAS isn't a key in the keystore. Keys found: $(echo $aliases)"
+              exit 1
+            fi
           else
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret - the APK can't update a previous build in place"
           fi
