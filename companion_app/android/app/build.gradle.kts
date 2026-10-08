@@ -39,9 +39,10 @@ android {
         if (keystore != null && file(keystore).exists()) {
             create("stable") {
                 storeFile = file(keystore)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                // trimmed: a secret pasted with a trailing newline is a common slip
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")?.trim()
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")?.trim()
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")?.trim()
             }
         }
     }
