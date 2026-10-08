@@ -21,6 +21,13 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
 | Settings | Battery | Update found on Wi-Fi | Software update |
 
+### In motion
+
+| | | | | |
+|:-:|:-:|:-:|:-:|:-:|
+| ![](docs/screenshots/anim_boot.gif) | ![](docs/screenshots/anim_unlock.gif) | ![](docs/screenshots/anim_lock.gif) | ![](docs/screenshots/anim_music.gif) | ![](docs/screenshots/anim_charging.gif) |
+| Power on | Unlock | Lock | 3D spectrum ring | Charging |
+
 <sub>Rendered from the real UI code by the [host simulator](tools/watch_sim) - what you see is what the watch draws.</sub>
 
 ## On the watch
@@ -29,6 +36,9 @@ Built on Arduino + Arduino_GFX, no LVGL.
   weather, battery, phone battery, messages, next turn, memo to-dos and seconds. A little pet lives on the face.
 - **Smooth UI** - slide transitions, edge-swipe back, kinetic lists, a pull-down quick panel (brightness,
   volume, radios, DND, torch, battery modes), smooth fonts with accents, auto-rotate.
+- **3D effects** - software-rendered on the watch: a particle power-on sequence, lock/unlock that tilt the real
+  screen into the distance and switch it off like a CRT, a 3D spectrum ring round the music controls, and a
+  spinning 3D bolt when charging starts.
 - **Phone link** - notifications with quick and voice replies, incoming calls (answer/decline), music remote,
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,

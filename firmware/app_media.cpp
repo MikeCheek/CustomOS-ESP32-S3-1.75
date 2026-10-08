@@ -8,6 +8,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
+#include "fx3d.h"
 #include "ui_font.h"
 #include "apps.h"
 #include "app_media.h"
@@ -710,23 +711,11 @@ static void aud_draw() {
         ui_text_center(LCD_WIDTH / 2, 124, COLOR_TEXT_DIM, fbuf, 1);
     }
 
-    // ---- Centre: visualizer ring + play/pause ---------------------------
-    if (playing) {
-        const int bars = 40;
-        uint32_t t = millis();
-        for (int i = 0; i < bars; i++) {
-            // per-bar wobble so the ring isn't a uniform pulse, scaled by
-            // the real output level
-            float wob = 0.55f + 0.45f * sinf((float)t * 0.011f + i * 1.7f) * sinf((float)t * 0.004f + i * 0.6f);
-            int len = 4 + (int)(info.level * 0.30f * (wob < 0.15f ? 0.15f : wob));
-            if (len > 24) len = 24; // stays clear of the time below
-            float a = i * (360.0f / bars);
-            uint16_t c = len > 19 ? COLOR_ACCENT3 : (len > 11 ? COLOR_ACCENT : ui_dim(COLOR_ACCENT, 0.7f));
-            ui_arc(AUD_PLAY_CX, AUD_PLAY_CY, AUD_PLAY_R + 10 + len, len, a - 2.2f, 4.4f, c, false);
-        }
-    } else {
-        ui_arc(AUD_PLAY_CX, AUD_PLAY_CY, AUD_PLAY_R + 14, 3, 0, 360, ui_dim(COLOR_ACCENT, 0.4f), false);
-    }
+    // ---- Centre: 3D spectrum ring on the real output level + play/pause --
+    static FxBeat beat;
+    uint32_t now = millis();
+    fx_beat_update(beat, loaded ? info.level : 0, playing, now);
+    fx_eq_ring_draw(g, AUD_PLAY_CX, AUD_PLAY_CY, FX_EQ_INNER(AUD_PLAY_R), 30.0f, beat, now, COLOR_ACCENT2, COLOR_ACCENT3, 0);
     g->fillCircle(AUD_PLAY_CX, AUD_PLAY_CY, AUD_PLAY_R, playing ? COLOR_ACCENT : COLOR_TEXT);
     uint16_t glyph = playing ? COLOR_TEXT : COLOR_BG;
     if (playing) {
@@ -736,6 +725,7 @@ static void aud_draw() {
         g->fillTriangle(AUD_PLAY_CX - 14, AUD_PLAY_CY - 23, AUD_PLAY_CX - 14, AUD_PLAY_CY + 23,
                         AUD_PLAY_CX + 24, AUD_PLAY_CY, glyph);
     }
+    fx_eq_ring_draw(g, AUD_PLAY_CX, AUD_PLAY_CY, FX_EQ_INNER(AUD_PLAY_R), 30.0f, beat, now, COLOR_ACCENT2, COLOR_ACCENT3, 1);
 
     // ---- Playlist: prev / next + position --------------------------------
     if (pl_active()) {

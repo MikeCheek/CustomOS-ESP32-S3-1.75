@@ -175,6 +175,20 @@ void ui_init(Arduino_GFX *display) {
 }
 
 Arduino_GFX *ui_gfx() { return s_gfx; }
+uint16_t *ui_framebuffer() { return s_render; }
+
+bool ui_render_screen_below(uint16_t *dst) {
+    if (!s_canvas || !dst || s_top < 1) return false;
+    Screen *below = s_stack[s_top - 1].screen;
+    if (!below || !below->on_draw) return false;
+    uint16_t *saved = s_canvas->getFramebuffer();
+    s_canvas->setFramebuffer(dst);
+    s_canvas->fillScreen(COLOR_BG);
+    below->on_draw();
+    if (below->title && below->title[0]) ui_draw_header(below->title);
+    s_canvas->setFramebuffer(saved);
+    return true;
+}
 
 // ---- Display geometry -----------------------------------------------------
 int ui_screen_radius() { return S_R; }

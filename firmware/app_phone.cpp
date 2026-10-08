@@ -9,6 +9,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
+#include "fx3d.h"
 #include "ui_font.h"
 #include "app_calendar.h"
 #include "hal_vibrate.h"
@@ -234,6 +235,14 @@ static void np_draw() {
         if (f > 0) ui_edge_ring(0, 360.0f * f, COLOR_ACCENT, 8, 6);
     }
 
+    // 3D spectrum ring round the play button (far half here, near half
+    // after the button). The phone's audio never reaches the watch, so it
+    // moves to a made-up beat while the phone plays.
+    static FxBeat beat;
+    uint32_t now = millis();
+    fx_beat_update(beat, -1, m.valid && m.playing, now);
+    fx_eq_ring_draw(g, CX, NP_Y, FX_EQ_INNER(NP_MAIN_R), 30.0f, beat, now, COLOR_ACCENT2, COLOR_ACCENT3, 0);
+
     char t[72], a[72];
     if (m.valid) {
         fit(t, sizeof(t), m.title, 2, 300);
@@ -251,8 +260,11 @@ static void np_draw() {
         ui_text_center(CX, CY - 26, COLOR_TEXT_DIM, tm, 1);
     }
 
-    // transport
-    for (int i = 0; i < 3; i++) {
+    // transport: play/pause, the ring's near half, then the side buttons
+    static const int ORDER[3] = {1, 0, 2};
+    for (int oi = 0; oi < 3; oi++) {
+        int i = ORDER[oi];
+        if (oi == 1) fx_eq_ring_draw(g, CX, NP_Y, FX_EQ_INNER(NP_MAIN_R), 30.0f, beat, now, COLOR_ACCENT2, COLOR_ACCENT3, 1);
         int bx = CX + (i - 1) * NP_SIDE_DX;
         int r = i == 1 ? NP_MAIN_R : NP_SIDE_R;
         bool pressed = s_np_press == i;
@@ -311,7 +323,7 @@ Screen nowplaying_screen = {
     "", GESTURE_MODE_EDGE,
     UI_FRAME_MS_DEFAULT,
     np_create, np_draw, np_touch, nullptr, nullptr, np_gesture,
-    500, false, false, false, false, true, // hide_status: the edge ring is the progress bar
+    66, false, false, false, false, true, // ~15 fps when idle (the orb keeps moving); hide_status: the edge ring is the progress bar
 };
 
 // =========================================================================

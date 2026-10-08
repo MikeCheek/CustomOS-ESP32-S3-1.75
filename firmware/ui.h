@@ -126,6 +126,12 @@ void ui_handle_touch(int x, int y, bool pressed);
 void ui_tick();
 void ui_poll_gestures();
 Arduino_GFX *ui_gfx();
+// The RGB565 frame being drawn right now (LCD_WIDTH x LCD_HEIGHT), for
+// effects that work on whole frames (fx3d.h). Valid until the frame ends.
+uint16_t *ui_framebuffer();
+// Draws the screen under the top one into `dst` (a full frame) - what the
+// user will see once the top screen pops. False if there is none.
+bool ui_render_screen_below(uint16_t *dst);
 
 // Clears in-progress auto-rotate state (angle, smoothing filters).
 // Call after toggling auto_rotate off, or when suspending/restoring it

@@ -573,13 +573,10 @@ void setup() {
         // animation's self-pop already does on every other boot.
         ui_push(&onboarding_screen);
     } else {
-        // Power-on animation - reuses the same particle-burst effect the
-        // lock screen already plays on wake (see anim_lock.cpp), pushed on
-        // top of the fresh watchface so it plays once at boot then
-        // self-pops to reveal it underneath. Genuinely reused, not a
-        // separate new animation system, since it's the same visual and
-        // there's no reason to duplicate it.
-        lock_anim_set_mode(true, false);
+        // Power-on animation (anim_lock.cpp), pushed on top of the fresh
+        // watchface: it plays once, flying the face in at the end, then
+        // pops itself to reveal it.
+        lock_anim_set_boot();
         ui_push(&lock_anim_screen);
     }
 

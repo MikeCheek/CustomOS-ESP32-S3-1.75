@@ -8,6 +8,8 @@
 #include "hal_fwupdate.h"
 #include "sim_state.h"
 #include "diag.h"
+#include "anim_lock.h"
+#include "app_charging_anim.h"
 
 void sim_run(uint32_t ms);
 void sim_save(const char *name);
@@ -36,6 +38,17 @@ static void phone_data() {
     sim_link("{\"t\":\"ntf\",\"id\":12,\"ap\":\"Gmail\",\"ti\":\"Your order has shipped\",\"tx\":\"Arriving Friday - track your package\",\"rp\":0}");
     sim_link("{\"t\":\"ntf\",\"id\":13,\"ap\":\"WhatsApp\",\"ti\":\"Sara\",\"tx\":\"Still on for lunch at 1? I booked a table\",\"rp\":1}");
     sim_run(4000);
+}
+
+// Saves `ms` of animation as numbered frames (one every `step` ms) - to_png.py
+// turns <name>_NNN frames into <name>.gif.
+static void record(const char *name, uint32_t ms, uint32_t step) {
+    char n[64];
+    for (uint32_t t = 0, i = 0; t <= ms; t += step, i++) {
+        sim_run(step);
+        snprintf(n, sizeof(n), "%s_%03u", name, (unsigned)i);
+        sim_save(n);
+    }
 }
 
 static void home() {
@@ -93,6 +106,40 @@ void sim_scenarios() {
     sim_link("{\"t\":\"call\",\"st\":\"ring\",\"id\":1,\"n\":\"Sara Rossi\"}");
     sim_run(1500);
     sim_save("call");
+
+    // Animations (GIFs)
+    sim_link("{\"t\":\"call\",\"st\":\"end\",\"id\":1}");
+    home();
+    sim_run(500);
+    lock_anim_set_boot();
+    ui_push(&lock_anim_screen);
+    record("anim_boot", 2160, 40);
+    sim_run(300);
+
+    home();
+    sim_run(300);
+    lock_anim_set_mode(false, false);
+    ui_push(&lock_anim_screen);
+    record("anim_lock", 660, 30);
+    sim_run(300);
+
+    lock_anim_set_mode(true, false);
+    ui_push(&lock_anim_screen);
+    record("anim_unlock", 600, 30);
+    sim_run(300);
+
+    home();
+    ui_push(&nowplaying_screen);
+    sim_run(1200);
+    record("anim_music", 2000, 50);
+
+    home();
+    sim_run(300);
+    g_sim.charging = true;
+    ui_push(&charging_anim_screen);
+    record("anim_charging", 1640, 40);
+    g_sim.charging = false;
+    sim_run(300);
 
     // An automatic check on Wi-Fi found a release
     home();
