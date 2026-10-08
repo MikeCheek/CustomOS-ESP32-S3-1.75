@@ -1,181 +1,106 @@
 # AmoledSmartWatchOS
 
-A smartwatch-style firmware for the **Waveshare ESP32-S3-Touch-AMOLED-1.75-G**
-(466x466 round AMOLED, CO5300 display driver, CST9217 touch, QMI8658 IMU,
-PCF85063 RTC, AXP2101 PMU, TCA9554 IO expander, ES7210 mic array, LC76G GPS).
+A full smartwatch OS for the **Waveshare ESP32-S3-Touch-AMOLED-1.75** (466×466 round AMOLED), with an Android companion app.
+Watch faces, notifications, calls, music, maps, calendar, voice memos with on-device AI, games, and over-the-air updates.
+Built on Arduino + Arduino_GFX, no LVGL.
 
-Watch face -> tap anywhere -> scrollable app grid with 7 sensor test
-screens and 4 games.
+[![build](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml/badge.svg)](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml)
 
-## Before you flash - read this
+![AmoledSmartWatchOS screens](docs/screenshots/hero.png)
 
-I could not verify the exact GPIO numbers for this board against a
-schematic, only the **signal names** (`LCD_CS`, `LCD_SDIO0-3`,
-`IIC_SDA/SCL`, `TP_INT`, etc.) from Waveshare's public docs. Every pin
-number in this project lives in **`board_pins.h`**, and every value in
-there that needs checking is tagged `// VERIFY`.
+## Screenshots
 
-To get the real numbers:
-1. Go to Waveshare's docs page for this board -> Resources tab ->
-   "ESP32-S3-Touch-AMOLED-1.75 Example (GitHub)".
-2. Open the `01_HelloWorld` (or similar) Arduino example in that
-   package - it has a pin-definition header (often named `Mylibrary.h`
-   or `pins_config.h`).
-3. Copy the real values into `board_pins.h`. Nothing else needs to
-   change - every other file includes `board_pins.h` rather than
-   hard-coding numbers.
+| | | | |
+|:-:|:-:|:-:|:-:|
+| ![](docs/screenshots/watchface.png) | ![](docs/screenshots/watchface_minimal.png) | ![](docs/screenshots/menu.png) | ![](docs/screenshots/quick_panel.png) |
+| Watch face + complications | Minimal face | App menu | Quick panel |
+| ![](docs/screenshots/notifications.png) | ![](docs/screenshots/call.png) | ![](docs/screenshots/music.png) | ![](docs/screenshots/navigation.png) |
+| Notifications | Incoming call | Phone's music | Turn-by-turn |
+| ![](docs/screenshots/calendar.png) | ![](docs/screenshots/recorder.png) | ![](docs/screenshots/game_flappy.png) | ![](docs/screenshots/game_fruitninja.png) |
+| Calendar | Voice recorder | Flappy | Fruit Slice |
+| ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
+| Settings | Battery | Update found on Wi-Fi | Software update |
 
-This is a ~5 minute diff, not a rewrite, but it's a **required** step -
-the values shipped here are my best-effort placeholders, not confirmed
-hardware truth.
+<sub>Rendered from the real UI code by the [host simulator](tools/watch_sim) - what you see is what the watch draws.</sub>
 
-## Libraries you need
+## On the watch
 
-Install via Arduino Library Manager where possible; grab the rest from
-Waveshare's example package (`Arduino/libraries/` folder in the zip) if
-they're not on the Library Manager:
+- **Faces** - Default, Minimal and custom faces designed in the app; complication slots for steps, next event,
+  weather, battery, phone battery, messages, next turn, memo to-dos and seconds. A little pet lives on the face.
+- **Smooth UI** - slide transitions, edge-swipe back, kinetic lists, a pull-down quick panel (brightness,
+  volume, radios, DND, torch, battery modes), smooth fonts with accents, auto-rotate.
+- **Phone link** - notifications with quick and voice replies, incoming calls (answer/decline), music remote,
+  Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
+- **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
+  3D printer status (Bambu), sensor tests.
+- **Games** - Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
+  Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
+- **Health** - hardware pedometer with daily history, GPS (on the `-G` board).
+- **Power** - light sleep, battery modes (Balanced / Saver / Ultra), wake on wrist raise or tap, auto-dim.
+- **System** - encrypted pairing, crash reports, signed firmware updates over Bluetooth or Wi-Fi with automatic
+  rollback, USB modes, guided first-boot setup.
 
-| Library | Used for | Source |
-|---|---|---|
-| Arduino_GFX (Waveshare fork) | CO5300 display driver | Waveshare demo package - the stock `moononournation/Arduino_GFX` may not have the `Arduino_CO5300` class yet, check |
-| lvgl | UI framework | Library Manager (pin to v8.3.x, see note below) |
-| SensorLib | QMI8658 + PCF85063 | Library Manager ("SensorLib" by lewisxhe) or demo package |
-| XPowersLib | AXP2101 | Library Manager ("XPowersLib" by lewisxhe) or demo package |
-| TinyGPSPlus | GPS NMEA parsing | Library Manager ("TinyGPSPlus" by Mikal Hart) |
-| SD | microSD card | bundled with arduino-esp32 core |
+## In the companion app (Android)
 
-**LVGL version**: this code targets the LVGL v8.3 API
-(`lv_disp_drv_t`, `lv_indev_drv_t`, `lv_scr_load_anim`, etc.). Waveshare's
-docs mention driver/LVGL versions are tightly coupled - if their demo
-package pins a different major version, match that version rather than
-whatever Library Manager offers by default, or you'll get compile
-errors in `hal_display.cpp` / `hal_touch.cpp` (LVGL v9 renamed several
-of these types).
+- Pair, reconnect automatically and keep the link alive in the background; home-screen widget.
+- Forward notifications (per app), calls, media, calendar, navigation and weather to the watch.
+- **Voice memos** - sync recordings (Bluetooth or fast Wi-Fi), transcribe with Whisper and summarize with
+  Gemma / Qwen, all on the phone. Topics, to-dos, people, insights, search and "Ask AI" over your memos.
+- Watch face designer and library, complication slots, quick replies, DND and bedtime.
+- Activity history, contacts and files to the watch, the phone as a gamepad, watch Wi-Fi setup, diagnostics and crash reports.
+- **Updates** - checks GitHub for a new app and watch firmware, and installs both.
 
-**lv_conf.h**: not included here (it's a build-level config file, not
-project code) - copy the one from Waveshare's demo package into your
-Arduino `libraries` folder alongside lvgl, or generate one from
-`lv_conf_template.h`. Make sure `LV_COLOR_DEPTH` is set to `16`.
+## Getting started
 
-## Arduino IDE settings
+1. **Flash the watch once over USB** - build and upload from the Arduino IDE (see [Building](#building)).
+   From then on, updates arrive over the air.
+2. **Install the app** - `AmoledWatch-x.y.z.apk` from the
+   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest).
+3. **Pair** - open the app, connect, and type the 6-digit code the watch shows.
 
-- Board: your ESP32-S3 variant for this board (check Waveshare's board
-  definition instructions - it may need a specific "ESP32S3 Dev Module"
-  config, not a dedicated board entry)
-- USB CDC On Boot: **Enabled**
-- PSRAM: **OPI PSRAM** (board has 8MB PSRAM, and the LVGL draw buffers
-  in `hal_display.cpp` are allocated from it)
-- Partition Scheme: pick one with enough app space for LVGL + your
-  libraries (start with a default "Huge APP" scheme; go to a 16MB
-  scheme only if you add image/font assets later)
+## Updates
 
-## What's implemented
+One release (tag `vX.Y.Z`) carries both the firmware and the app.
 
-- **Watch face**: time/date (PCF85063), battery ring (AXP2101), live
-  step count (QMI8658 peak-detection pedometer - good enough to prove
-  the sensor works, not production-grade)
-- **App menu**: scrollable grid, tap a tile to open
-- **Sensor tests**: IMU (live accel/gyro + rolling chart), RTC
-  (live clock + a "set test time" button to prove writes work), Power
-  (battery voltage/%, charge/USB status), Touch (draws where you tap),
-  GPS (fix status, lat/lon/speed/satellites - `-G` variant only), SD
-  card (capacity, root listing, write/read round-trip test), Mic
-  (live level meter + speaker beep button)
-- **Games**: Snake (swipe to steer), Reaction speed test, Dodger
-  (tilt to fly, dodge falling obstacles), Simon (color/tone memory
-  game)
-- **Settings**: brightness slider, about screen
+- **Watch:** checks once a day on Wi-Fi and asks before installing; Settings › Software update checks now.
+- **App:** checks when it opens and offers the new APK and the new watch firmware (installed over Bluetooth);
+  Settings › Software updates checks now.
+- Failed updates leave the current version in place; a firmware that doesn't survive its first minute rolls back.
 
-## Known rough edges (by design, flagged rather than faked)
+<details>
+<summary>Publishing and signing</summary>
 
-- **Audio** (`hal_audio.cpp`): the ES7210 register init is a
-  best-effort default sequence, not verified against this exact
-  board's firmware revision. If the mic level meter reads flat or the
-  beep is silent/distorted, diff against Waveshare's `08_ES8311` demo
-  and adjust `es7210_register_init()` / the I2S pin config.
-- **Touch driver** (`hal_touch.cpp`): implements a generic CST9xx-style
-  register read. If Waveshare's package ships a dedicated CST9217
-  class, prefer that - it'll match the exact register map for your
-  firmware revision instead of my generic reconstruction.
-- **Time sync**: RTC has no NTP/BLE sync wired up yet - it just seeds a
-  default if it looks unset. Wire up Wi-Fi + NTP or a companion-app
-  time-set command if you want it to self-correct.
-- **Step counter**: simple accel-magnitude peak detector, resets on
-  reboot (no persistence). Fine as a "sensor works" demo, not a
-  fitness-tracker-grade pedometer.
+- Bump `FW_VERSION` in `firmware/diag.h`, tag `vX.Y.Z` and push - CI builds and publishes the release.
+- **Signed firmware:** `python scripts/ota_keygen.py` once, flash that build over USB, and put `keys/ota_private.pem`
+  in the `OTA_PRIVATE_KEY` repository secret. CI then also publishes a `.signed.bin`, the only kind the watch accepts.
+- **App signing:** Android only installs an update signed with the same key. Set `ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` so every release uses one keystore.
+- The watch's update source is `FW_UPDATE_REPO` in `firmware/config.h`; the app's is `UpdateService.repo`.
+</details>
 
-## Extending it
+## Building
 
-- New sensor test or game: create `app_test_foo.h/.cpp` (or
-  `game_foo.h/.cpp`) following the pattern in any existing one -
-  `ui_create_app_screen("Title")` for the container,
-  `ui_get_current_app_screen()` for the return value - then add one
-  line to the `MENU_ENTRIES[]` table and forward-declaration list in
-  `app_menu.cpp`.
-- New sensor/peripheral: add pins to `board_pins.h`, write
-  `hal_foo.h/.cpp` following the existing HAL files' shape (`_init()`
-  returns bool, a `_read()`/getter struct, everything gated behind a
-  `FEATURE_FOO` flag in `config.h` if it's optional hardware).
+| | |
+|---|---|
+| **Firmware** | Arduino IDE or `arduino-cli`, core **esp32 3.3.10**, board *ESP32S3 Dev Module*, PSRAM *OPI*, flash 16 MB, partitions *16M Flash (3MB APP/9.9MB FATFS)*, USB CDC on boot. Libraries pinned in [`scripts/arduino-libraries.txt`](scripts/arduino-libraries.txt); three more are vendored in `firmware/libraries/`. |
+| **CLI** | `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries firmware/libraries firmware` |
+| **App** | `cd companion_app && flutter pub get && flutter run` |
+| **Screenshots** | `tools/watch_sim/run.sh` - compiles the UI for the PC and renders `docs/screenshots/` |
+| **CI** | every push builds the firmware and the APK; a `v*` tag publishes a release |
 
-## Rendering pipeline and UI building blocks
+**Layout:** `firmware/` the Arduino sketch · `companion_app/` the Flutter app · `scripts/` signing and setup helpers ·
+`tools/watch_sim/` the screenshot simulator · [`COMPANION_PROTOCOL.md`](COMPANION_PROTOCOL.md) the watch ↔ app protocol ·
+[`ROADMAP.md`](ROADMAP.md) what's done and next.
 
-(Techniques borrowed from Meta's open-source MUSE firmware, which runs on
-this same board, re-implemented for this project's Arduino_GFX renderer.)
+<details>
+<summary>Hardware and under the hood</summary>
 
-- **Background panel sender** (`hal_display.cpp`): frames are drawn on
-  core 1 into a pool of PSRAM framebuffers and handed to an `lcd_send`
-  task on core 0, which sends them to the CO5300 while the next frame is
-  drawn. Before sending, each frame is diffed against what the panel
-  already shows, and only the changed rectangles (even-aligned, as the
-  CO5300 requires) go over QSPI; an unchanged frame sends nothing. A
-  newer frame replaces one still waiting, so the panel never lags behind.
-  Brightness and sleep/wake also go through that task - nothing else may
-  touch `display_gfx()` directly. A `[lcd]` line on the serial log every
-  5 s shows fps, skipped/dropped frames and how much of the screen each
-  frame actually sent.
-- **Screen transitions** (`ui.cpp`): `ui_push()` slides the new screen in
-  from the right, `ui_pop_screen()`/`ui_go_home()` slide the old one off
-  to the right. On EDGE-mode screens, a drag from the left edge moves the
-  screen with your finger, with the previous screen sliding in
-  underneath; let go past a third of the way (or flick) to go back.
-  Opt out per screen with the `no_transition` / `no_drag_back` fields at
-  the end of `Screen`.
-- **Kinetic lists** (`UiScroll` in `ui.h`, `ui_scroll.cpp`): drag, fling
-  with momentum, rubber-band ends, settle on a whole row. Used by
-  Settings and the WiFi network list.
-- **T9 keypad** (`ui_keypad.h/.cpp`): a 12-key phone keypad sized for the
-  round screen (multi-tap, hold for digit, 123/#+= modes, Show/Hide for
-  passwords). Used by onboarding (name) and WiFi setup.
-
-## Building and CI
-
-Layout: `firmware/` is the Arduino sketch (`firmware.ino` + all C++ sources + vendored `libraries/`),
-`companion_app/` the Flutter app, `scripts/` the build/signing helpers, `.github/workflows/` the CI.
-
-- **Arduino IDE:** open `firmware/firmware.ino`.
-
-- **Arduino IDE:** board "ESP32S3 Dev Module", core esp32 3.3.10, PSRAM "OPI PSRAM", Flash 16 MB, partition
-  "16M Flash (3MB APP/9.9MB FATFS)", USB CDC On Boot "Enabled". Library versions are pinned in
-  `scripts/arduino-libraries.txt`; `minimp3`, `libhelix` and `ESP_H264_Decoder` are not in the Library Manager and are
-  vendored in `firmware/libraries/` (copy them to your Arduino `libraries` folder if the IDE can't find them).
-- **arduino-cli:** `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries firmware/libraries firmware` (from the repository root)
-- **Git + GitHub Actions:** run `scripts/init_repo.ps1 -Remote <url>` once. `.github/workflows/build.yml` then compiles the
-  firmware and runs `flutter analyze` + a debug APK build on every push; a tag `vX.Y.Z` (matching `FW_VERSION` in
-  `firmware/diag.h`) publishes a release with the `.bin` and the `.apk`.
-
-## Firmware updates over Wi-Fi
-
-The watch updates itself from this repository's GitHub releases (`hal_fwupdate.h/.cpp`, screen in `app_fwupdate.cpp`):
-
-- **Automatic:** about once a day (`FW_UPDATE_CHECK_HOURS` in `firmware/config.h`), while the watch is on Wi-Fi - or
-  WiFi is switched on in Settings and a network is saved - it asks the GitHub API for the latest release of
-  `FW_UPDATE_REPO`. If the release tag is newer than `FW_VERSION`, a pop-up asks "Update available - Update / Later".
-  "Update" downloads the `AmoledSmartWatchOS-x.y.z.bin` asset straight into the spare OTA slot, verifies it and restarts.
-  The pop-up waits until the screen is on and no game is running; nothing is checked below 20 % battery (unless charging).
-- **Manual:** Settings > Software update > Check now.
-- **Publishing:** tag `vX.Y.Z` (matching `FW_VERSION`); CI builds and publishes the release the watch picks up.
-  Drafts and pre-releases are ignored.
-- **Signed updates:** with a key in `ota_pubkey.h` only a validly signed image is installed - the release then needs the
-  `*.signed.bin`. CI makes it when the repository secret `OTA_PRIVATE_KEY` holds the contents of `keys/ota_private.pem`.
-- The connection to GitHub is verified against the root CAs in `firmware/fw_update_ca.h`. A failed or interrupted
-  update leaves the current firmware in place, and a new one that doesn't survive its first minute is rolled back.
+- **Board:** ESP32-S3 (16 MB flash, 8 MB PSRAM), CO5300 AMOLED over QSPI, CST9217 touch, QMI8658 IMU, PCF85063 RTC,
+  AXP2101 PMU, ES8311 speaker + ES7210 mic array, TCA9554 IO expander, microSD, LC76G GPS (`-G` variant).
+  Pins live in `firmware/board_pins.h`.
+- **Rendering:** frames are drawn into PSRAM buffers on one core and sent by a task on the other, diffed against
+  what the panel shows so only changed rectangles go over QSPI (idea borrowed from Meta's MUSE firmware).
+- **Screens:** a `Screen` struct per app (`ui.h`) on a stack with slide transitions; HAL modules (`hal_*.cpp`)
+  behind feature flags in `config.h`.
+- **Link:** a paired, encrypted BLE connection carrying small JSON messages, plus Wi-Fi for big transfers.
+</details>

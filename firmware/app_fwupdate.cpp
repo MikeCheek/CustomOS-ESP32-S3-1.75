@@ -45,7 +45,6 @@ static void fwup_draw() {
         if (frac > 0.002f) ui_edge_ring(0, 360.0f * frac, st == FWUP_DONE ? COLOR_GOOD : COLOR_ACCENT, 12, 6, true);
     }
 
-    ui_text_center(CX, CY - 150, COLOR_ACCENT, "Software update", 2);
     snprintf(line, sizeof(line), "Installed: %s", diag_fw_version());
     ui_text_center(CX, CY - 112, COLOR_TEXT_DIM, line, 1);
 
