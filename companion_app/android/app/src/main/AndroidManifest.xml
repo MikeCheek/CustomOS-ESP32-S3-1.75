@@ -13,6 +13,8 @@
          (its calendar group) when both are declared. -->
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <!-- Voice memos recorded on the phone (MemoRecorder) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <!-- Phone link: keep the watch connection alive in the background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
