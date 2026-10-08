@@ -17,6 +17,7 @@ item has a short design so it can be picked up directly. Effort: S = an evening,
 | fw 3.0 / app 3.0 | Paired, encrypted Bluetooth link (random code per pairing, Secure Connections, unpair); optional signed firmware updates (ECDSA P-256, `scripts/ota_keygen.py`, `scripts/sign_firmware.py`); git + GitHub Actions builds; memo fixes (no-speech memos skipped, MP3 lengths, absolute search scores) |
 | fw 3.1 / app 3.1 | Do Not Disturb synced both ways + bedtime schedule on the watch; quick replies edited in the app |
 | fw 3.2 / app 3.2 | Watchface complications (steps, battery, phone battery, next event, weather, messages, next turn, memo to-dos, seconds) on Default/Minimal faces and in custom watchfaces; slots set on the watch or in the app; signed-update downgrade protection; pairing hardening (iOS, retries) |
+| fw 3.3 / app 3.3 | Updates from GitHub releases: the watch checks on Wi-Fi and installs (signed images when a key is set), the app updates itself and the watch; 3D power-on, lock/unlock, music spectrum ring and charging animations; voice memos recorded on the phone (copied to the watch); Author section; fix: memo sync timing out (BLE notifications sent immediately); CI checks the Android keystore secrets |
 
 ## Next
 
