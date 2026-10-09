@@ -38,6 +38,10 @@ strips the last 72 bytes and sends the signature with `0x05`.
 Each packet is at most MTU − 3 bytes. The watch keeps the last complete message per characteristic
 in PSRAM (phone link: queue of 7 messages of up to 1023 bytes).
 
+On the phone link, a packet starting with `0x03` is a frame of an image the watch asked for (fw 3.4+):
+`0x03` + kind (`'i'` app icon, `'a'` album cover) + hash (4 bytes LE) + total size (4 LE) + offset (4 LE) +
+data. The image is a JPEG (icons 40×40, covers 128×128, up to 24 KB); frames come in order, one image at a time.
+
 ## Phone link messages (`0009`)
 
 Phone → watch (`"t"` = type):
@@ -46,8 +50,8 @@ Phone → watch (`"t"` = type):
 |---|---|
 | `{"t":"hi"}` | app connected; the watch answers with `{"e":"hi",...}` |
 | `{"t":"bat","l":85,"c":1}` | phone battery %, charging |
-| `{"t":"med","ti":"Song","ar":"Artist","pl":1,"po":12,"du":200,"v":7,"vm":15}` | now playing: title, artist, playing, position s, duration s, volume, max volume |
-| `{"t":"ntf","id":123,"ap":"WhatsApp","ti":"Mario","tx":"Ciao!","rp":1}` | notification; `rp` = can be replied to. Same `id` again updates it |
+| `{"t":"med","ti":"Song","ar":"Artist","pl":1,"po":12,"du":200,"v":7,"vm":15,"ah":456}` | now playing: title, artist, playing, position s, duration s, volume, max volume, album cover hash (optional) |
+| `{"t":"ntf","id":123,"ap":"WhatsApp","ti":"Mario","tx":"Ciao!","rp":1,"ic":789}` | notification; `rp` = can be replied to, `ic` = app icon hash (optional). Same `id` again updates it |
 | `{"t":"nrm","id":123}` | notification removed on the phone |
 | `{"t":"call","st":"ring"\|"active"\|"end","id":456,"n":"Mario"}` | call state; `ring` opens the call screen and wakes the watch |
 | `{"t":"find","on":0}` | find-my-phone stopped on the phone side |
@@ -68,6 +72,7 @@ Watch → phone (`"e"` = event):
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
 | `{"e":"req"}` | please resend battery + now playing |
+| `{"e":"img","k":"i"\|"a","h":789}` | send this app icon / album cover (as `0x03` frames); asked once per image, again after 20 s if nothing came |
 | `{"e":"med","a":"toggle"\|"next"\|"prev"\|"volUp"\|"volDown"}` | media control |
 | `{"e":"find","on":1}` | ring the phone (stops after 60 s or `on:0`) |
 | `{"e":"call","a":"answer"\|"decline","id":456}` | answer / decline / hang up |

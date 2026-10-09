@@ -143,6 +143,7 @@ bool media_is_image(const char *) { return false; }
 bool media_is_video(const char *) { return false; }
 bool img_decode_file(const char *, int, int, bool, DecodedImage *, char *, size_t) { return false; }
 void img_free(DecodedImage *) {}
+bool img_decode_jpeg_mem(const uint8_t *, size_t, int, int, bool, DecodedImage *) { return false; }
 void video_open(const char *) {}
 bool video_poster(const char *, int, int, bool, DecodedImage *) { return false; }
 uint32_t recordings_revision() { return 1; }

@@ -3,6 +3,7 @@
 #include "config.h"
 #include "hal_controller.h"
 #include "hal_ota.h"
+#include "phone_images.h"
 #include <string.h>
 
 // Normalizes UTF-8 text from the phone in place for the watch fonts:
@@ -692,6 +693,8 @@ class LinkWriteCallback : public NimBLECharacteristicCallbacks {
         int L = (int)val.length();
         if (L < 1) return;
         const char *d = val.data();
+        // 0x03: a frame of an app icon / album cover (phone_images.h)
+        if ((uint8_t)d[0] == 0x03) { phone_images_on_frame((const uint8_t *)d, L); return; }
         if (!s_link_queue) s_link_queue = (char *)heap_caps_malloc(LINK_QUEUE_LEN * LINK_MSG_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!ps_buf(&s_link_stage, LINK_MSG_MAX) || !s_link_queue) return;
         if (d[0] == '{') { link_push(d, L); return; }

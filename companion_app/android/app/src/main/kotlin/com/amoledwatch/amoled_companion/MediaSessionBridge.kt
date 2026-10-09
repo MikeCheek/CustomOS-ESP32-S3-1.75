@@ -26,6 +26,13 @@ class MediaSessionBridge(private val context: Context) {
     private var lastKey = ""
     private var ticksSinceSend = 0
 
+    // The current track's cover, made once per track for the watch.
+    private var artTrack = ""
+    var artHash = 0
+        private set
+    var artJpeg: ByteArray? = null
+        private set
+
     private val audio get() = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     fun startListening(cb: MediaCallback) {
@@ -72,7 +79,17 @@ class MediaSessionBridge(private val context: Context) {
         val vol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         val vmax = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
-        val key = "$title|$artist|$playing|$vol"
+        val track = "${ctrl?.packageName}|$title|$artist|$album"
+        if (track != artTrack) {
+            artTrack = track
+            val bmp = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            artJpeg = try { bmp?.let { WatchImages.artJpeg(it) } } catch (e: Exception) { null }
+            artHash = artJpeg?.let { (it.contentHashCode() and 0x7fffffff) or 1 } ?: 0
+        }
+
+        val key = "$title|$artist|$playing|$vol|$artHash"
         val periodic = playing && ++ticksSinceSend >= 10 // keep the watch's progress bar honest
         if (key == lastKey && !periodic) return
         lastKey = key
@@ -87,6 +104,7 @@ class MediaSessionBridge(private val context: Context) {
             "volume" to vol,
             "volumeMax" to vmax,
             "app" to (ctrl?.packageName ?: ""),
+            "artHash" to artHash,
         ))
     }
 

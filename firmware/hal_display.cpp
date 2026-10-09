@@ -214,12 +214,14 @@ static void service_commands() {
         xSemaphoreGive(s_cmd_done);
     } else if (cmd == CMD_WAKE) {
         if (gfx) {
-            gfx->displayOn();
+            // Coming out of the always-on clock the panel never slept:
+            // skip DISPON/SLPOUT (and their 240 ms of delays).
+            if (s_panel_asleep) gfx->displayOn();
             ((Arduino_CO5300 *)gfx)->setBrightness(s_brightness);
         }
         s_brightness_dirty = false;
+        if (s_panel_asleep) s_force_full = true; // don't trust GRAM across sleep
         s_panel_asleep = false;
-        s_force_full = true; // don't trust GRAM across sleep
         s_cmd = CMD_NONE;
         xSemaphoreGive(s_cmd_done);
     }

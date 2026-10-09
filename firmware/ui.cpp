@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "phone_images.h"
 #include "ui_font.h"
 #include "board_pins.h"
 #include "hal_touch.h"
@@ -96,6 +97,7 @@ static Screen *s_touch_seq_screen = nullptr;
 struct ToastEntry {
     char     text[96];
     uint32_t until_ms;
+    uint32_t icon;       // phone_images.h hash, 0 = none
 };
 static ToastEntry s_toast_queue[TOAST_QUEUE_SIZE];
 static int s_toast_head = 0;
@@ -176,6 +178,19 @@ void ui_init(Arduino_GFX *display) {
 
 Arduino_GFX *ui_gfx() { return s_gfx; }
 uint16_t *ui_framebuffer() { return s_render; }
+
+bool ui_render_offscreen(void (*draw)(Arduino_GFX *g)) {
+    if (!s_canvas || !draw || !s_pipeline) return false;
+    uint16_t *fb = display_fb_acquire(false);
+    if (!fb) return false;
+    uint16_t *saved = s_canvas->getFramebuffer();
+    s_canvas->setFramebuffer(fb);
+    s_canvas->fillScreen(COLOR_BG);
+    draw(s_canvas);
+    display_fb_submit(fb);
+    s_canvas->setFramebuffer(saved);
+    return true;
+}
 
 bool ui_render_screen_below(uint16_t *dst) {
     if (!s_canvas || !dst || s_top < 1) return false;
@@ -1248,6 +1263,10 @@ TileRect ui_draw_tile(int col, int row, uint16_t accent,
 
 // ---- Toast ----------------------------------------------------------------
 void ui_show_toast(const char *text, uint32_t duration_ms) {
+    ui_show_toast_icon(text, duration_ms, 0);
+}
+
+void ui_show_toast_icon(const char *text, uint32_t duration_ms, uint32_t icon) {
     int next = (s_toast_head + 1) % TOAST_QUEUE_SIZE;
     if (next == s_toast_tail) return; // queue full, drop
     strncpy(s_toast_queue[s_toast_head].text, text,
@@ -1255,6 +1274,7 @@ void ui_show_toast(const char *text, uint32_t duration_ms) {
     s_toast_queue[s_toast_head].text[sizeof(s_toast_queue[0].text) - 1] = '\0';
     ui_utf8_trim(s_toast_queue[s_toast_head].text);
     s_toast_queue[s_toast_head].until_ms = millis() + duration_ms;
+    s_toast_queue[s_toast_head].icon = icon;
     s_toast_head = next;
 }
 
@@ -1276,7 +1296,9 @@ void ui_draw_toast() {
     // Draw the current toast at the top, centered: one line, or two
     // (word-wrapped, the second shortened with "..") for longer text.
     ToastEntry &t = s_toast_queue[s_toast_tail];
-    const int size = 2, max_w = 320;
+    // App icon at the left, once the phone has sent it.
+    const uint16_t *icon = phone_icon(t.icon);
+    const int size = 2, max_w = icon ? 284 : 320, ix = icon ? 34 : 0;
     char l1[96], l2[96];
     l1[0] = l2[0] = 0;
     {
@@ -1300,7 +1322,7 @@ void ui_draw_toast() {
     }
     int tw = text_width(l1, size), tw2 = l2[0] ? text_width(l2, size) : 0;
     if (tw2 > tw) tw = tw2;
-    int pw = tw + 36;
+    int pw = tw + 36 + ix;
     int ph = l2[0] ? 64 : 38;
     int px = (LCD_WIDTH - pw) / 2;
     int py = 58;
@@ -1308,8 +1330,9 @@ void ui_draw_toast() {
 
     s_gfx->fillRoundRect(px, py, pw, ph, 19, COLOR_PANEL);
     s_gfx->drawRoundRect(px, py, pw, ph, 19, COLOR_TEXT_DIM);
-    ui_print(px + 18, py + 11, size, COLOR_TEXT, l1);
-    if (l2[0]) ui_print(px + 18, py + 37, size, ui_dim(COLOR_TEXT, 0.75f), l2);
+    if (icon) phone_image_draw_round(s_gfx, icon, PHONE_ICON_SIZE, PHONE_ICON_SIZE, px + 26, py + ph / 2, 14);
+    ui_print(px + 18 + ix, py + 11, size, COLOR_TEXT, l1);
+    if (l2[0]) ui_print(px + 18 + ix, py + 37, size, ui_dim(COLOR_TEXT, 0.75f), l2);
 
     // Auto-advance to next toast
     if (now > t.until_ms) {

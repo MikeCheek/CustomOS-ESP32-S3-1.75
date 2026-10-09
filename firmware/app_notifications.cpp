@@ -7,6 +7,7 @@
 #include "app_settings_state.h"
 #include "ui.h"
 #include "ui_font.h"
+#include "phone_images.h"
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -35,7 +36,8 @@ static void toast_for(const NotifHistoryItem &it) {
     char t[96];
     if (it.title[0]) snprintf(t, sizeof(t), "%s: %s", it.title, it.text);
     else snprintf(t, sizeof(t), "%s", it.text);
-    ui_show_toast(t, 3500);
+    if (it.icon) phone_icon(it.icon);   // ask now, so it's likely there by the next frame
+    ui_show_toast_icon(t, 3500, it.icon);
 }
 
 static NotifHistoryItem &next_slot() {
@@ -45,7 +47,8 @@ static NotifHistoryItem &next_slot() {
     return item;
 }
 
-void notifications_add(uint32_t id, const char *app, const char *title, const char *text, bool can_reply) {
+void notifications_add(uint32_t id, const char *app, const char *title, const char *text, bool can_reply,
+                       uint32_t icon) {
     if (!s_history) return;
     // An update of a notification we already have (chat with new message)
     // replaces it in place instead of filling the list with copies.
@@ -59,6 +62,7 @@ void notifications_add(uint32_t id, const char *app, const char *title, const ch
                 ble_fold_utf8(it.text);
                 it.can_reply = can_reply;
                 it.received_ms = millis();
+                if (icon) it.icon = icon;
                 s_revision++;
                 toast_for(it);
                 return;
@@ -75,6 +79,7 @@ void notifications_add(uint32_t id, const char *app, const char *title, const ch
     ble_fold_utf8(it.text);
     it.can_reply = can_reply;
     it.received_ms = millis();
+    it.icon = icon;
     s_revision++;
     toast_for(it);
 }
@@ -114,6 +119,7 @@ void notifications_update() {
         copy_str(it.text, sizeof(it.text), n.text);
         it.can_reply = false;
         it.received_ms = millis();
+        it.icon = 0;
         s_revision++;
         toast_for(it);
     }
@@ -281,11 +287,16 @@ static void draw_list(Arduino_GFX *g) {
         if (!notifications_get_history(i, it)) break;
         bool pressed = s_press == i;
         g->fillRoundRect(ROW_X, y, ROW_W, ROW_H, 22, pressed ? ui_dim(COLOR_TEXT, 0.22f) : COLOR_PANEL);
-        // app badge
-        g->fillCircle(ROW_X + 30, y + 26, 13, COLOR_ACCENT);
-        char ini[5];
-        ui_first_char(it.source, ini);
-        ui_text_center(ROW_X + 30, y + 26, COLOR_TEXT, ini, 2);
+        // app badge: the app's icon, or its initial until that arrives
+        const uint16_t *icon = phone_icon(it.icon);
+        if (icon) {
+            phone_image_draw_round(g, icon, PHONE_ICON_SIZE, PHONE_ICON_SIZE, ROW_X + 30, y + 26, 15);
+        } else {
+            g->fillCircle(ROW_X + 30, y + 26, 13, COLOR_ACCENT);
+            char ini[5];
+            ui_first_char(it.source, ini);
+            ui_text_center(ROW_X + 30, y + 26, COLOR_TEXT, ini, 2);
+        }
         ago(it.received_ms, when, sizeof(when));
         int ww = ui_text_width(when, 1);
         fit(a, sizeof(a), it.source, 1, ROW_W - 52 - 30 - ww);
@@ -306,6 +317,8 @@ static void draw_detail(Arduino_GFX *g) {
     const NotifHistoryItem &it = s_open;
     char a[48];
     fit(a, sizeof(a), it.source, 2, 240);
+    const uint16_t *icon = phone_icon(it.icon);
+    if (icon) phone_image_draw_round(g, icon, PHONE_ICON_SIZE, PHONE_ICON_SIZE, CX, 44, 18);
     ui_text_center(CX, 78, COLOR_ACCENT, a, 2);
     int y = 104;
     if (it.title[0]) y = draw_wrapped(g, it.title, y, 300, 2, COLOR_TEXT, 2);

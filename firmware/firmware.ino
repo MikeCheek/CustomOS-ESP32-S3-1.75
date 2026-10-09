@@ -45,6 +45,8 @@
 #include "app_charging_anim.h"
 #include "app_findme.h"
 #include "phone_link.h"
+#include "phone_images.h"
+#include "aod.h"
 #include "ui_font.h"
 #include "diag.h"
 #include "hal_ota.h"
@@ -665,6 +667,7 @@ void loop() {
         ble_update();
         notifications_update();
         phone_link_update();
+        phone_images_update();      // decode an icon / cover that arrived
         check_notes_sync();
 #endif
 #if FEATURE_WIFI
@@ -704,6 +707,7 @@ void loop() {
 #if FEATURE_AUDIO
         audio_idle_power();
 #endif
+        aod_update();               // always-on clock: redraw on the minute
         // Slower poll cadence than the awake path (was 50ms) - locked
         // state has nothing time-critical happening, so there's no
         // reason to re-check touch/motion/BLE this often. 150ms is
@@ -712,7 +716,7 @@ void loop() {
         // processing rate to roughly a third of what it was.
         // With all radios off it light-sleeps through the wait instead
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
-        bool keep_awake = ota_active() || fwup_busy();
+        bool keep_awake = ota_active() || fwup_busy() || aod_sending();
 #if FEATURE_AUDIO
         keep_awake = keep_awake || audio_is_playing() || audio_is_recording();
 #endif
@@ -827,6 +831,7 @@ void loop() {
     ble_update();
     notifications_update();
     phone_link_update();
+    phone_images_update();      // decode an icon / cover that arrived
 #endif
 #if FEATURE_WIFI
     bambu_tick(); // internally a no-op unless enabled and WiFi is connected, same as the NTP poll below

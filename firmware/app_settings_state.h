@@ -31,6 +31,7 @@ struct AppSettings {
     // is on charge (power_is_charging(), hal_power.h) - no reason to
     // dim/lock a watch sitting on its charger.
     bool stay_awake_charging = false;
+    bool aod_on = false;              // always-on clock while asleep (aod.h)
     // Brief vibrate_buzz() (hal_vibrate.h) on every touch press - see
     // ui.cpp's ui_handle_touch(). No-ops safely if FEATURE_VIBRATE or
     // PIN_VIBRATE isn't set up on this board, same as every other

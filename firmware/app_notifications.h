@@ -25,10 +25,12 @@ struct NotifHistoryItem {
     char     text[BLE_NOTIF_MAX_LEN * 2];
     bool     can_reply;
     uint32_t received_ms;
+    uint32_t icon;                // app icon (phone_images.h), 0 = none
 };
 
 // From the phone link. Same id again updates that entry in place.
-void notifications_add(uint32_t id, const char *app, const char *title, const char *text, bool can_reply);
+void notifications_add(uint32_t id, const char *app, const char *title, const char *text, bool can_reply,
+                       uint32_t icon = 0);
 // The phone dismissed it (or it was handled there).
 void notifications_remove(uint32_t id);
 

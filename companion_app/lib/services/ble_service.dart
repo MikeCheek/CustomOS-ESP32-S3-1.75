@@ -413,6 +413,37 @@ class BleService {
     return next;
   }
 
+  /// Sends an app icon ('i') or album cover ('a') JPEG the watch asked
+  /// for: binary frames on the link characteristic, queued with the JSON
+  /// messages so they never interleave.
+  /// 0x03 kind hash(4 LE) total(4 LE) offset(4 LE) data...
+  Future<void> sendImage(String kind, int hash, Uint8List jpeg) {
+    final next = _linkQueue.then((_) async {
+      final c = _linkChar;
+      if (c == null || !isConnected) return;
+      final room = _maxWrite - 14;
+      if (room < 1) return;
+      try {
+        for (var off = 0; off < jpeg.length; off += room) {
+          final n = (jpeg.length - off) < room ? (jpeg.length - off) : room;
+          final p = Uint8List(14 + n);
+          final b = p.buffer.asByteData();
+          p[0] = 0x03;
+          p[1] = kind.codeUnitAt(0);
+          b.setUint32(2, hash, Endian.little);
+          b.setUint32(6, jpeg.length, Endian.little);
+          b.setUint32(10, off, Endian.little);
+          p.setRange(14, 14 + n, jpeg, off);
+          await c.write(p);
+        }
+      } catch (e) {
+        print('[BLE] image write failed: $e');
+      }
+    });
+    _linkQueue = next.catchError((_) {});
+    return next;
+  }
+
   // ---- Firmware update ------------------------------------------------------
 
   /// Streams a firmware image to the watch (characteristic 000A). The

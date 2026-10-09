@@ -6,6 +6,7 @@
  *   call_screen       - incoming / active call, answer & decline
  */
 #include "phone_link.h"
+#include "phone_images.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
@@ -268,7 +269,16 @@ static void np_draw() {
         int bx = CX + (i - 1) * NP_SIDE_DX;
         int r = i == 1 ? NP_MAIN_R : NP_SIDE_R;
         bool pressed = s_np_press == i;
-        g->fillCircle(bx, NP_Y, r, i == 1 ? (pressed ? COLOR_TEXT : COLOR_ACCENT) : (pressed ? COLOR_ACCENT : COLOR_PANEL));
+        // The album cover fills the play button (dimmed so the glyph reads).
+        int aw = 0, ah = 0;
+        const uint16_t *art = (i == 1 && m.valid && !pressed) ? phone_art(m.art, &aw, &ah) : nullptr;
+        if (art) {
+            phone_image_draw_round(g, art, aw, ah, bx, NP_Y, r, 18);
+            g->drawCircle(bx, NP_Y, r, COLOR_ACCENT);
+            g->drawCircle(bx, NP_Y, r - 1, COLOR_ACCENT);
+        } else {
+            g->fillCircle(bx, NP_Y, r, i == 1 ? (pressed ? COLOR_TEXT : COLOR_ACCENT) : (pressed ? COLOR_ACCENT : COLOR_PANEL));
+        }
         uint16_t c = (i == 1 && pressed) ? COLOR_ACCENT : COLOR_TEXT;
         if (i == 0) glyph_skip(g, bx, NP_Y, 14, false, c);
         else if (i == 2) glyph_skip(g, bx, NP_Y, 14, true, c);

@@ -100,6 +100,8 @@ static void tap_wake_motion() { g_app_settings.wake_on_motion = !g_app_settings.
 static bool get_haptic() { return g_app_settings.haptic_on_touch; }
 static void tap_haptic() { g_app_settings.haptic_on_touch = !g_app_settings.haptic_on_touch; nvs_save_settings(g_app_settings); }
 
+static bool get_aod() { return g_app_settings.aod_on; }
+static void tap_aod() { g_app_settings.aod_on = !g_app_settings.aod_on; nvs_save_settings(g_app_settings); }
 static bool get_awake_charge() { return g_app_settings.stay_awake_charging; }
 static void tap_awake_charge() { g_app_settings.stay_awake_charging = !g_app_settings.stay_awake_charging; nvs_save_settings(g_app_settings); }
 
@@ -215,6 +217,7 @@ static SettingsRow S_ROWS[] = {
     { "Battery Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_battery_screen, ICON_BATTERY },
     // desc is filled in live with the selected mode (settings_draw)
     { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
+    { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
     { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
     { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
