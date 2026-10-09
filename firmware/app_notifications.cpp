@@ -14,8 +14,16 @@
 #include <stdlib.h>
 
 // ---- History (ring buffer, in PSRAM) ------------------------------------
-static NotifHistoryItem *s_history = (NotifHistoryItem *)heap_caps_calloc(
-    NOTIF_HISTORY_SIZE, sizeof(NotifHistoryItem), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+// Allocated on first use, not by a global initialiser: those run before
+// PSRAM is up in some core builds (PlatformIO), leaving it null for good.
+static NotifHistoryItem *s_history_buf = nullptr;
+static NotifHistoryItem *history() {
+    if (!s_history_buf)
+        s_history_buf = (NotifHistoryItem *)heap_caps_calloc(NOTIF_HISTORY_SIZE, sizeof(NotifHistoryItem),
+                                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return s_history_buf;
+}
+#define s_history (history())
 static int s_history_count = 0;   // valid entries, caps at NOTIF_HISTORY_SIZE
 static int s_history_write = 0;   // next slot to write
 static uint32_t s_revision = 0;   // bumps on every change, screens re-read on change

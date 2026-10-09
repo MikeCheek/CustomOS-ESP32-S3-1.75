@@ -1425,12 +1425,14 @@ void audio_pcm_restore_default() {
 }
 
 // ---- MP3 file playback from SD (via minimp3) ------------------------------
-// Decoder state and output frame live in PSRAM (allocated once at startup):
-// together they were ~11 KB of internal RAM, which WiFi and the BLE
-// controller need - BLE init failed with "Malloc failed" without it.
+// Decoder state and output frame live in PSRAM: together they were ~11 KB
+// of internal RAM, which WiFi and the BLE controller need - BLE init failed
+// with "Malloc failed" without it. Allocated on the first play, not by a
+// global initialiser: those run before PSRAM is up in some core builds
+// (the PlatformIO one), and a null decoder crashed mp3dec_init().
 static File s_mp3_file;
-static mp3dec_t &s_mp3_dec = *(mp3dec_t *)heap_caps_calloc(1, sizeof(mp3dec_t), (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-static int16_t *const s_mp3_pcm = (int16_t *)heap_caps_calloc(MINIMP3_MAX_SAMPLES_PER_FRAME, sizeof(int16_t), (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+static mp3dec_t *s_mp3_dec = nullptr;
+static int16_t *s_mp3_pcm = nullptr;
 
 // Compressed-input buffer, kept topped up so minimp3 always sees at least
 // MP3_MIN_BUFFERED bytes (several whole frames) - see mp3_task(). In PSRAM:
@@ -1498,7 +1500,7 @@ static void mp3_task(void *param) {
             s_mp3_file.seek(s_mp3_audio_start + off);
             s_mp3_input_len = s_mp3_input_pos = 0;
             s_mp3_eof = false;
-            mp3dec_init(&s_mp3_dec); // resyncs on the next frame header by itself
+            mp3dec_init(s_mp3_dec); // resyncs on the next frame header by itself
             rs_reset();
             // Keep the elapsed clock consistent with the new position,
             // using the average bytes-per-sample seen so far.
@@ -1520,7 +1522,7 @@ static void mp3_task(void *param) {
         }
 
         mp3dec_frame_info_t info;
-        int samples_per_ch = mp3dec_decode_frame(&s_mp3_dec,
+        int samples_per_ch = mp3dec_decode_frame(s_mp3_dec,
             s_mp3_input_buf + s_mp3_input_pos,
             s_mp3_input_len - s_mp3_input_pos,
             s_mp3_pcm, &info);
@@ -1610,8 +1612,11 @@ bool audio_play_mp3(const char *filename) {
         return false;
     }
     if (!s_mp3_input_buf) s_mp3_input_buf = (uint8_t *)ps_malloc(MP3_INBUF_SIZE);
-    if (!s_mp3_input_buf) {
-        DEBUG_PRINTF("[audio] MP3 play failed: no memory for input buffer\n");
+    if (!s_mp3_dec) s_mp3_dec = (mp3dec_t *)heap_caps_calloc(1, sizeof(mp3dec_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_mp3_pcm)
+        s_mp3_pcm = (int16_t *)heap_caps_calloc(MINIMP3_MAX_SAMPLES_PER_FRAME, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_mp3_input_buf || !s_mp3_dec || !s_mp3_pcm) {
+        DEBUG_PRINTF("[audio] MP3 play failed: no memory for the decoder\n");
         return false;
     }
 
@@ -1637,7 +1642,7 @@ bool audio_play_mp3(const char *filename) {
         return false;
     }
 
-    mp3dec_init(&s_mp3_dec);
+    mp3dec_init(s_mp3_dec);
     s_mp3_input_len = 0;
     s_mp3_input_pos = 0;
     s_mp3_eof = false;
