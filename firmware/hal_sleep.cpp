@@ -1,4 +1,5 @@
 #include "hal_sleep.h"
+#include "aod.h"
 #include "hal_display.h"
 #include "hal_touch.h"
 #include "hal_imu.h"
@@ -43,6 +44,7 @@ void sleep_register_activity() {
     s_last_activity_ms = millis();
     if (s_asleep) {
         s_asleep = false;
+        aod_wake();
         display_wakeup();
     }
 }
@@ -61,7 +63,7 @@ void sleep_force_sleep() {
     nvs_save_steps(imu_get_step_count());
 #endif
     s_asleep = true;
-    display_sleep();
+    aod_sleep_display();
 }
 
 bool sleep_update() {
@@ -83,7 +85,7 @@ bool sleep_update() {
                 nvs_save_steps(imu_get_step_count());
 #endif
                 s_asleep = true;
-                display_sleep();
+                aod_sleep_display();
             }
         }
         return s_asleep;

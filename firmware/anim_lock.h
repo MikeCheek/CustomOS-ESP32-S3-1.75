@@ -3,10 +3,9 @@
 extern Screen lock_anim_screen;
 
 // Configure the transition before pushing lock_anim_screen:
-//   waking = true  -> unlock: a CRT line flashes on, then the screen
-//                      underneath swings up from the distance into place.
-//   waking = false -> lock: what's on screen tilts away into the distance
-//                      and switches off like an old CRT, to a line, to a dot.
+//   waking = true  -> unlock: the screen underneath opens out of the centre
+//                      in a quick circle (~0.2 s).
+//   waking = false -> lock: what's on screen closes into a circle and a dot.
 //   sleep_after    -> lock only: calls sleep_force_sleep() itself once the
 //                      animation finishes, so the display doesn't go dark
 //                      before the lock has been seen.

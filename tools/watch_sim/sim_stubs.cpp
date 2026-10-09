@@ -1,6 +1,7 @@
 // Stand-ins for the hardware layers (hal_*.cpp, diag.cpp, the .ino's
 // helpers) with demo values, so screens show a lived-in watch.
 #include <Arduino.h>
+#include <math.h>
 #include <ArduinoJson.h>
 #include "config.h"
 #include "ui.h"
@@ -26,6 +27,8 @@ int power_get_battery_percent() { return g_sim.battery; }
 bool power_is_charging() { return g_sim.charging; }
 bool power_pek_long_press_pending() { return false; }
 bool power_pek_short_press_pending() { return false; }
+bool power_auto_sleep_available() { return true; }
+bool power_since_unplugged(int *p, uint32_t *ms) { if (p) *p = 97; if (ms) *ms = 5400000UL; return true; }
 void power_poll_pek_button() {}
 void power_shutdown() {}
 WatchTime rtc_now() {
@@ -39,6 +42,7 @@ void imu_step_counter_update(const ImuSample &) {}
 TouchPoint touch_read() { return { false, 0, 0 }; }
 bool touch_read_raw(uint16_t &, uint16_t &) { return false; }
 void touch_set_gesture_mode(uint8_t) {}
+void touch_set_fast_taps(bool) {}
 void touch_cancel_swipes() {}
 bool touch_swipe_down_detected() { return false; }
 bool touch_swipe_up_detected() { return false; }
@@ -82,7 +86,7 @@ bool ble_get_contacts(const char **, int *) { return false; }
 void ble_consume_contacts() {}
 bool ble_get_fitness(const char **, int *) { return false; }
 bool ble_get_weather(const char **d, int *n) {
-    static const char W[] = "{\"t\":19,\"c\":\"Partly cloudy\",\"hi\":22,\"lo\":13,\"code\":2,\"city\":\"Milan\"}";
+    static const char W[] = "{\"tempC\":19,\"condition\":\"Rain\",\"humidity\":80}";
     *d = W; *n = sizeof(W) - 1; return true;
 }
 bool ble_get_watchface_data(const char **, int *) { return false; }
@@ -111,15 +115,32 @@ void audio_set_paused(bool) {}
 void audio_stop_playback() {}
 void audio_seek(float) {}
 bool audio_get_stream_info(AudioStreamInfo *) { return false; }
-bool audio_is_recording() { return false; }
-bool audio_start_record(const char *) { return false; }
+bool audio_is_recording() { return g_sim.recording; }
+bool audio_start_record(const char *) { g_sim.recording = true; return true; }
 bool audio_start_record_mono(const char *) { return false; }
-void audio_stop_record() {}
-uint32_t audio_record_duration_s() { return 0; }
+void audio_stop_record() { g_sim.recording = false; }
+uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
 bool audio_mic_ok() { return true; }
 int audio_mic_level_percent() { return 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
-int audio_get_mic_waveform(int16_t *, int16_t *, int) { return 0; }
+// Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
+int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
+    if (!g_sim.recording) return 0;
+    float t0 = millis() / 1000.0f;
+    for (int c = 0; c < 2; c++) {
+        float ts = t0 - c * 0.04f;
+        float syl = sinf(ts * 2 * 3.14159f * 3.7f), env = syl > 0 ? syl : 0;
+        env *= 0.55f + 0.45f * sinf(ts * 0.9f);
+        env *= c ? 0.7f : 1.0f;
+        for (int i = 0; i < n; i++) {
+            float t = ts + i / 16000.0f;
+            float v = env * (0.6f * sinf(t * 2 * 3.14159f * 180) + 0.3f * sinf(t * 2 * 3.14159f * 410 + c) +
+                             0.15f * sinf(t * 2 * 3.14159f * 1250));
+            (c ? r : l)[i] = (int16_t)(v * 9000);
+        }
+    }
+    return n;
+}
 
 // ---- storage / usb / media ------------------------------------------------------------
 bool sd_is_mounted() { return true; }
@@ -142,6 +163,7 @@ bool media_is_image(const char *) { return false; }
 bool media_is_video(const char *) { return false; }
 bool img_decode_file(const char *, int, int, bool, DecodedImage *, char *, size_t) { return false; }
 void img_free(DecodedImage *) {}
+bool img_decode_jpeg_mem(const uint8_t *, size_t, int, int, bool, DecodedImage *) { return false; }
 void video_open(const char *) {}
 bool video_poster(const char *, int, int, bool, DecodedImage *) { return false; }
 uint32_t recordings_revision() { return 1; }
@@ -169,7 +191,7 @@ void fwup_install() {}
 void fwup_cancel() {}
 void fwup_dismiss() {}
 bool fwup_failed_installing() { return false; }
-const char *fwup_latest_version() { return "3.3.0"; }
+const char *fwup_latest_version() { return "3.5.0"; }
 const char *fwup_error() { return ""; }
 uint32_t fwup_total() { return 2401919; }
 uint32_t fwup_written() { return 1530000; }

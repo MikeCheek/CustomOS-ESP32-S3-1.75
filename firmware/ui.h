@@ -104,6 +104,9 @@ struct Screen {
     // this screen - for screens that use the screen edge themselves
     // (progress/indicator rings drawn with ui_arc()/ui_edge_ring()).
     bool             hide_status = false;
+    // true = taps in quick succession all count (the T9 keypad's
+    // multi-tap): hal_touch drops its 240 ms re-press cooldown.
+    bool             fast_taps = false;
 };
 
 // ---- Screen manager ------------------------------------------------------
@@ -132,6 +135,9 @@ uint16_t *ui_framebuffer();
 // Draws the screen under the top one into `dst` (a full frame) - what the
 // user will see once the top screen pops. False if there is none.
 bool ui_render_screen_below(uint16_t *dst);
+// Draws one frame with draw() (on black) and sends it to the panel,
+// outside the screen stack - the always-on clock (aod.cpp).
+bool ui_render_offscreen(void (*draw)(Arduino_GFX *g));
 
 // Clears in-progress auto-rotate state (angle, smoothing filters).
 // Call after toggling auto_rotate off, or when suspending/restoring it
@@ -193,6 +199,8 @@ void ui_fill_circle_rect(int x, int y, int w, int h, int r, uint16_t color);
 // ---- Toast (queued, top-mounted) -----------------------------------------
 #define TOAST_QUEUE_SIZE 4
 void ui_show_toast(const char *text, uint32_t duration_ms = 2500);
+// Same, with a phone app icon (phone_images.h hash) at the left.
+void ui_show_toast_icon(const char *text, uint32_t duration_ms, uint32_t icon);
 void ui_draw_toast();
 bool ui_toast_active();
 // Hit-tests (x,y) against the currently-drawn toast and dismisses it if

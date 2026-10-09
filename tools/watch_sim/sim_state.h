@@ -9,5 +9,6 @@ struct SimState {
     bool wifi = false;
     uint32_t steps = 6482;
     uint8_t fwup = 0;      // FwupState shown by the Software update screen
+    bool recording = false; // the recorder is recording (fake speech on both mics)
 };
 extern SimState g_sim;

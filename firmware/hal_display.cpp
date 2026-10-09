@@ -16,6 +16,8 @@
 #include "config.h"
 
 #include <Arduino_GFX_Library.h>
+#include <driver/spi_master.h>
+#include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -42,6 +44,20 @@
 #define MAX_RECTS      16
 // Past this share of the screen, one full-frame send beats many windows.
 #define FULL_FRAME_PCT 60
+
+// ---- Fast pixel path -----------------------------------------------------------
+// Arduino_ESP32QSPI::writePixels() byte-swaps a 1024-pixel chunk, then
+// spins until it's on the wire, then swaps the next: the CPU and the SPI
+// DMA never overlap, so a full frame took ~100 ms for ~22 ms of wire time.
+// Here a second device on the same bus streams the pixels with two DMA
+// buffers in flight: chunk N+1 is swapped while chunk N is being sent.
+// The library still sets the window (CASET/PASET/RAMWR); this only sends
+// the pixel data that follows, framed exactly like writePixels() does
+// (QSPI cmd 0x32, address 0x003C00 = "memory write continue").
+#define FAST_CHUNK_PX 2048
+static spi_device_handle_t s_fast = nullptr;
+static uint32_t *s_fast_buf[2] = { nullptr, nullptr };
+static spi_transaction_ext_t s_fast_t[2];
 
 static Arduino_DataBus *bus = nullptr;
 static Arduino_GFX *gfx = nullptr;
@@ -76,11 +92,97 @@ static int s_scratch_px = 0;
 
 static DisplayStats s_stats = {};
 
+// ---- Fast pixel path (see top) --------------------------------------------------
+static void fast_init() {
+    for (int i = 0; i < 2; i++) {
+        s_fast_buf[i] = (uint32_t *)heap_caps_aligned_alloc(16, FAST_CHUNK_PX * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (!s_fast_buf[i]) {
+            DEBUG_PRINTF("[display] fast path: no DMA memory, using the library's writes\n");
+            return;
+        }
+    }
+    spi_device_interface_config_t dev = {};
+    dev.command_bits = 8;
+    dev.address_bits = 24;
+    dev.mode = 0;
+    dev.clock_source = SPI_CLK_SRC_DEFAULT;
+    dev.clock_speed_hz = DISPLAY_QSPI_HZ;
+    dev.spics_io_num = -1;              // CS is ours, like the library's
+    dev.flags = SPI_DEVICE_HALFDUPLEX;
+    dev.queue_size = 2;
+    if (spi_bus_add_device(SPI2_HOST, &dev, &s_fast) != ESP_OK) {
+        s_fast = nullptr;
+        DEBUG_PRINTF("[display] fast path: couldn't add the SPI device\n");
+    }
+}
+
+// Native RGB565 pixels -> the panel's big-endian order, two at a time.
+static inline uint32_t swap565x2(uint32_t w) {
+    return ((w & 0x00FF00FFu) << 8) | ((w >> 8) & 0x00FF00FFu);
+}
+
+// Sends the w x h block at (x, y) of fb (row pitch FB_W). x and w even.
+static void fast_rect(const uint16_t *fb, int x, int y, int w, int h) {
+    gfx->startWrite();
+    ((Arduino_CO5300 *)gfx)->writeAddrWindow(x, y, w, h);
+    gfx->endWrite();
+
+    spi_device_acquire_bus(s_fast, portMAX_DELAY);
+    gpio_set_level((gpio_num_t)PIN_LCD_CS, 0);
+    int in_flight = 0, cur = 0, row = 0, col = 0;
+    bool first = true;
+    uint32_t left = (uint32_t)w * h;
+    while (left) {
+        uint32_t n = left > FAST_CHUNK_PX ? FAST_CHUNK_PX : left;
+        if (in_flight == 2) {                       // reuse the oldest buffer
+            spi_transaction_t *done;
+            spi_device_get_trans_result(s_fast, &done, portMAX_DELAY);
+            in_flight--;
+        }
+        // Fill: row segments of the rect, 2 pixels per 32-bit word.
+        uint32_t *dst = s_fast_buf[cur];
+        for (uint32_t k = 0; k < n; ) {
+            const uint32_t *src = (const uint32_t *)(fb + (size_t)(y + row) * FB_W + x + col);
+            uint32_t take = (uint32_t)(w - col);
+            if (take > n - k) take = n - k;
+            for (uint32_t i = 0; i < take / 2; i++) *dst++ = swap565x2(src[i]);
+            k += take;
+            col += take;
+            if (col >= w) { col = 0; row++; }
+        }
+        spi_transaction_ext_t &t = s_fast_t[cur];
+        memset(&t, 0, sizeof(t));
+        if (first) {
+            t.base.flags = SPI_TRANS_MODE_QIO;
+            t.base.cmd = 0x32;
+            t.base.addr = 0x003C00;
+            first = false;
+        } else {
+            t.base.flags = SPI_TRANS_MODE_QIO | SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR |
+                           SPI_TRANS_VARIABLE_DUMMY;
+        }
+        t.base.tx_buffer = s_fast_buf[cur];
+        t.base.length = n * 16;
+        spi_device_queue_trans(s_fast, &t.base, portMAX_DELAY);
+        in_flight++;
+        cur ^= 1;
+        left -= n;
+    }
+    while (in_flight--) {
+        spi_transaction_t *done;
+        spi_device_get_trans_result(s_fast, &done, portMAX_DELAY);
+    }
+    gpio_set_level((gpio_num_t)PIN_LCD_CS, 1);
+    spi_device_release_bus(s_fast);
+}
+
 // ---- Panel bring-up (runs on the sender task) ---------------------------------
 static void panel_init() {
+    // Shared: the library takes the bus per write instead of keeping it,
+    // so the fast pixel path below can use it in between.
     bus = new Arduino_ESP32QSPI(
         PIN_LCD_CS, PIN_LCD_SCLK,
-        PIN_LCD_SDIO0, PIN_LCD_SDIO1, PIN_LCD_SDIO2, PIN_LCD_SDIO3);
+        PIN_LCD_SDIO0, PIN_LCD_SDIO1, PIN_LCD_SDIO2, PIN_LCD_SDIO3, true);
 
     gfx = new Arduino_CO5300(bus, PIN_LCD_RST, LCD_ROTATION, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
 
@@ -95,9 +197,13 @@ static void panel_init() {
     ((Arduino_CO5300 *)gfx)->setBrightness(s_brightness);
     gfx->fillScreen(COLOR_BG);
 
-    s_scratch = (uint16_t *)heap_caps_malloc(SCRATCH_PX * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!s_scratch) s_scratch = (uint16_t *)heap_caps_malloc(SCRATCH_PX * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    s_scratch_px = s_scratch ? SCRATCH_PX : 0;
+    fast_init();
+    if (!s_fast) {
+        // Fallback: library writes, partial-width rects staged in scratch.
+        s_scratch = (uint16_t *)heap_caps_malloc(SCRATCH_PX * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!s_scratch) s_scratch = (uint16_t *)heap_caps_malloc(SCRATCH_PX * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        s_scratch_px = s_scratch ? SCRATCH_PX : 0;
+    }
 
     DEBUG_PRINTF("[display] init done (%dx%d) QSPI %d MHz, sender on core %d\n",
                  LCD_WIDTH, LCD_HEIGHT, DISPLAY_QSPI_HZ / 1000000, xPortGetCoreID());
@@ -115,6 +221,11 @@ static void send_rect(const uint16_t *fb, int x1, int y1, int x2, int y2) {
     int w = x2 - x1 + 1, h = y2 - y1 + 1;
     if (w <= 0 || h <= 0) return;
 
+    if (s_fast) {
+        fast_rect(fb, x1, y1, w, h);
+        s_stats.px_sent += (uint32_t)w * h;
+        return;
+    }
     if (w == FB_W || !s_scratch) {
         // Full-width rows are already contiguous in the framebuffer.
         if (w == FB_W) {
@@ -214,12 +325,14 @@ static void service_commands() {
         xSemaphoreGive(s_cmd_done);
     } else if (cmd == CMD_WAKE) {
         if (gfx) {
-            gfx->displayOn();
+            // Coming out of the always-on clock the panel never slept:
+            // skip DISPON/SLPOUT (and their 240 ms of delays).
+            if (s_panel_asleep) gfx->displayOn();
             ((Arduino_CO5300 *)gfx)->setBrightness(s_brightness);
         }
         s_brightness_dirty = false;
+        if (s_panel_asleep) s_force_full = true; // don't trust GRAM across sleep
         s_panel_asleep = false;
-        s_force_full = true; // don't trust GRAM across sleep
         s_cmd = CMD_NONE;
         xSemaphoreGive(s_cmd_done);
     }

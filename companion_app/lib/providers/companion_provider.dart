@@ -217,6 +217,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   String _lastWidget = '';
   // Maneuver icons the watch already has (it caches 12; we track 10).
   final LinkedHashSet<int> _navIcons = LinkedHashSet<int>();
+  // App icon id -> package, so the watch can ask for an icon by its id.
+  final Map<int, String> _iconPackages = {};
   String _lastNotif = '';
   DateTime _lastNotifAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<int, String> _callNames = {};
@@ -403,6 +405,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         break;
       case 'dnd':
         await _onWatchDnd((e['on'] ?? 0) == 1);
+        break;
+      case 'img':
+        await _sendImage(e['k'] as String? ?? '', (e['h'] as num?)?.toInt() ?? 0);
         break;
       case 'find':
         final on = (e['on'] ?? 0) == 1;
@@ -726,6 +731,21 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   // ---- phone -> watch -----------------------------------------------------------------
 
+  /// The watch asked for an app icon ('i') or the album cover ('a') it
+  /// saw in a notification / now-playing message.
+  Future<void> _sendImage(String kind, int hash) async {
+    if (hash == 0 || !_ble.isConnected) return;
+    Uint8List? jpeg;
+    if (kind == 'i') {
+      final pkg = _iconPackages[hash];
+      if (pkg != null) jpeg = await _native.appIconJpeg(pkg);
+    } else if (kind == 'a') {
+      jpeg = await _native.albumArtJpeg(hash);
+    }
+    if (jpeg == null || jpeg.isEmpty) return;
+    await _ble.sendImage(kind, hash, jpeg);
+  }
+
   Future<void> _onPhoneNotification(Map<String, dynamic> n) async {
     if (!_ble.isConnected) return;
     final type = n['type'] as String? ?? '';
@@ -765,6 +785,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     _lastNotifAt = now;
 
     if (_ble.hasPhoneLink) {
+      final icon = (n['icon'] as num?)?.toInt() ?? 0;
+      final pkg = n['package'] as String? ?? '';
+      if (icon != 0 && pkg.isNotEmpty) _iconPackages[icon] = pkg;
       await _ble.sendLink({
         't': 'ntf',
         'id': id,
@@ -772,6 +795,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'ti': _clip(title, 44),
         'tx': _clip(text, 240),
         'rp': n['canReply'] == true ? 1 : 0,
+        if (icon != 0) 'ic': icon,
       });
     } else {
       // Older watch firmware: plain text only.
@@ -801,6 +825,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'du': (m['duration'] as num?)?.toInt() ?? 0,
         'v': (m['volume'] as num?)?.toInt() ?? 0,
         'vm': (m['volumeMax'] as num?)?.toInt() ?? 15,
+        if (((m['artHash'] as num?)?.toInt() ?? 0) != 0) 'ah': (m['artHash'] as num).toInt(),
       });
     } else {
       await _ble.sendMediaState(MediaState(

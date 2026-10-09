@@ -100,6 +100,11 @@ static void tap_wake_motion() { g_app_settings.wake_on_motion = !g_app_settings.
 static bool get_haptic() { return g_app_settings.haptic_on_touch; }
 static void tap_haptic() { g_app_settings.haptic_on_touch = !g_app_settings.haptic_on_touch; nvs_save_settings(g_app_settings); }
 
+static bool get_pwr_save() { return g_app_settings.power_saving; }
+static void tap_pwr_save() { g_app_settings.power_saving = !g_app_settings.power_saving; nvs_save_settings(g_app_settings); }
+static bool pwr_save_available() { return power_auto_sleep_available(); }
+static bool get_aod() { return g_app_settings.aod_on; }
+static void tap_aod() { g_app_settings.aod_on = !g_app_settings.aod_on; nvs_save_settings(g_app_settings); }
 static bool get_awake_charge() { return g_app_settings.stay_awake_charging; }
 static void tap_awake_charge() { g_app_settings.stay_awake_charging = !g_app_settings.stay_awake_charging; nvs_save_settings(g_app_settings); }
 
@@ -201,37 +206,72 @@ static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
 // internal NVS writes on its own task, independent of any code here),
 // and this is the single most exposed read in the project to that
 // window - a real, confirmed crash, not a theoretical one.
-static SettingsRow S_ROWS[] = {
-    // Ordered most- to least-used: display & sound first, then the
-    // radios the phone/clock depend on, power, everyday behaviour, sound
-    // details, and finally hardware extras and debug aids.
+//
+// Grouped like a phone's settings: the root list opens one page per
+// category, each a list of the rows below.
+static bool get_wx_fx() { return g_app_settings.weather_fx; }
+static void tap_wx_fx() { g_app_settings.weather_fx = !g_app_settings.weather_fx; nvs_save_settings(g_app_settings); }
+
+static SettingsRow ROWS_DISPLAY[] = {
     { "Brightness", "Screen brightness level", ROW_SUBSCREEN, nullptr, nullptr, &settings_brightness_screen, ICON_BRIGHTNESS },
-    { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
-    { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
+    { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
     { "Watchface slots", "Steps, events, weather... on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_comp_screen, ICON_BRIGHTNESS },
-    { "Bluetooth", "Radio for phone sync", ROW_TOGGLE, get_ble, tap_ble, nullptr, ICON_BLUETOOTH },
-    { "WiFi", "Wireless radio for NTP sync", ROW_TOGGLE, get_wifi, tap_wifi, nullptr, ICON_WIFI },
-    { "WiFi Setup", "Scan, pick a network, enter password", ROW_SUBSCREEN, nullptr, nullptr, &wifi_setup_screen, ICON_WIFI },
-    { "Battery Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_battery_screen, ICON_BATTERY },
-    // desc is filled in live with the selected mode (settings_draw)
-    { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
-    { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
-    { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
-    { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
+    { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
     { "Smooth fonts", "Sharper text with accented letters", ROW_TOGGLE, get_smooth_fonts, tap_smooth_fonts, nullptr, nullptr },
+    { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
+};
+
+static SettingsRow ROWS_SOUND[] = {
+    { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
+    { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
     { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
     { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
     { "Haptic on Touch", "Vibrate briefly on every tap", ROW_TOGGLE, get_haptic, tap_haptic, nullptr, ICON_VIBRATION },
-    { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
+};
+
+static SettingsRow ROWS_CONNECT[] = {
+    { "Bluetooth", "Radio for phone sync", ROW_TOGGLE, get_ble, tap_ble, nullptr, ICON_BLUETOOTH },
+    { "WiFi", "Wireless radio for NTP sync", ROW_TOGGLE, get_wifi, tap_wifi, nullptr, ICON_WIFI },
+    { "WiFi Setup", "Scan, pick a network, enter password", ROW_SUBSCREEN, nullptr, nullptr, &wifi_setup_screen, ICON_WIFI },
+    { "Joystick Pairing", "ESP-NOW radio for a physical controller", ROW_TOGGLE, get_espnow, tap_espnow, nullptr, ICON_WIFI },
     { "GPS", "Location module (draws more power)", ROW_TOGGLE, get_gps, tap_gps, nullptr, ICON_GPS,
       gps_row_available, "No GPS module on this board" },
-    { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
-    { "Joystick Pairing", "ESP-NOW radio for a physical controller", ROW_TOGGLE, get_espnow, tap_espnow, nullptr, ICON_WIFI },
+};
+
+static SettingsRow ROWS_BATTERY[] = {
+    { "Battery Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_battery_screen, ICON_BATTERY },
+    // desc is filled in live with the selected mode (page_draw)
+    { "Deep sleep", "Sleep between Bluetooth events, screen off", ROW_TOGGLE, get_pwr_save, tap_pwr_save, nullptr, ICON_BATTERY,
+      pwr_save_available, "Needs the PlatformIO build" },
+    { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
+};
+
+static SettingsRow ROWS_WAKE[] = {
+    { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
+    { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
+    { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
+};
+
+static SettingsRow ROWS_SYSTEM[] = {
+    { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
     { "Software update", "Check GitHub for new firmware", ROW_SUBSCREEN, nullptr, nullptr, &fwup_screen, nullptr },
     { "Diagnostics", "Version, memory, last crash report", ROW_SUBSCREEN, nullptr, nullptr, &diagnostics_screen, nullptr },
 };
-static const int S_ROW_COUNT = sizeof(S_ROWS) / sizeof(S_ROWS[0]);
+
+extern Screen settings_display_screen, settings_sound_screen, settings_connect_screen, settings_power_screen,
+    settings_wake_screen, settings_system_screen;
+
+static SettingsRow ROWS_ROOT[] = {
+    { "Display", "Brightness, always-on, watchface", ROW_SUBSCREEN, nullptr, nullptr, &settings_display_screen, ICON_BRIGHTNESS },
+    { "Sound & haptics", "Volume, microphone, effects", ROW_SUBSCREEN, nullptr, nullptr, &settings_sound_screen, ICON_VOLUME },
+    { "Connections", "Bluetooth, WiFi, GPS", ROW_SUBSCREEN, nullptr, nullptr, &settings_connect_screen, ICON_BLUETOOTH },
+    { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
+    // desc: the battery mode, live (page_draw)
+    { "Wake & quiet", "Raise to wake, tap to wake, bedtime", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "System", "USB, updates, diagnostics", ROW_SUBSCREEN, nullptr, nullptr, &settings_system_screen, ICON_POWER },
+};
+
 static const int S_ROW_H = 78;
 static const int S_ROW_GAP = 8;
 static const int S_ROW_TOP = 80; // >=73.7 needed for a 340px-wide row to clear the round display's safe area at this height - computed from the display's actual radius, not guessed
@@ -241,16 +281,23 @@ static const int S_ROW_PITCH = S_ROW_H + S_ROW_GAP;
 // bottom curve instead of stopping half-hidden in it (MUSE pads its
 // settings list by 110px for the same reason).
 static const int S_LIST_BOTTOM_PAD = 110;
-static const int S_CONTENT_BOTTOM = S_ROW_TOP + S_ROW_COUNT * S_ROW_PITCH - S_ROW_GAP + S_LIST_BOTTOM_PAD;
 
-// Kinetic scroller (ui.h): drag tracks the finger, flicks coast with
-// friction, the ends rubber-band, and it settles on a whole row.
-static UiScroll s_scroll;
-static bool s_back_armed = false;
+// One list page: its rows and its own scroll position, so going back
+// from a page finds the list where it was.
+struct SettingsPage {
+    SettingsRow *rows;
+    int count;
+    // Kinetic scroller (ui.h): drag tracks the finger, flicks coast with
+    // friction, the ends rubber-band, and it settles on a whole row.
+    UiScroll scroll;
+    bool back_armed;
+};
 
-static void settings_create() {
-    ui_scroll_reset(&s_scroll, S_CONTENT_BOTTOM - LCD_HEIGHT, S_ROW_PITCH);
-    s_back_armed = false;
+static void page_create(SettingsPage &p) {
+    int content_bottom = S_ROW_TOP + p.count * S_ROW_PITCH - S_ROW_GAP + S_LIST_BOTTOM_PAD;
+    int max_off = content_bottom - LCD_HEIGHT;
+    ui_scroll_reset(&p.scroll, max_off > 0 ? max_off : 0, S_ROW_PITCH);
+    p.back_armed = false;
 }
 
 static void draw_settings_row(Arduino_GFX *g, int y, const SettingsRow &row) {
@@ -296,46 +343,46 @@ static void draw_settings_row(Arduino_GFX *g, int y, const SettingsRow &row) {
     }
 }
 
-static void settings_draw() {
+static void page_draw(SettingsPage &p) {
     Arduino_GFX *g = ui_gfx();
     if (!g) return;
     // Rows are drawn in full while scrolling - the old "simplified" rows
     // (label only while dragging) were a workaround for every frame
     // blocking on a full-screen flush, which the background panel
     // sender (hal_display) has removed.
-    int off = -ui_scroll_offset(&s_scroll);
-    for (int i = 0; i < S_ROW_COUNT; i++) {
-        if (S_ROWS[i].subscreen == &settings_battery_screen) {
-            S_ROWS[i].desc = battery_mode_adjusted() ? "Adjusted by hand" : battery_profile(battery_mode_current()).name;
+    int off = -ui_scroll_offset(&p.scroll);
+    for (int i = 0; i < p.count; i++) {
+        SettingsRow &row = p.rows[i];
+        if (row.subscreen == &settings_battery_screen || row.subscreen == &settings_power_screen) {
+            row.desc = battery_mode_adjusted() ? "Adjusted by hand" : battery_profile(battery_mode_current()).name;
         }
-        if (S_ROWS[i].subscreen == &usb_mode_screen) {
-            S_ROWS[i].desc = usb_mode_restart_pending() ? "Restart pending - tap to finish"
-                                                        : usb_mode_name(usb_mode_saved());
+        if (row.subscreen == &usb_mode_screen) {
+            row.desc = usb_mode_restart_pending() ? "Restart pending - tap to finish" : usb_mode_name(usb_mode_saved());
         }
         int y = S_ROW_TOP + i * S_ROW_PITCH + off;
         if (y + S_ROW_H < 0 || y > LCD_HEIGHT) continue; // off-screen, skip drawing
-        draw_settings_row(g, y, S_ROWS[i]);
+        draw_settings_row(g, y, row);
     }
 }
 
-static void settings_touch(int x, int y, bool pressed) {
+static void page_touch(SettingsPage &p, int x, int y, bool pressed) {
     // Back button (fixed screen position, never scrolled) - fires on
     // release, so it can't double up with a scroll that starts there.
-    if (pressed && !s_scroll.dragging) s_back_armed = (x < 54 && y < 54);
-    if (s_back_armed) {
-        if (!pressed) { s_back_armed = false; ui_pop_screen(); }
+    if (pressed && !p.scroll.dragging) p.back_armed = (x < 54 && y < 54);
+    if (p.back_armed) {
+        if (!pressed) { p.back_armed = false; ui_pop_screen(); }
         return;
     }
 
-    if (!ui_scroll_touch(&s_scroll, y, pressed)) return;
+    if (!ui_scroll_touch(&p.scroll, y, pressed)) return;
 
     // A tap (released without scrolling, list wasn't coasting): which row?
-    int cy = y + ui_scroll_offset(&s_scroll);
+    int cy = y + ui_scroll_offset(&p.scroll);
     int row_x = (LCD_WIDTH - S_ROW_W) / 2;
-    for (int i = 0; i < S_ROW_COUNT; i++) {
+    for (int i = 0; i < p.count; i++) {
         int ry = S_ROW_TOP + i * S_ROW_PITCH;
         if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x && x <= row_x + S_ROW_W) {
-            const SettingsRow &row = S_ROWS[i];
+            const SettingsRow &row = p.rows[i];
             if (row.available && !row.available()) { ui_show_toast(row.unavailable_desc ? row.unavailable_desc : "Not available", 1800); break; }
             if (row.kind == ROW_TOGGLE && row.on_tap) row.on_tap();
             else if (row.kind == ROW_SUBSCREEN && row.subscreen) ui_push(row.subscreen);
@@ -344,20 +391,31 @@ static void settings_touch(int x, int y, bool pressed) {
     }
 }
 
-static void settings_tick() {
-    ui_scroll_tick(&s_scroll);
-}
-
 static void settings_gesture(Gesture g) {
     if (g == GESTURE_SWIPE_LEFT || g == GESTURE_SWIPE_RIGHT) ui_pop_screen();
 }
 
-Screen settings_screen = {
-    "Settings", GESTURE_MODE_EDGE,
-    UI_FRAME_MS_SMOOTH, // 60 fps target while scrolling/coasting...
-    settings_create, settings_draw, settings_touch, settings_tick, nullptr, settings_gesture,
-    250,                // ...4 fps once idle (nothing moves; only the toggles' state can change)
-};
+// A Screen per page, all sharing the functions above.
+#define SETTINGS_PAGE(name, title, rows)                                                             \
+    static SettingsPage name##_page = { rows, (int)(sizeof(rows) / sizeof(rows[0])), {}, false };    \
+    static void name##_create() { page_create(name##_page); }                                       \
+    static void name##_draw() { page_draw(name##_page); }                                           \
+    static void name##_touch(int x, int y, bool pressed) { page_touch(name##_page, x, y, pressed); } \
+    static void name##_tick() { ui_scroll_tick(&name##_page.scroll); }                              \
+    Screen name = {                                                                                  \
+        title, GESTURE_MODE_EDGE,                                                                    \
+        UI_FRAME_MS_SMOOTH, /* 60 fps target while scrolling/coasting... */                         \
+        name##_create, name##_draw, name##_touch, name##_tick, nullptr, settings_gesture,            \
+        250,                /* ...4 fps once idle (only the toggles' state can change) */            \
+    };
+
+SETTINGS_PAGE(settings_screen, "Settings", ROWS_ROOT)
+SETTINGS_PAGE(settings_display_screen, "Display", ROWS_DISPLAY)
+SETTINGS_PAGE(settings_sound_screen, "Sound", ROWS_SOUND)
+SETTINGS_PAGE(settings_connect_screen, "Connections", ROWS_CONNECT)
+SETTINGS_PAGE(settings_power_screen, "Battery", ROWS_BATTERY)
+SETTINGS_PAGE(settings_wake_screen, "Wake & quiet", ROWS_WAKE)
+SETTINGS_PAGE(settings_system_screen, "System", ROWS_SYSTEM)
 
 // =========================================================================
 //  Brightness sub-screen

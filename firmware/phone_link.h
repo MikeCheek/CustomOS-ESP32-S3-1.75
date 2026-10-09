@@ -32,6 +32,7 @@ struct PhoneMedia {
     int      duration_s;          // 0 = unknown
     int      volume, volume_max;  // phone media volume
     uint32_t updated_ms;
+    uint32_t art;                 // album cover (phone_images.h), 0 = none
 };
 const PhoneMedia &phone_link_media();
 int  phone_link_media_position();  // position extrapolated to now

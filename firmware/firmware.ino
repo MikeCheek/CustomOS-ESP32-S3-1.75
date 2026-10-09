@@ -45,6 +45,8 @@
 #include "app_charging_anim.h"
 #include "app_findme.h"
 #include "phone_link.h"
+#include "phone_images.h"
+#include "aod.h"
 #include "ui_font.h"
 #include "diag.h"
 #include "hal_ota.h"
@@ -628,7 +630,7 @@ void loop() {
     ble_set_low_power(asleep);
 #endif
     usb_mode_update();           // cable poll (2 Hz) + drive eject handling
-    power_update_sleep_policy(); // cheap no-op unless a radio's on/off state actually changed since the last check
+    power_update_sleep_policy(); // CPU clock + light sleep for this state (hal_power.cpp)
 
     if (!was_asleep && !asleep) {
         if (boot_evt == BTN_EVENT_SHORT_PRESS) {
@@ -665,6 +667,7 @@ void loop() {
         ble_update();
         notifications_update();
         phone_link_update();
+        phone_images_update();      // decode an icon / cover that arrived
         check_notes_sync();
 #endif
 #if FEATURE_WIFI
@@ -704,6 +707,7 @@ void loop() {
 #if FEATURE_AUDIO
         audio_idle_power();
 #endif
+        aod_update();               // always-on clock: redraw on the minute
         // Slower poll cadence than the awake path (was 50ms) - locked
         // state has nothing time-critical happening, so there's no
         // reason to re-check touch/motion/BLE this often. 150ms is
@@ -712,13 +716,14 @@ void loop() {
         // processing rate to roughly a third of what it was.
         // With all radios off it light-sleeps through the wait instead
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
-        bool keep_awake = ota_active() || fwup_busy();
+        bool keep_awake = ota_active() || fwup_busy() || aod_sending();
 #if FEATURE_AUDIO
         keep_awake = keep_awake || audio_is_playing() || audio_is_recording();
 #endif
 #if FEATURE_GPS
         keep_awake = keep_awake || gps_is_enabled();
 #endif
+        power_set_keep_awake(keep_awake || notes_download_active() || wifi_xfer_active());
         if (notes_download_active() || wifi_xfer_active()) delay(4);   // a transfer is running: keep it moving
         else if (keep_awake || !power_light_sleep(150)) delay(150);
         return;
@@ -827,6 +832,7 @@ void loop() {
     ble_update();
     notifications_update();
     phone_link_update();
+    phone_images_update();      // decode an icon / cover that arrived
 #endif
 #if FEATURE_WIFI
     bambu_tick(); // internally a no-op unless enabled and WiFi is connected, same as the NTP poll below

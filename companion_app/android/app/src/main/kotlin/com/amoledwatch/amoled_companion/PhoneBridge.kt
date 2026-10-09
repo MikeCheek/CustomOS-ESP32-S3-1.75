@@ -167,6 +167,12 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                             result.success(false)   // no browser
                         }
                     }
+                    // ---- images for the watch (WatchImages) ----
+                    "appIconJpeg" -> result.success(WatchImages.appIconJpeg(app, call.argument<String>("package") ?: ""))
+                    "albumArtJpeg" -> {
+                        val h = call.argument<Int>("hash") ?: 0
+                        result.success(if (h != 0 && h == media.artHash) media.artJpeg else null)
+                    }
                     // ---- app updates (UpdateService.dart) ----
                     "getAppVersion" -> result.success(
                         app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: ""

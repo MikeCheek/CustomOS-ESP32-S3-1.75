@@ -499,6 +499,8 @@ Screen wifi_setup_screen = {
     false, // needs_tilt_calibration
     false, // no_transition
     true,  // no_drag_back - swipe right steps back *inside* this screen (keyboard -> list)
+    false, // hide_status
+    true,  // fast_taps - T9 multi-tap
 };
 
 #else // !FEATURE_WIFI

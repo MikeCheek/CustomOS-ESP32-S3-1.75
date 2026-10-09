@@ -496,4 +496,7 @@ Screen onboarding_screen = {
     true, // suppress_idle - a first-run setup flow (especially typing a name) shouldn't risk an awkward mid-setup auto-lock from the default 2-minute idle timeout
     false, // needs_tilt_calibration
     true,  // no_transition - has its own welcome reveal
+    false, // no_drag_back
+    false, // hide_status
+    true,  // fast_taps - T9 multi-tap for the name
 };

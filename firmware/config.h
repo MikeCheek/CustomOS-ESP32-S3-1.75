@@ -9,19 +9,22 @@
 // ---- Feature flags -------------------------------------------------------
 #define FEATURE_GPS        1
 #define FEATURE_SD_CARD     1
-#define FEATURE_USB_OTG_MODES 0  // Settings > USB Mode always offers
-                                  // Charging only, Firmware & Debug and
-                                  // reboot-to-flash. 1 adds File storage
-                                  // (SD as a USB drive) and Media remote,
-                                  // which start TinyUSB at runtime - build
-                                  // with Tools > USB Mode > "Hardware CDC
-                                  // and JTAG" (the default). Costs ~32 KB
-                                  // of internal RAM (TinyUSB's static
-                                  // buffers); set 0 if WiFi+BLE together
-                                  // run short of heap. See hal_usb.h.
-                                  // 0 since fw 2.8.1: with Bluetooth
-                                  // connected those 32 KB were what
-                                  // Wi-Fi needed to start at all.
+// Settings > USB Mode always offers Charging only, Firmware & Debug and
+// reboot-to-flash. FEATURE_USB_OTG_MODES adds File storage (SD as a USB
+// drive) and Media remote, which start TinyUSB at runtime (needs Tools >
+// USB Mode > "Hardware CDC and JTAG", the default). Modes a build can't
+// run aren't listed.
+// - PlatformIO build: on. The core rebuild drops TinyUSB's settings;
+//   pio/tinyusb_sdkconfig.h puts them back for the stock TinyUSB library.
+//   Wi-Fi / LWIP buffers live in PSRAM there (platformio.ini), which makes
+//   room for TinyUSB's ~32 KB of internal RAM.
+// - Arduino IDE build: off. With Bluetooth connected, TinyUSB's ~32 KB
+//   were what Wi-Fi needed to start at all (fw 2.8.1). See hal_usb.h.
+#ifdef PIO_BUILD
+#define FEATURE_USB_OTG_MODES 1
+#else
+#define FEATURE_USB_OTG_MODES 0
+#endif
 #define FEATURE_AUDIO       1
 #define FEATURE_IO_EXPANDER 1
 #define FEATURE_NVS         1

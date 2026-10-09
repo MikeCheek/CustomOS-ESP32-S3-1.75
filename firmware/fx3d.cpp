@@ -34,6 +34,12 @@ float fx_ease_in_cubic(float t) {
     return t * t * t;
 }
 
+float fx_ease_out_cubic(float t) {
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    float u = 1.0f - t;
+    return 1.0f - u * u * u;
+}
+
 // ---- Card ----------------------------------------------------------------------------
 
 void fx_card(uint16_t *dst, const uint16_t *src, float pitch, float z, float scale, float bright, float squash) {

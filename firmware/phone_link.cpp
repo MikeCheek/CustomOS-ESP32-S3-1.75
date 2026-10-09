@@ -97,12 +97,13 @@ static void handle(const char *msg) {
         s_media.duration_s = doc["du"] | 0;
         s_media.volume = doc["v"] | 0;
         s_media.volume_max = doc["vm"] | 15;
+        s_media.art = doc["ah"] | 0u;
         s_media.valid = s_media.title[0] != 0;
         s_media.updated_ms = millis();
     } else if (!strcmp(t, "ntf")) {
         s_active = true;
         notifications_add(doc["id"] | 0u, doc["ap"] | "Phone", doc["ti"] | "", doc["tx"] | "",
-                          (doc["rp"] | 0) != 0);
+                          (doc["rp"] | 0) != 0, doc["ic"] | 0u);
     } else if (!strcmp(t, "nrm")) {
         notifications_remove(doc["id"] | 0u);
     } else if (!strcmp(t, "call")) {

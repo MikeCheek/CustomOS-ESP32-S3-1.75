@@ -220,6 +220,7 @@ class NotificationListener : NotificationListenerService() {
             "id" to id,
             "package" to sbn.packageName,
             "app" to appLabel(sbn.packageName),
+            "icon" to WatchImages.iconHash(sbn.packageName),
             "title" to title,
             "text" to text,
             "isCall" to isCall,

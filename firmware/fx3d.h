@@ -26,6 +26,7 @@ uint16_t fx_lerp565(uint16_t a, uint16_t b, float t);
 float fx_smooth(float t);         // smoothstep
 float fx_ease_out_back(float t);  // overshoots a little, then settles
 float fx_ease_in_cubic(float t);
+float fx_ease_out_cubic(float t);   // fast start, gentle stop
 
 // ---- Card: a whole frame as a flat plane in 3D -------------------------------
 // Draws `src` (a full LCD_WIDTH x LCD_HEIGHT frame) into `dst` as a card

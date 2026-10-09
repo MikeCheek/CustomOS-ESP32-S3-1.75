@@ -10,6 +10,8 @@
 #include "diag.h"
 #include "anim_lock.h"
 #include "app_charging_anim.h"
+#include "hal_sleep.h"
+#include "app_settings_state.h"
 
 void sim_run(uint32_t ms);
 void sim_save(const char *name);
@@ -73,6 +75,13 @@ void sim_scenarios() {
     sim_save("watchface");
 
     shot(&watchface_minimal_screen, "watchface_minimal");
+
+    // Always-on clock: what the panel shows while the watch sleeps.
+    g_app_settings.aod_on = true;
+    sleep_force_sleep();
+    sim_save("aod");
+    sleep_register_activity();
+    g_app_settings.aod_on = false;
     shot(&menu_screen, "menu");
     shot(&notifications_screen, "notifications");
     shot(&nowplaying_screen, "music");
@@ -83,6 +92,12 @@ void sim_scenarios() {
     g_sim.fwup = FWUP_IDLE;
     shot(&battery_screen, "battery");
     shot(&recorder_screen, "recorder");
+    sim_tap(233, 110);                     // Record
+    sim_run(4200);                         // fill the level history
+    sim_save("recorder_live");
+    record("anim_recorder", 1200, 40);
+    sim_tap(233, 345);                     // Stop
+    sim_run(300);
 
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");
@@ -120,12 +135,12 @@ void sim_scenarios() {
     sim_run(300);
     lock_anim_set_mode(false, false);
     ui_push(&lock_anim_screen);
-    record("anim_lock", 660, 30);
+    record("anim_lock", 240, 20);
     sim_run(300);
 
     lock_anim_set_mode(true, false);
     ui_push(&lock_anim_screen);
-    record("anim_unlock", 600, 30);
+    record("anim_unlock", 260, 20);
     sim_run(300);
 
     home();
@@ -137,13 +152,13 @@ void sim_scenarios() {
     sim_run(300);
     g_sim.charging = true;
     ui_push(&charging_anim_screen);
-    record("anim_charging", 1640, 40);
+    record("anim_charging", 1040, 40);
     g_sim.charging = false;
     sim_run(300);
 
     // An automatic check on Wi-Fi found a release
     home();
-    ui_show_confirm("Update available", "Firmware 3.3.0 is out (you have " FW_VERSION "). Download and install it now?",
+    ui_show_confirm("Update available", "Firmware 3.5.0 is out (you have " FW_VERSION "). Download and install it now?",
                     "Update", "Later", [](bool) {});
     sim_run(800);
     sim_save("update_prompt");

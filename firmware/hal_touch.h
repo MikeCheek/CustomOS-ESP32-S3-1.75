@@ -27,6 +27,10 @@ bool touch_read_raw(uint16_t &raw_x, uint16_t &raw_y);
 // Must be called whenever the active screen changes.
 void touch_set_gesture_mode(uint8_t mode);
 
+// Quick repeated taps on the same spot (multi-tap keypads): a new press
+// right after a release counts instead of being taken for a glitch.
+void touch_set_fast_taps(bool on);
+
 bool touch_swipe_right_detected();
 bool touch_swipe_down_detected();
 bool touch_swipe_left_detected();

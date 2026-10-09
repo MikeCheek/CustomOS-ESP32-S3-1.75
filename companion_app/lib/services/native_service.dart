@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 /// Dart side of android/.../PhoneBridge.kt.
@@ -147,6 +148,12 @@ class NativeService {
 
   /// Opens a web link in the browser. False if there's none to open it.
   Future<bool> openUrl(String url) async => (await _call<bool>('openUrl', {'url': url})) ?? false;
+
+  /// An app's icon as a 40x40 JPEG for the watch, or null.
+  Future<Uint8List?> appIconJpeg(String package) => _call<Uint8List>('appIconJpeg', {'package': package});
+
+  /// The cover of what's playing as a 128x128 JPEG, if [hash] is still current.
+  Future<Uint8List?> albumArtJpeg(int hash) => _call<Uint8List>('albumArtJpeg', {'hash': hash});
 
   // ---- app updates ------------------------------------------------------------------
 

@@ -100,6 +100,18 @@ static void battery_draw() {
     snprintf(buf, sizeof(buf), "PMU temperature: %.1f C", st.temperature_c);
     ui_draw_centered_text(y, COLOR_TEXT_DIM, buf, 1); y += row_h;
 
+    // The real-world number: drain since the cable came out, screen on
+    // and off together (this screen only samples while it's open).
+    int p0;
+    uint32_t el;
+    if (!st.usb_connected && power_since_unplugged(&p0, &el) && el > 600000UL) {
+        float h = el / 3600000.0f;
+        int used = p0 - st.battery_percent;
+        snprintf(buf, sizeof(buf), "Since unplugged: %d%% in %dh%02dm (%.1f%%/h)", used, (int)h,
+                 (int)((el / 60000UL) % 60), used / h);
+        ui_draw_centered_text(y, COLOR_TEXT, buf, 1); y += row_h;
+    }
+
     y += 10;
     float rate = estimate_rate_per_hour();
     if (s_history_count < 3) {

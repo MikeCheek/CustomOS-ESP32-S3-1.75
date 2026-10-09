@@ -7,13 +7,135 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  # Run by hand (Actions > build > Run workflow) with a crash report's
+  # backtrace: the firmware job builds that commit and prints the functions
+  # and source lines.
+  workflow_dispatch:
+    inputs:
+      backtrace:
+        description: "Backtrace line from the watch's crash report (0x... 0x...)"
+        required: false
+        default: ""
 
 env:
   ESP32_CORE: "3.3.10"
   FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc"
 
 jobs:
+  # The release firmware: PlatformIO (pioarduino) with power management,
+  # tickless idle and Bluetooth modem sleep compiled in (platformio.ini).
   firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The first build compiles the Arduino core's libraries for our
+      # sdkconfig (several minutes); the cache makes later ones incremental.
+      - name: Restore PlatformIO cache
+        id: pio-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: pio-v2-${{ hashFiles('platformio.ini', 'boards/*.json') }}-${{ github.sha }}
+          restore-keys: |
+            pio-v2-${{ hashFiles('platformio.ini', 'boards/*.json') }}-
+
+      - name: Install PlatformIO
+        # pioarduino 55.03.312-1 needs >= 6.2.0 (SCons 4.11.1). Pinned so a
+        # new core can't again disagree with the platform's tool-scons.
+        run: pip install "platformio==6.2.0"
+
+      - name: Check FW_VERSION matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
+          tag=${GITHUB_REF_NAME#v}
+          echo "FW_VERSION=$fw tag=$tag"
+          test "$fw" = "$tag"
+
+      - name: Build
+        run: |
+          pio run -e watch 2>&1 | tee build.log
+          test "${PIPESTATUS[0]}" = 0
+          grep -E "^(RAM|Flash):" build.log >> "$GITHUB_STEP_SUMMARY" || true
+          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
+          cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
+
+      - name: On failure, show what the libs package holds for TinyUSB
+        if: failure()
+        run: |
+          L=~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3
+          ls -la $L/lib/libarduino_tinyusb.a || true
+          ls $L/include/arduino_tinyusb $L/include/arduino_tinyusb/include || true
+          grep -c arduino_tinyusb $L/pioarduino-build.py || true
+          grep -n "tusb\|tinyusb" build.log | grep -i "error" | head -20 || true
+
+      # Saved even when the build fails: the core rebuild (the slow part)
+      # is usually done by then, so the next attempt starts from it.
+      - name: Save PlatformIO cache
+        if: always() && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: pio-v2-${{ hashFiles('platformio.ini', 'boards/*.json') }}-${{ github.sha }}
+
+      # The point of this build: make sure the rebuilt core (power management,
+      # tickless idle) is what got linked, not the stock one.
+      - name: Check power management is in the image
+        run: |
+          NM=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
+          syms=$("$NM" .pio/build/watch/firmware.elf)
+          for s in vApplicationSleep esp_pm_impl_idle_hook; do
+            echo "$syms" | grep -qw "$s" || { echo "::error::$s missing - the stock core was linked, not the one built with custom_sdkconfig"; exit 1; }
+          done
+          echo "Power management and tickless idle linked in" >> "$GITHUB_STEP_SUMMARY"
+
+      # The watch only installs signed updates when a key is set in
+      # ota_pubkey.h; it then downloads the *.signed.bin from the release.
+      - name: Sign the firmware (if the OTA_PRIVATE_KEY secret is set)
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
+        run: |
+          if [ -z "$OTA_PRIVATE_KEY" ]; then echo "No OTA_PRIVATE_KEY secret - unsigned build only"; exit 0; fi
+          pip install --quiet cryptography
+          printf '%s\n' "$OTA_PRIVATE_KEY" > "$RUNNER_TEMP/ota_private.pem"
+          python3 scripts/sign_firmware.py AmoledSmartWatchOS-*.bin "$RUNNER_TEMP/ota_private.pem"
+          rm -f "$RUNNER_TEMP/ota_private.pem"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: AmoledSmartWatchOS-*.bin
+
+      # The ELF matches the .bin: decode a crash report's backtrace with
+      #   xtensa-esp32s3-elf-addr2line -pfiaC -e firmware.elf 0x... 0x...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-elf
+          path: .pio/build/watch/firmware.elf
+
+      - name: Decode the backtrace
+        if: github.event_name == 'workflow_dispatch' && inputs.backtrace != ''
+        env:
+          BT: ${{ inputs.backtrace }}
+        run: |
+          A2L=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-addr2line | head -1)
+          addrs=$(echo "$BT" | grep -oE '0x[0-9a-fA-F]{8}' | tr '\n' ' ')
+          echo "### Backtrace" >> "$GITHUB_STEP_SUMMARY"
+          "$A2L" -pfiaC -e .pio/build/watch/firmware.elf $addrs | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The Arduino IDE build (prebuilt core, no power management): kept
+  # compiling so the sketch still opens and builds in the IDE. Releases use
+  # the PlatformIO build below.
+  firmware-arduino:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,14 +161,6 @@ jobs:
             arduino-cli lib install "$lib"
           done
 
-      - name: Check FW_VERSION matches the tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
-          tag=${GITHUB_REF_NAME#v}
-          echo "FW_VERSION=$fw tag=$tag"
-          test "$fw" = "$tag"
-
       - name: Compile
         run: |
           # The sketch is firmware/firmware.ino (folder and .ino share a name)
@@ -54,23 +168,11 @@ jobs:
             --warnings default --build-path build firmware 2>&1 | tee compile.log
           grep -E "Sketch uses|Global variables" compile.log >> "$GITHUB_STEP_SUMMARY"
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
-          cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw.bin"
-
-      # The watch only installs signed updates when a key is set in
-      # ota_pubkey.h; it then downloads the *.signed.bin from the release.
-      - name: Sign the firmware (if the OTA_PRIVATE_KEY secret is set)
-        env:
-          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
-        run: |
-          if [ -z "$OTA_PRIVATE_KEY" ]; then echo "No OTA_PRIVATE_KEY secret - unsigned build only"; exit 0; fi
-          pip install --quiet cryptography
-          printf '%s\n' "$OTA_PRIVATE_KEY" > "$RUNNER_TEMP/ota_private.pem"
-          python3 scripts/sign_firmware.py AmoledSmartWatchOS-*.bin "$RUNNER_TEMP/ota_private.pem"
-          rm -f "$RUNNER_TEMP/ota_private.pem"
+          cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw-arduino.bin"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: firmware-arduino
           path: AmoledSmartWatchOS-*.bin
 
   app:

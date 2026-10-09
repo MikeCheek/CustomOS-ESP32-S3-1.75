@@ -55,7 +55,24 @@ static SemaphoreHandle_t s_i2s_mutex = nullptr;
 static volatile uint32_t s_last_out_ms = 0;
 static volatile bool s_pa_on = true;
 
+// With power management (PlatformIO build, CONFIG_PM_ENABLE) a running
+// I2S port holds a PM lock that keeps the chip out of light sleep, and its
+// MCLK keeps both codecs clocked. So it stops after the same 4 s of quiet
+// as the speaker amp, and starts again before the next sound or recording.
+// The prebuilt Arduino core can't light-sleep anyway: there it keeps running.
+static volatile bool s_i2s_running = true;
+
+static inline void i2s_ensure_running() {
+#if CONFIG_PM_ENABLE
+    if (!s_i2s_running) {
+        i2s_start(I2S_PORT);
+        s_i2s_running = true;
+    }
+#endif
+}
+
 static inline void pa_touch() {
+    i2s_ensure_running();
     s_last_out_ms = millis();
     if (!s_pa_on) {
         s_pa_on = true;
@@ -712,6 +729,8 @@ int audio_mic_level_percent() {
     const int N = 256;
     int16_t samples[N];
     size_t bytes_read = 0;
+    s_last_out_ms = millis();   // keeps I2S running while the meter is open
+    i2s_ensure_running();
     i2s_read(I2S_PORT, samples, sizeof(samples), &bytes_read, 20 / portTICK_PERIOD_MS);
 
     int count = bytes_read / sizeof(int16_t);
@@ -1279,6 +1298,8 @@ static bool start_record(const char *filename) {
 
     s_rec_bytes_written = 0;
     s_rec_start_ms = millis();
+    s_last_out_ms = millis();
+    i2s_ensure_running();
     s_recording = true;
 
     // Create recording task on core 1 with a 16KB stack allocated
@@ -1404,12 +1425,14 @@ void audio_pcm_restore_default() {
 }
 
 // ---- MP3 file playback from SD (via minimp3) ------------------------------
-// Decoder state and output frame live in PSRAM (allocated once at startup):
-// together they were ~11 KB of internal RAM, which WiFi and the BLE
-// controller need - BLE init failed with "Malloc failed" without it.
+// Decoder state and output frame live in PSRAM: together they were ~11 KB
+// of internal RAM, which WiFi and the BLE controller need - BLE init failed
+// with "Malloc failed" without it. Allocated on the first play, not by a
+// global initialiser: those run before PSRAM is up in some core builds
+// (the PlatformIO one), and a null decoder crashed mp3dec_init().
 static File s_mp3_file;
-static mp3dec_t &s_mp3_dec = *(mp3dec_t *)heap_caps_calloc(1, sizeof(mp3dec_t), (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-static int16_t *const s_mp3_pcm = (int16_t *)heap_caps_calloc(MINIMP3_MAX_SAMPLES_PER_FRAME, sizeof(int16_t), (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+static mp3dec_t *s_mp3_dec = nullptr;
+static int16_t *s_mp3_pcm = nullptr;
 
 // Compressed-input buffer, kept topped up so minimp3 always sees at least
 // MP3_MIN_BUFFERED bytes (several whole frames) - see mp3_task(). In PSRAM:
@@ -1477,7 +1500,7 @@ static void mp3_task(void *param) {
             s_mp3_file.seek(s_mp3_audio_start + off);
             s_mp3_input_len = s_mp3_input_pos = 0;
             s_mp3_eof = false;
-            mp3dec_init(&s_mp3_dec); // resyncs on the next frame header by itself
+            mp3dec_init(s_mp3_dec); // resyncs on the next frame header by itself
             rs_reset();
             // Keep the elapsed clock consistent with the new position,
             // using the average bytes-per-sample seen so far.
@@ -1499,7 +1522,7 @@ static void mp3_task(void *param) {
         }
 
         mp3dec_frame_info_t info;
-        int samples_per_ch = mp3dec_decode_frame(&s_mp3_dec,
+        int samples_per_ch = mp3dec_decode_frame(s_mp3_dec,
             s_mp3_input_buf + s_mp3_input_pos,
             s_mp3_input_len - s_mp3_input_pos,
             s_mp3_pcm, &info);
@@ -1589,8 +1612,11 @@ bool audio_play_mp3(const char *filename) {
         return false;
     }
     if (!s_mp3_input_buf) s_mp3_input_buf = (uint8_t *)ps_malloc(MP3_INBUF_SIZE);
-    if (!s_mp3_input_buf) {
-        DEBUG_PRINTF("[audio] MP3 play failed: no memory for input buffer\n");
+    if (!s_mp3_dec) s_mp3_dec = (mp3dec_t *)heap_caps_calloc(1, sizeof(mp3dec_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_mp3_pcm)
+        s_mp3_pcm = (int16_t *)heap_caps_calloc(MINIMP3_MAX_SAMPLES_PER_FRAME, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_mp3_input_buf || !s_mp3_dec || !s_mp3_pcm) {
+        DEBUG_PRINTF("[audio] MP3 play failed: no memory for the decoder\n");
         return false;
     }
 
@@ -1616,7 +1642,7 @@ bool audio_play_mp3(const char *filename) {
         return false;
     }
 
-    mp3dec_init(&s_mp3_dec);
+    mp3dec_init(s_mp3_dec);
     s_mp3_input_len = 0;
     s_mp3_input_pos = 0;
     s_mp3_eof = false;
@@ -1678,6 +1704,7 @@ void audio_stop_playback() {
         i2s_stop(I2S_PORT);
         i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
         i2s_start(I2S_PORT);
+        s_i2s_running = true;
     }
 }
 
@@ -1753,6 +1780,13 @@ void audio_idle_power() {
     if (millis() - s_last_out_ms > 4000) {
         s_pa_on = false;
         digitalWrite(PIN_AUDIO_PA, AUDIO_PA_ACTIVE_HIGH ? LOW : HIGH);
+#if CONFIG_PM_ENABLE
+        if (s_i2s_running && !s_recording) {
+            i2s_zero_dma_buffer(I2S_PORT);
+            i2s_stop(I2S_PORT);
+            s_i2s_running = false;
+        }
+#endif
     }
     if (s_i2s_mutex) xSemaphoreGive(s_i2s_mutex);
 }

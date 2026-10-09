@@ -38,16 +38,24 @@ void power_poll_pek_button();
 bool power_pek_short_press_pending();
 bool power_pek_long_press_pending();
 
-// Dynamically enables/disables automatic FreeRTOS-tickless-idle light
-// sleep depending on whether any radio (BLE, WiFi, ESP-NOW) is
-// currently active - see hal_power.cpp for why this can't just be
-// left on unconditionally. Cheap to call every loop() iteration; it
-// only actually reconfigures the power-management policy when the
-// desired state has changed since the last call.
+// CPU clock and light sleep for the current state (hal_power.cpp). Cheap;
+// call every loop() iteration.
+//  - PlatformIO build (CONFIG_PM_ENABLE): DFS 40 MHz..battery-mode cap,
+//    and automatic light sleep while the screen is off - Bluetooth stays
+//    connected (modem sleep).
+//  - Arduino IDE build: CPU cap via setCpuFrequencyMhz(), 80 MHz with the
+//    screen off; light sleep only by hand with every radio off.
 void power_update_sleep_policy();
+bool power_auto_sleep_available();   // true in the PlatformIO build
 
-// Screen off: CPU drops to 80 MHz (applied by power_update_sleep_policy()).
+// Screen off (asleep, or the always-on clock).
 void power_set_screen_off(bool off);
+// Something needs the chip awake while the screen is off (audio, GPS, a
+// transfer or update in progress).
+void power_set_keep_awake(bool keep);
+// Battery % when the USB cable last came out (or at boot on battery) and
+// the time since. False while plugged in.
+bool power_since_unplugged(int *start_pct, uint32_t *elapsed_ms);
 // Light-sleeps for up to `ms` if nothing needs the chip awake (no radio,
 // no USB). Returns false (did nothing) otherwise - caller then delay()s.
 bool power_light_sleep(uint32_t ms);
