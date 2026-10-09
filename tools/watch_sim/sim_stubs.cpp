@@ -1,6 +1,7 @@
 // Stand-ins for the hardware layers (hal_*.cpp, diag.cpp, the .ino's
 // helpers) with demo values, so screens show a lived-in watch.
 #include <Arduino.h>
+#include <math.h>
 #include <ArduinoJson.h>
 #include "config.h"
 #include "ui.h"
@@ -114,15 +115,32 @@ void audio_set_paused(bool) {}
 void audio_stop_playback() {}
 void audio_seek(float) {}
 bool audio_get_stream_info(AudioStreamInfo *) { return false; }
-bool audio_is_recording() { return false; }
-bool audio_start_record(const char *) { return false; }
+bool audio_is_recording() { return g_sim.recording; }
+bool audio_start_record(const char *) { g_sim.recording = true; return true; }
 bool audio_start_record_mono(const char *) { return false; }
-void audio_stop_record() {}
-uint32_t audio_record_duration_s() { return 0; }
+void audio_stop_record() { g_sim.recording = false; }
+uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
 bool audio_mic_ok() { return true; }
 int audio_mic_level_percent() { return 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
-int audio_get_mic_waveform(int16_t *, int16_t *, int) { return 0; }
+// Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
+int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
+    if (!g_sim.recording) return 0;
+    float t0 = millis() / 1000.0f;
+    for (int c = 0; c < 2; c++) {
+        float ts = t0 - c * 0.04f;
+        float syl = sinf(ts * 2 * 3.14159f * 3.7f), env = syl > 0 ? syl : 0;
+        env *= 0.55f + 0.45f * sinf(ts * 0.9f);
+        env *= c ? 0.7f : 1.0f;
+        for (int i = 0; i < n; i++) {
+            float t = ts + i / 16000.0f;
+            float v = env * (0.6f * sinf(t * 2 * 3.14159f * 180) + 0.3f * sinf(t * 2 * 3.14159f * 410 + c) +
+                             0.15f * sinf(t * 2 * 3.14159f * 1250));
+            (c ? r : l)[i] = (int16_t)(v * 9000);
+        }
+    }
+    return n;
+}
 
 // ---- storage / usb / media ------------------------------------------------------------
 bool sd_is_mounted() { return true; }

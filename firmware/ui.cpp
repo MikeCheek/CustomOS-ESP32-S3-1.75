@@ -11,6 +11,7 @@
 #include "hal_wifi.h"
 #include "hal_ntp.h"
 #include "hal_gps.h"
+#include "hal_audio.h"
 #include "hal_vibrate.h"
 #include "icons.h"
 #include "hal_nvs.h"
@@ -442,6 +443,7 @@ bool ui_screen_on_top(const Screen *screen) {
 
 bool ui_current_screen_suppresses_idle() {
     if (s_keep_awake) return true;   // keep-awake tile in the top panel
+    if (audio_is_recording()) return true;   // no dimming or locking mid-recording
     Screen *scr = active_screen();
     return scr && scr->suppress_idle;
 }
@@ -913,7 +915,8 @@ void ui_update() {
     // the screen - it only slows down redraws nobody's watching change.
     Screen *scr = active_screen();
     uint16_t frame_ms = scr ? scr->frame_ms : UI_FRAME_MS_DEFAULT;
-    if (scr && scr->idle_frame_ms > 0 && sleep_ms_since_activity() >= IDLE_THROTTLE_AFTER_MS) {
+    if (scr && scr->idle_frame_ms > 0 && sleep_ms_since_activity() >= IDLE_THROTTLE_AFTER_MS &&
+        !audio_is_recording()) {   // the recorder's live meters stay smooth
         frame_ms = scr->idle_frame_ms;
     }
     // Slides and drags always run at 60 fps, whatever the screen asks

@@ -7,6 +7,7 @@
 #include "ui_font.h"
 #include "hal_audio.h"
 #include "hal_sd.h"
+#include "fx3d.h"
 #include <SD.h>
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
@@ -136,41 +137,153 @@ static void fmt_len(const RecInfo &ri, char *out, int n) {
              (unsigned long)(ri.secs % 60), sz, ri.transcript ? "  ·  transcript" : "");
 }
 
-// Live dual-mic waveform behind the recording UI (mic1 = left, mic2 = right).
-static void draw_mic_waveform(Arduino_GFX *g) {
-    int16_t wl[128], wr[128];
-    int n = audio_get_mic_waveform(wl, wr, 128);
-    if (n < 2) return;
-    const int baseline = 210, amp_px = 90, x0 = 30, x1 = LCD_WIDTH - 30, span = x1 - x0;
-    for (int i = 1; i < n; i++) {
-        int px0 = x0 + (int)((int32_t)(i - 1) * span / (n - 1));
-        int px1 = x0 + (int)((int32_t)i * span / (n - 1));
-        g->drawLine(px0, baseline - (int)((int32_t)wl[i - 1] * amp_px / 32768), px1,
-                    baseline - (int)((int32_t)wl[i] * amp_px / 32768), COLOR565(0x33, 0xCC, 0xFF));
-        g->drawLine(px0, baseline - (int)((int32_t)wr[i - 1] * amp_px / 32768), px1,
-                    baseline - (int)((int32_t)wr[i] * amp_px / 32768), COLOR565(0xFF, 0x99, 0x33));
+// ---- recording view -------------------------------------------------------------
+//
+// Built for the round panel: the two mics each own one half of the circle
+// (mic 1 left, cyan; mic 2 right, amber).
+//  - Bezel: a level history flowing from 12 o'clock down each side to 6,
+//    one radial bar per ~55 ms (~4 s in view), newest brightest.
+//  - Ring: the live waveform of each mic bent round a circle.
+//  - Centre: the time, a pulsing REC dot, each mic's level, and Stop.
+
+static const int HIST = 72;                       // bars per half circle
+static const int R_BEZEL = LCD_WIDTH / 2 - 8;     // outer end of the history bars
+static const int BAR_MAX = 58;                    // longest bar
+static const int R_RING = 150, RING_AMP = 46;     // waveform ring
+static const int STOP_Y = CY + 112, STOP_R = 34;
+static const uint16_t C_MIC1 = COLOR565(0x33, 0xCC, 0xFF), C_MIC2 = COLOR565(0xFF, 0xA0, 0x33);
+
+static float    s_hist[2][HIST];                  // 0..1, [0] newest
+static float    s_lvl[2], s_peak_acc[2];          // smoothed level, max since last push
+static uint32_t s_hist_ms = 0;
+static float    s_ring[2][64];                    // smoothed waveform for the ring
+
+static void rec_view_reset() {
+    memset(s_hist, 0, sizeof(s_hist));
+    memset(s_ring, 0, sizeof(s_ring));
+    s_lvl[0] = s_lvl[1] = s_peak_acc[0] = s_peak_acc[1] = 0;
+    s_hist_ms = millis();
+}
+
+// RMS of a block as 0..1 on a -54..0 dBFS scale (speech sits in the middle).
+static float level_of(const int16_t *w, int n) {
+    if (n <= 0) return 0;
+    double acc = 0;
+    for (int i = 0; i < n; i++) acc += (double)w[i] * w[i];
+    float rms = sqrtf((float)(acc / n)) / 32768.0f;
+    if (rms < 1e-5f) return 0;
+    float db = 20.0f * log10f(rms);
+    float v = (db + 54.0f) / 54.0f;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+static uint16_t heat(uint16_t base, float v) {          // the loud end runs hot
+    return v > 0.92f ? COLOR_BAD : v > 0.75f ? fx_lerp565(base, COLOR_TEXT, (v - 0.75f) / 0.17f * 0.6f) : base;
+}
+
+static void draw_history(Arduino_GFX *g) {
+    for (int side = 0; side < 2; side++) {
+        uint16_t base = side ? C_MIC2 : C_MIC1;
+        float dir = side ? 1.0f : -1.0f;               // right half clockwise, left half counter
+        for (int i = 0; i < HIST; i++) {
+            float v = s_hist[side][i];
+            // angle from 12 o'clock: newest at the top, oldest at the bottom
+            float a = (i + 0.5f) / HIST * 3.14159265f;
+            float sx = dir * sinf(a), sy = -cosf(a);
+            float len = 3.0f + v * BAR_MAX;
+            int x0 = CX + (int)(sx * R_BEZEL), y0 = CY + (int)(sy * R_BEZEL);
+            int x1 = CX + (int)(sx * (R_BEZEL - len)), y1 = CY + (int)(sy * (R_BEZEL - len));
+            uint32_t k = 8 + (uint32_t)(24.0f * (1.0f - (float)i / HIST));   // fade with age
+            uint16_t c = fx_scale565(heat(base, v), k);
+            g->drawLine(x0, y0, x1, y1, c);
+            // a second line beside it: 2 px bars
+            g->drawLine(x0 + (int)(sy * dir), y0 - (int)(sx * dir), x1 + (int)(sy * dir), y1 - (int)(sx * dir), c);
+        }
+    }
+}
+
+static void draw_ring(Arduino_GFX *g) {
+    for (int side = 0; side < 2; side++) {
+        uint16_t c = side ? C_MIC2 : C_MIC1;
+        float dir = side ? 1.0f : -1.0f;
+        int px = 0, py = 0;
+        for (int i = 0; i <= 63; i++) {
+            float a = i / 63.0f * 3.14159265f;
+            float r = R_RING + s_ring[side][i] * RING_AMP;
+            int x = CX + (int)(dir * sinf(a) * r), y = CY - (int)(cosf(a) * r);
+            if (i) {
+                g->drawLine(px, py, x, y, c);
+                g->drawLine(px, py + 1, x, y + 1, fx_scale565(c, 14));     // soft glow under it
+            }
+            px = x;
+            py = y;
+        }
     }
 }
 
 static void draw_recording(Arduino_GFX *g) {
-    draw_mic_waveform(g);
+    // Sample the mics for this frame.
+    int16_t wl[128], wr[128];
+    int n = audio_get_mic_waveform(wl, wr, 128);
+    float lv[2] = { level_of(wl, n), level_of(wr, n) };
+    for (int c = 0; c < 2; c++) {
+        // fast attack, slow release
+        s_lvl[c] += (lv[c] - s_lvl[c]) * (lv[c] > s_lvl[c] ? 0.6f : 0.15f);
+        if (s_lvl[c] > s_peak_acc[c]) s_peak_acc[c] = s_lvl[c];
+        // The ring shows this block's waveform shape (normalised to its
+        // peak) scaled by the smoothed level: readable at any mic gain,
+        // calm in silence. Not averaged across frames - each block has a
+        // different phase, so averaging would cancel it out.
+        const int16_t *w = c ? wr : wl;
+        int pk = 1;
+        for (int i = 0; i < n; i++) pk = abs(w[i]) > pk ? abs(w[i]) : pk;
+        for (int i = 0; i < 64; i++) {
+            float t = n >= 128 ? (w[2 * i] + w[2 * i + 1]) * 0.5f / pk : 0;
+            float env = sinf((i + 0.5f) / 64.0f * 3.14159265f);   // pinned at top and bottom
+            s_ring[c][i] = t * env * s_lvl[c];
+        }
+    }
+    uint32_t now = millis();
+    while (now - s_hist_ms >= 55) {                 // scroll the history
+        s_hist_ms += 55;
+        for (int c = 0; c < 2; c++) {
+            memmove(&s_hist[c][1], &s_hist[c][0], (HIST - 1) * sizeof(float));
+            s_hist[c][0] = s_peak_acc[c];
+            s_peak_acc[c] = s_lvl[c];
+        }
+    }
+
+    draw_history(g);
+    g->drawCircle(CX, CY, R_RING, COLOR_PANEL);
+    draw_ring(g);
+
+    // REC
+    float pulse = 0.5f + 0.5f * sinf(now * 0.006f);
+    g->fillCircle(CX - 30, CY - 62, 9, fx_scale565(COLOR_BAD, (uint32_t)(12 + 20 * pulse)));
+    ui_print(CX - 14, CY - 70, 2, COLOR_BAD, "REC");
+
     uint32_t el = audio_record_duration_s();
-    float pulse = 0.5f + 0.5f * sinf((float)millis() * 0.005f);
-    g->fillCircle(CX, 132, 44 + (int)(pulse * 6), ui_dim(COLOR_BAD, 0.3f));
-    g->fillCircle(CX, 132, 40, COLOR_BAD);
-    mic_glyph(g, CX, 132, COLOR_TEXT);
     char timer[16];
-    snprintf(timer, sizeof(timer), "%02lu:%02lu", (unsigned long)(el / 60), (unsigned long)(el % 60));
-    ui_text_center(CX, 262, COLOR_TEXT, timer, 5);
-    // level bar
-    int lvl = audio_mic_level_percent();
-    int bw = 220, bx = CX - bw / 2, by = 304;
-    g->fillRoundRect(bx, by, bw, 10, 5, COLOR_PANEL);
-    int fw = lvl * bw / 100;
-    if (fw > 6) g->fillRoundRect(bx, by, fw, 10, 5, lvl > 80 ? COLOR_BAD : lvl > 50 ? COLOR_WARN : COLOR_GOOD);
-    // stop
-    g->fillCircle(CX, 372, 34, s_press == -1 ? ui_dim(COLOR_TEXT, 0.7f) : COLOR_TEXT);
-    g->fillRoundRect(CX - 12, 360, 24, 24, 5, COLOR_BAD);
+    if (el >= 3600) snprintf(timer, sizeof(timer), "%lu:%02lu:%02lu", (unsigned long)(el / 3600),
+                             (unsigned long)(el / 60 % 60), (unsigned long)(el % 60));
+    else snprintf(timer, sizeof(timer), "%02lu:%02lu", (unsigned long)(el / 60), (unsigned long)(el % 60));
+    ui_text_center(CX, CY - 8, COLOR_TEXT, timer, el >= 3600 ? 4 : 5);
+
+    // per-mic level pips
+    for (int c = 0; c < 2; c++) {
+        int bx = c ? CX + 14 : CX - 14 - 60, by = CY + 38;
+        uint16_t col = c ? C_MIC2 : C_MIC1;
+        g->fillRoundRect(bx, by, 60, 6, 3, COLOR_PANEL);
+        int w = (int)(s_lvl[c] * 60);
+        if (w > 4) g->fillRoundRect(c ? bx : bx + 60 - w, by, w, 6, 3, heat(col, s_lvl[c]));
+        ui_text_center(c ? bx + 30 : bx + 30, by + 18, fx_scale565(col, 22), c ? "MIC 2" : "MIC 1", 1);
+    }
+
+    // Stop
+    bool pr = s_press == -1;
+    g->fillCircle(CX, STOP_Y, STOP_R + 3, fx_scale565(COLOR_BAD, (uint32_t)(8 + 10 * pulse)));
+    g->fillCircle(CX, STOP_Y, STOP_R, pr ? ui_dim(COLOR_TEXT, 0.7f) : COLOR_TEXT);
+    g->fillRoundRect(CX - 12, STOP_Y - 12, 24, 24, 5, COLOR_BAD);
 }
 
 static void recorder_draw() {
@@ -273,6 +386,7 @@ static void start_recording() {
     gen_filename(s_cur_filename, sizeof(s_cur_filename));
     if (audio_start_record(s_cur_filename)) {
         s_state = REC_RECORDING;
+        rec_view_reset();
         // The codec didn't answer even after a retry: the file would be silent.
         if (!audio_mic_ok()) ui_show_toast("Microphone not responding - restart the watch", 3000);
     } else {
@@ -350,7 +464,7 @@ static void recorder_touch(int x, int y, bool pressed) {
     s_prev = pressed;
 
     if (s_state == REC_RECORDING) {
-        bool on = (x - CX) * (x - CX) + (y - 372) * (y - 372) < 44 * 44;
+        bool on = (x - CX) * (x - CX) + (y - STOP_Y) * (y - STOP_Y) < (STOP_R + 10) * (STOP_R + 10);
         if (edge) s_press = on ? -1 : -2;
         if (!pressed) { if (s_press == -1 && on) stop_recording(); s_press = -2; }
         return;

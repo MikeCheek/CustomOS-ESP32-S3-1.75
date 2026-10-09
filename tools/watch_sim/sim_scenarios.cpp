@@ -92,6 +92,12 @@ void sim_scenarios() {
     g_sim.fwup = FWUP_IDLE;
     shot(&battery_screen, "battery");
     shot(&recorder_screen, "recorder");
+    sim_tap(233, 110);                     // Record
+    sim_run(4200);                         // fill the level history
+    sim_save("recorder_live");
+    record("anim_recorder", 1200, 40);
+    sim_tap(233, 345);                     // Stop
+    sim_run(300);
 
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");

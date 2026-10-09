@@ -16,7 +16,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Watch face + complications | Minimal face | App menu | Quick panel |
 | ![](docs/screenshots/notifications.png) | ![](docs/screenshots/call.png) | ![](docs/screenshots/music.png) | ![](docs/screenshots/navigation.png) |
 | Notifications | Incoming call | Phone's music | Turn-by-turn |
-| ![](docs/screenshots/calendar.png) | ![](docs/screenshots/recorder.png) | ![](docs/screenshots/game_flappy.png) | ![](docs/screenshots/game_fruitninja.png) |
+| ![](docs/screenshots/calendar.png) | ![](docs/screenshots/recorder_live.png) | ![](docs/screenshots/game_flappy.png) | ![](docs/screenshots/game_fruitninja.png) |
 | Calendar | Voice recorder | Flappy | Fruit Slice |
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
 | Settings | Battery | Update found on Wi-Fi | Software update |
