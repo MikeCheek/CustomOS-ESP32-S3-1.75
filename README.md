@@ -20,6 +20,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Calendar | Voice recorder | Flappy | Fruit Slice |
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
 | Settings | Battery | Update found on Wi-Fi | Software update |
+| ![](docs/screenshots/aod.png) | | | |
+| Always-on display | | | |
 
 ### In motion
 

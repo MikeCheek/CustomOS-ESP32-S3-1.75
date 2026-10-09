@@ -26,6 +26,8 @@ int power_get_battery_percent() { return g_sim.battery; }
 bool power_is_charging() { return g_sim.charging; }
 bool power_pek_long_press_pending() { return false; }
 bool power_pek_short_press_pending() { return false; }
+bool power_auto_sleep_available() { return true; }
+bool power_since_unplugged(int *p, uint32_t *ms) { if (p) *p = 97; if (ms) *ms = 5400000UL; return true; }
 void power_poll_pek_button() {}
 void power_shutdown() {}
 WatchTime rtc_now() {

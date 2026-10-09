@@ -10,6 +10,8 @@
 #include "diag.h"
 #include "anim_lock.h"
 #include "app_charging_anim.h"
+#include "hal_sleep.h"
+#include "app_settings_state.h"
 
 void sim_run(uint32_t ms);
 void sim_save(const char *name);
@@ -73,6 +75,13 @@ void sim_scenarios() {
     sim_save("watchface");
 
     shot(&watchface_minimal_screen, "watchface_minimal");
+
+    // Always-on clock: what the panel shows while the watch sleeps.
+    g_app_settings.aod_on = true;
+    sleep_force_sleep();
+    sim_save("aod");
+    sleep_register_activity();
+    g_app_settings.aod_on = false;
     shot(&menu_screen, "menu");
     shot(&notifications_screen, "notifications");
     shot(&nowplaying_screen, "music");
