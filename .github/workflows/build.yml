@@ -26,8 +26,9 @@ jobs:
 
       # The first build compiles the Arduino core's libraries for our
       # sdkconfig (several minutes); the cache makes later ones incremental.
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
+      - name: Restore PlatformIO cache
+        id: pio-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.platformio
@@ -56,6 +57,17 @@ jobs:
           grep -E "^(RAM|Flash):" build.log >> "$GITHUB_STEP_SUMMARY" || true
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
+
+      # Saved even when the build fails: the core rebuild (the slow part)
+      # is usually done by then, so the next attempt starts from it.
+      - name: Save PlatformIO cache
+        if: always() && steps.pio-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: pio-v2-${{ hashFiles('platformio.ini', 'boards/*.json') }}-${{ github.sha }}
 
       # The point of this build: make sure the rebuilt core (power management,
       # tickless idle) is what got linked, not the stock one.
