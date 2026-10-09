@@ -67,6 +67,15 @@ jobs:
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
 
+      - name: On failure, show what the libs package holds for TinyUSB
+        if: failure()
+        run: |
+          L=~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3
+          ls -la $L/lib/libarduino_tinyusb.a || true
+          ls $L/include/arduino_tinyusb $L/include/arduino_tinyusb/include || true
+          grep -c arduino_tinyusb $L/pioarduino-build.py || true
+          grep -n "tusb\|tinyusb" build.log | grep -i "error" | head -20 || true
+
       # Saved even when the build fails: the core rebuild (the slow part)
       # is usually done by then, so the next attempt starts from it.
       - name: Save PlatformIO cache
