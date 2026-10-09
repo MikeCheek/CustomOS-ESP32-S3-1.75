@@ -39,14 +39,15 @@ Built on Arduino + Arduino_GFX, no LVGL.
 - **3D effects** - software-rendered on the watch: a particle power-on sequence, lock/unlock that tilt the real
   screen into the distance and switch it off like a CRT, a 3D spectrum ring round the music controls, and a
   spinning 3D bolt when charging starts.
-- **Phone link** - notifications with quick and voice replies, incoming calls (answer/decline), music remote,
+- **Phone link** - notifications with app icons and quick and voice replies, incoming calls (answer/decline), music remote with album art,
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games** - Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board).
-- **Power** - light sleep, battery modes (Balanced / Saver / Ultra), wake on wrist raise or tap, auto-dim.
+- **Power** - light sleep with the phone still connected, an always-on display, battery modes
+  (Balanced / Saver / Ultra), wake on wrist raise or tap, auto-dim.
 - **System** - encrypted pairing, crash reports, signed firmware updates over Bluetooth or Wi-Fi with automatic
   rollback, USB modes, guided first-boot setup.
 
@@ -92,11 +93,12 @@ One release (tag `vX.Y.Z`) carries both the firmware and the app.
 
 | | |
 |---|---|
-| **Firmware** | Arduino IDE or `arduino-cli`, core **esp32 3.3.10**, board *ESP32S3 Dev Module*, PSRAM *OPI*, flash 16 MB, partitions *16M Flash (3MB APP/9.9MB FATFS)*, USB CDC on boot. Libraries pinned in [`scripts/arduino-libraries.txt`](scripts/arduino-libraries.txt); three more are vendored in `firmware/libraries/`. |
+| **Firmware** | **PlatformIO** (recommended, what releases use): `pio run -t upload` - same sources, plus ESP-IDF power management and Bluetooth modem sleep, so the watch light-sleeps with the phone connected. The first build compiles the core's libraries and takes a while. |
+| **Arduino IDE** | Also builds, without the power management: core **esp32 3.3.10**, board *ESP32S3 Dev Module*, PSRAM *OPI*, flash 16 MB, partitions *16M Flash (3MB APP/9.9MB FATFS)*, USB CDC on boot. Libraries pinned in [`scripts/arduino-libraries.txt`](scripts/arduino-libraries.txt); three more are vendored in `firmware/libraries/`. |
 | **CLI** | `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries firmware/libraries firmware` |
 | **App** | `cd companion_app && flutter pub get && flutter run` |
 | **Screenshots** | `tools/watch_sim/run.sh` - compiles the UI for the PC and renders `docs/screenshots/` |
-| **CI** | every push builds the firmware and the APK; a `v*` tag publishes a release |
+| **CI** | every push builds the firmware (PlatformIO, and the Arduino IDE build as a check) and the APK; a `v*` tag publishes a release |
 
 **Layout:** `firmware/` the Arduino sketch · `companion_app/` the Flutter app · `scripts/` signing and setup helpers ·
 `tools/watch_sim/` the screenshot simulator · [`COMPANION_PROTOCOL.md`](COMPANION_PROTOCOL.md) the watch ↔ app protocol ·

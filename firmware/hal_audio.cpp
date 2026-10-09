@@ -55,7 +55,24 @@ static SemaphoreHandle_t s_i2s_mutex = nullptr;
 static volatile uint32_t s_last_out_ms = 0;
 static volatile bool s_pa_on = true;
 
+// With power management (PlatformIO build, CONFIG_PM_ENABLE) a running
+// I2S port holds a PM lock that keeps the chip out of light sleep, and its
+// MCLK keeps both codecs clocked. So it stops after the same 4 s of quiet
+// as the speaker amp, and starts again before the next sound or recording.
+// The prebuilt Arduino core can't light-sleep anyway: there it keeps running.
+static volatile bool s_i2s_running = true;
+
+static inline void i2s_ensure_running() {
+#if CONFIG_PM_ENABLE
+    if (!s_i2s_running) {
+        i2s_start(I2S_PORT);
+        s_i2s_running = true;
+    }
+#endif
+}
+
 static inline void pa_touch() {
+    i2s_ensure_running();
     s_last_out_ms = millis();
     if (!s_pa_on) {
         s_pa_on = true;
@@ -712,6 +729,8 @@ int audio_mic_level_percent() {
     const int N = 256;
     int16_t samples[N];
     size_t bytes_read = 0;
+    s_last_out_ms = millis();   // keeps I2S running while the meter is open
+    i2s_ensure_running();
     i2s_read(I2S_PORT, samples, sizeof(samples), &bytes_read, 20 / portTICK_PERIOD_MS);
 
     int count = bytes_read / sizeof(int16_t);
@@ -1279,6 +1298,8 @@ static bool start_record(const char *filename) {
 
     s_rec_bytes_written = 0;
     s_rec_start_ms = millis();
+    s_last_out_ms = millis();
+    i2s_ensure_running();
     s_recording = true;
 
     // Create recording task on core 1 with a 16KB stack allocated
@@ -1678,6 +1699,7 @@ void audio_stop_playback() {
         i2s_stop(I2S_PORT);
         i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
         i2s_start(I2S_PORT);
+        s_i2s_running = true;
     }
 }
 
@@ -1753,6 +1775,13 @@ void audio_idle_power() {
     if (millis() - s_last_out_ms > 4000) {
         s_pa_on = false;
         digitalWrite(PIN_AUDIO_PA, AUDIO_PA_ACTIVE_HIGH ? LOW : HIGH);
+#if CONFIG_PM_ENABLE
+        if (s_i2s_running && !s_recording) {
+            i2s_zero_dma_buffer(I2S_PORT);
+            i2s_stop(I2S_PORT);
+            s_i2s_running = false;
+        }
+#endif
     }
     if (s_i2s_mutex) xSemaphoreGive(s_i2s_mutex);
 }

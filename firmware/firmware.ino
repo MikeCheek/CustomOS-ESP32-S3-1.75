@@ -630,7 +630,7 @@ void loop() {
     ble_set_low_power(asleep);
 #endif
     usb_mode_update();           // cable poll (2 Hz) + drive eject handling
-    power_update_sleep_policy(); // cheap no-op unless a radio's on/off state actually changed since the last check
+    power_update_sleep_policy(); // CPU clock + light sleep for this state (hal_power.cpp)
 
     if (!was_asleep && !asleep) {
         if (boot_evt == BTN_EVENT_SHORT_PRESS) {
@@ -723,6 +723,7 @@ void loop() {
 #if FEATURE_GPS
         keep_awake = keep_awake || gps_is_enabled();
 #endif
+        power_set_keep_awake(keep_awake || notes_download_active() || wifi_xfer_active());
         if (notes_download_active() || wifi_xfer_active()) delay(4);   // a transfer is running: keep it moving
         else if (keep_awake || !power_light_sleep(150)) delay(150);
         return;

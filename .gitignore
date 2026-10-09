@@ -37,3 +37,6 @@ keys/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# PlatformIO
+.pio/
