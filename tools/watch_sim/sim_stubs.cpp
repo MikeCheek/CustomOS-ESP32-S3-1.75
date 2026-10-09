@@ -173,7 +173,7 @@ void fwup_install() {}
 void fwup_cancel() {}
 void fwup_dismiss() {}
 bool fwup_failed_installing() { return false; }
-const char *fwup_latest_version() { return "3.3.0"; }
+const char *fwup_latest_version() { return "3.5.0"; }
 const char *fwup_error() { return ""; }
 uint32_t fwup_total() { return 2401919; }
 uint32_t fwup_written() { return 1530000; }

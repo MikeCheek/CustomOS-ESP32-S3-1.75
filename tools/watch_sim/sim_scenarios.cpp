@@ -152,7 +152,7 @@ void sim_scenarios() {
 
     // An automatic check on Wi-Fi found a release
     home();
-    ui_show_confirm("Update available", "Firmware 3.3.0 is out (you have " FW_VERSION "). Download and install it now?",
+    ui_show_confirm("Update available", "Firmware 3.5.0 is out (you have " FW_VERSION "). Download and install it now?",
                     "Update", "Later", [](bool) {});
     sim_run(800);
     sim_save("update_prompt");
