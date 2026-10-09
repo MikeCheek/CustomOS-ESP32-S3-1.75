@@ -31,6 +31,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putBool("stay_awake_chg", s.stay_awake_charging);
     s_prefs.putBool("aod_on", s.aod_on);
     s_prefs.putBool("pwr_save", s.power_saving);
+    s_prefs.putBool("wx_fx", s.weather_fx);
     s_prefs.putBool("haptic_touch", s.haptic_on_touch);
     s_prefs.putUChar("brightness", s.brightness);
     s_prefs.putUChar("wf_idx", s.watchface_index);
@@ -89,6 +90,7 @@ bool nvs_load_settings(AppSettings &s) {
     s.stay_awake_charging = s_prefs.getBool("stay_awake_chg", false);
     s.aod_on = s_prefs.getBool("aod_on", false);
     s.power_saving = s_prefs.getBool("pwr_save", true);
+    s.weather_fx = s_prefs.getBool("wx_fx", true);
     s.haptic_on_touch = s_prefs.getBool("haptic_touch", false);
     s.brightness = s_prefs.getUChar("brightness", DEFAULT_BRIGHTNESS);
     s.watchface_index = s_prefs.getUChar("wf_idx", 0);

@@ -1,4 +1,5 @@
 #include "app_watchface.h"
+#include "weather_fx.h"
 #include "complications.h"
 #include "app_menu.h"
 #include "watchface_registry.h"
@@ -202,6 +203,7 @@ static void watchface_draw() {
     Arduino_GFX *g = ui_gfx();
     if (!g) return;
 
+    weather_fx_draw(g);   // behind everything (Settings > Display > Weather effects)
     draw_seconds_arc(g, rtc_now().second);
     draw_eyes(g);
     draw_time(g);

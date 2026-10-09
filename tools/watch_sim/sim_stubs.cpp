@@ -85,7 +85,7 @@ bool ble_get_contacts(const char **, int *) { return false; }
 void ble_consume_contacts() {}
 bool ble_get_fitness(const char **, int *) { return false; }
 bool ble_get_weather(const char **d, int *n) {
-    static const char W[] = "{\"t\":19,\"c\":\"Partly cloudy\",\"hi\":22,\"lo\":13,\"code\":2,\"city\":\"Milan\"}";
+    static const char W[] = "{\"tempC\":19,\"condition\":\"Rain\",\"humidity\":80}";
     *d = W; *n = sizeof(W) - 1; return true;
 }
 bool ble_get_watchface_data(const char **, int *) { return false; }

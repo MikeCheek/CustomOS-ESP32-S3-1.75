@@ -5,11 +5,10 @@
  *
  * Lock and unlock work on the real screen: lock takes the last frame that
  * went to the panel, unlock and boot draw the screen underneath into a
- * PSRAM frame (ui_render_screen_below()). That frame is then shown as a
- * card in perspective - tilting away / swinging in - with fx_card(),
- * which maps each output row to one source row, so a full-screen warp is
- * cheap enough for 60 fps. The CRT line and dot, and the boot particles,
- * are drawn on top with ordinary GFX calls.
+ * PSRAM frame (ui_render_screen_below()). Lock and unlock show it through
+ * a quick circular iris (~0.2 s); boot shows it as a card in perspective
+ * flying in with fx_card(), which maps each output row to one source row,
+ * so a full-screen warp is cheap enough for 60 fps.
  *
  * Without spare PSRAM for the frame the card parts are skipped (the line
  * and particles still play).
@@ -31,7 +30,7 @@
 
 enum AnimKind : uint8_t { ANIM_WAKE, ANIM_LOCK, ANIM_BOOT };
 
-static const uint32_t DUR_WAKE = 560, DUR_LOCK = 620, DUR_BOOT = 2100;
+static const uint32_t DUR_WAKE = 220, DUR_LOCK = 200, DUR_BOOT = 2100;
 static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 
 static AnimKind s_kind = ANIM_WAKE;
@@ -198,6 +197,29 @@ static void anim_create() {
     s_start_ms = millis();
 }
 
+// Shows s_frame inside a circle of radius open * (screen radius + a bit),
+// black outside, with a thin accent rim; open = 0 leaves a fading dot.
+static void iris(Arduino_GFX *g, uint16_t *fb, float open) {
+    const float R = (float)LCD_WIDTH * 0.5f + 8.0f;
+    float r = open * R;
+    if (s_have_frame && fb && r > 2.0f) {
+        memcpy(fb, s_frame, (size_t)LCD_WIDTH * LCD_HEIGHT * 2);
+        for (int y = 0; y < LCD_HEIGHT; y++) {
+            float dy = (float)y + 0.5f - CY;
+            if (fabsf(dy) >= r) { g->fillRect(0, y, LCD_WIDTH, 1, COLOR_BG); continue; }
+            int half = (int)sqrtf(r * r - dy * dy);
+            if (CX - half > 0) g->fillRect(0, y, CX - half, 1, COLOR_BG);
+            if (CX + half < LCD_WIDTH) g->fillRect(CX + half, y, LCD_WIDTH - CX - half, 1, COLOR_BG);
+        }
+    }
+    if (r > 2.0f && r < R - 4.0f) {
+        uint16_t rim = fx_scale565(COLOR_ACCENT, (uint32_t)(32 * (0.4f + 0.6f * (1.0f - open))));
+        g->drawCircle(CX, CY, (int)r, rim);
+        g->drawCircle(CX, CY, (int)r - 1, rim);
+    }
+    if (open < 0.12f) crt_dot(g, 3.0f + 20.0f * open, 1.0f - open / 0.12f * 0.5f);
+}
+
 static void anim_draw() {
     Arduino_GFX *g = ui_gfx();
     uint16_t *fb = ui_framebuffer();
@@ -210,42 +232,12 @@ static void anim_draw() {
         return;
     }
 
-    if (s_kind == ANIM_LOCK) {
-        // 0..0.6: the screen tilts back and recedes; 0.6..1: CRT off.
-        float t = (float)el / DUR_LOCK;
-        float a = clamp01(t / 0.6f), e = fx_ease_in_cubic(a) * 0.6f + fx_smooth(a) * 0.4f;
-        float q = clamp01((t - 0.55f) / 0.45f);
-        float squash = 1.0f - 0.97f * fx_smooth(q * 1.4f);
-        float pitch = 1.3f * e, z = 300.0f * e, scale = 1.0f - 0.25f * e;
-        if (s_have_frame && fb && q < 0.75f)
-            fx_card(fb, s_frame, pitch, z, scale, (1.0f - 0.6f * e) * (1.0f - q), squash);
-        if (q < 0.6f) fx_card_rim(g, pitch, z, scale, squash, 0xC6FF, fx_smooth(a * 3.0f) * (1.0f - q / 0.6f));
-        if (q > 0.0f) {
-            crt_line(g, (int)(200 * (1.0f - fx_smooth(q * 1.25f))), fx_smooth(q * 3.0f));
-            crt_dot(g, 5.0f * (1.0f - fx_smooth((q - 0.65f) / 0.35f)), q > 0.6f ? 1.0f : 0.0f);
-        }
-        return;
-    }
-
-    // Unlock: 0..0.18 a dot stretches into the CRT line; then the screen
-    // opens out of the line and swings up from tilted-back to flat, with a
-    // little overshoot.
-    float t = (float)el / DUR_WAKE;
-    float q = clamp01(t / 0.18f);
-    float p = clamp01((t - 0.12f) / 0.88f);
-    if (s_have_frame && fb && p > 0.0f) {
-        float swing = fx_ease_out_back(p);
-        float open = fx_smooth(p * 2.2f);
-        float pitch = 1.1f * (1.0f - swing), z = 240.0f * (1.0f - fx_smooth(p)), scale = 0.85f + 0.15f * fx_smooth(p);
-        float squash = 0.02f + 0.98f * open;
-        fx_card(fb, s_frame, pitch, z, scale, 0.3f + 0.7f * fx_smooth(p * 1.3f), squash);
-        fx_card_rim(g, pitch, z, scale, squash, 0xC6FF, 1.0f - fx_smooth((p - 0.45f) / 0.55f));
-    }
-    if (q < 1.0f || p < 0.35f) {
-        float lb = q < 1.0f ? 1.0f : 1.0f - p / 0.35f;
-        crt_dot(g, 4.0f * (1.0f - q), 1.0f - q);
-        crt_line(g, (int)(210 * fx_smooth(q)), lb);
-    }
+    // Lock and unlock: a quick iris - the screen closes into a circle and
+    // a dot, or opens out of one. One frame copy and two fills per row:
+    // light enough for full frame rate at any CPU clock.
+    float t = (float)el / duration();
+    float open = s_kind == ANIM_LOCK ? 1.0f - fx_ease_in_cubic(t) : fx_smooth(t);
+    iris(g, fb, open);
 }
 
 static void anim_touch(int, int, bool pressed) {

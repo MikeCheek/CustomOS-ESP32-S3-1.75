@@ -129,12 +129,12 @@ void sim_scenarios() {
     sim_run(300);
     lock_anim_set_mode(false, false);
     ui_push(&lock_anim_screen);
-    record("anim_lock", 660, 30);
+    record("anim_lock", 240, 20);
     sim_run(300);
 
     lock_anim_set_mode(true, false);
     ui_push(&lock_anim_screen);
-    record("anim_unlock", 600, 30);
+    record("anim_unlock", 260, 20);
     sim_run(300);
 
     home();
@@ -146,7 +146,7 @@ void sim_scenarios() {
     sim_run(300);
     g_sim.charging = true;
     ui_push(&charging_anim_screen);
-    record("anim_charging", 1640, 40);
+    record("anim_charging", 1040, 40);
     g_sim.charging = false;
     sim_run(300);
 
