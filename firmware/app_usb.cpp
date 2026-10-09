@@ -63,7 +63,9 @@ static void build_items() {
         y += h + GAP;
     };
     add(IT_STATUS, USB_MODE_FIRMWARE, STATUS_H);
-    for (int m = 0; m < USB_MODE_COUNT; m++) add(IT_MODE, (UsbMode)m, MODE_H);
+    // Modes this build can't run aren't listed at all.
+    for (int m = 0; m < USB_MODE_COUNT; m++)
+        if (usb_mode_supported((UsbMode)m)) add(IT_MODE, (UsbMode)m, MODE_H);
     if (usb_mode_restart_pending()) add(IT_RESTART, usb_mode_saved(), ACTION_H);
     if (usb_mode_active() == USB_MODE_REMOTE && !usb_mode_restart_pending())
         add(IT_OPEN_REMOTE, USB_MODE_REMOTE, ACTION_H);
@@ -220,8 +222,7 @@ static void draw_mode_row(Arduino_GFX *g, int y, UsbMode m) {
 
     const char *tag = nullptr;
     uint16_t tag_c = COLOR_GOOD;
-    if (!usb_mode_supported(m))        { tag = "NOT IN THIS BUILD (see config.h)"; tag_c = COLOR_TEXT_DIM; }
-    else if (m == USB_MODE_STORAGE && !sd_is_mounted()) { tag = "NO SD CARD"; tag_c = COLOR_BAD; }
+    if (m == USB_MODE_STORAGE && !sd_is_mounted()) { tag = "NO SD CARD"; tag_c = COLOR_BAD; }
     else if (saved && active)          tag = "IN USE";
     else if (saved && pending)         { tag = "AFTER RESTART"; tag_c = COLOR_WARN; }
     else if (active && pending)        { tag = "IN USE UNTIL RESTART"; tag_c = COLOR_TEXT_DIM; }

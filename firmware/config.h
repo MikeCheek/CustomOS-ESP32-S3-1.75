@@ -12,18 +12,15 @@
 // Settings > USB Mode always offers Charging only, Firmware & Debug and
 // reboot-to-flash. FEATURE_USB_OTG_MODES adds File storage (SD as a USB
 // drive) and Media remote, which start TinyUSB at runtime (needs Tools >
-// USB Mode > "Hardware CDC and JTAG", the default).
-// - PlatformIO build: on. platformio.ini builds TinyUSB with only the
-//   classes these use (CDC, MSC, HID) and puts Wi-Fi/LWIP buffers in
-//   PSRAM, so its static buffers no longer crowd Wi-Fi out.
-// - Arduino IDE build: off. The prebuilt core's TinyUSB carries every
-//   class (~32 KB of internal RAM), and with Bluetooth connected that was
-//   what Wi-Fi needed to start at all (fw 2.8.1). See hal_usb.h.
-#ifdef PIO_BUILD
-#define FEATURE_USB_OTG_MODES 1
-#else
+// USB Mode > "Hardware CDC and JTAG", the default). Modes a build can't
+// run aren't listed. Off in both builds:
+// - Arduino IDE: the prebuilt core's TinyUSB carries every class (~32 KB
+//   of internal RAM), and with Bluetooth connected that was what Wi-Fi
+//   needed to start at all (fw 2.8.1). See hal_usb.h.
+// - PlatformIO: the core rebuild for custom_sdkconfig has no TinyUSB at
+//   all (its arduino_tinyusb component only exists in Espressif's
+//   lib-builder), so the USB library doesn't compile there.
 #define FEATURE_USB_OTG_MODES 0
-#endif
 #define FEATURE_AUDIO       1
 #define FEATURE_IO_EXPANDER 1
 #define FEATURE_NVS         1
