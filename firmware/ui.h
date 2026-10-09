@@ -104,6 +104,9 @@ struct Screen {
     // this screen - for screens that use the screen edge themselves
     // (progress/indicator rings drawn with ui_arc()/ui_edge_ring()).
     bool             hide_status = false;
+    // true = taps in quick succession all count (the T9 keypad's
+    // multi-tap): hal_touch drops its 240 ms re-press cooldown.
+    bool             fast_taps = false;
 };
 
 // ---- Screen manager ------------------------------------------------------

@@ -435,6 +435,7 @@ bool ui_current_screen_suppresses_idle() {
 static void sync_gesture_mode() {
     Screen *scr = active_screen();
     touch_set_gesture_mode(scr ? (uint8_t)scr->gesture_mode : 0);
+    touch_set_fast_taps(scr && scr->fast_taps);
 }
 
 // ---- Transitions ------------------------------------------------------------

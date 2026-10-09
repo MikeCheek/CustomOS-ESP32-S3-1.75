@@ -12,7 +12,12 @@ static uint32_t s_last_valid_ms = 0;
 static const uint32_t GRACE_MS = 100;
 
 static uint32_t s_last_release_ms = 0;
+// A press within this long of a release is held back: it's usually the
+// controller glitching mid-gesture, not a new tap. Screens that need
+// quick repeated taps (the T9 keypad) shorten it - see touch_set_fast_taps().
 static const uint32_t RELEASE_COOLDOWN_MS = 240;
+static const uint32_t FAST_TAP_COOLDOWN_MS = 40;
+static uint32_t s_release_cooldown_ms = RELEASE_COOLDOWN_MS;
 
 // Gesture mode — set by ui.cpp when the active screen changes
 static uint8_t s_gesture_mode = 0; // 0=NONE, 1=EDGE, 2=FREE
@@ -80,6 +85,10 @@ void touch_init() {
         pinMode(PIN_TP_INT, INPUT);
     }
     DEBUG_PRINTF("[touch] CST9217 init at 0x%02X\n", TP_I2C_ADDR);
+}
+
+void touch_set_fast_taps(bool on) {
+    s_release_cooldown_ms = on ? FAST_TAP_COOLDOWN_MS : RELEASE_COOLDOWN_MS;
 }
 
 void touch_set_gesture_mode(uint8_t mode) {
@@ -171,7 +180,7 @@ TouchPoint touch_read() {
 
             if (s_touch_pending && (now - s_pending_ms) < PENDING_TIMEOUT_MS &&
                 abs((int)x - (int)s_pending_x) < 30 && abs((int)y - (int)s_pending_y) < 30 &&
-                (now - s_last_release_ms) >= RELEASE_COOLDOWN_MS) {
+                (now - s_last_release_ms) >= s_release_cooldown_ms) {
                 s_last_touched = true;
                 s_last_x = x;
                 s_last_y = y;

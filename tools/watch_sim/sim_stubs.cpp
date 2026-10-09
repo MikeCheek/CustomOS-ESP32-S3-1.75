@@ -39,6 +39,7 @@ void imu_step_counter_update(const ImuSample &) {}
 TouchPoint touch_read() { return { false, 0, 0 }; }
 bool touch_read_raw(uint16_t &, uint16_t &) { return false; }
 void touch_set_gesture_mode(uint8_t) {}
+void touch_set_fast_taps(bool) {}
 void touch_cancel_swipes() {}
 bool touch_swipe_down_detected() { return false; }
 bool touch_swipe_up_detected() { return false; }
