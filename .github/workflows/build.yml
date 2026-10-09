@@ -7,6 +7,15 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  # Run by hand (Actions > build > Run workflow) with a crash report's
+  # backtrace: the firmware job builds that commit and prints the functions
+  # and source lines.
+  workflow_dispatch:
+    inputs:
+      backtrace:
+        description: "Backtrace line from the watch's crash report (0x... 0x...)"
+        required: false
+        default: ""
 
 env:
   ESP32_CORE: "3.3.10"
@@ -96,6 +105,23 @@ jobs:
         with:
           name: firmware
           path: AmoledSmartWatchOS-*.bin
+
+      # The ELF matches the .bin: decode a crash report's backtrace with
+      #   xtensa-esp32s3-elf-addr2line -pfiaC -e firmware.elf 0x... 0x...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-elf
+          path: .pio/build/watch/firmware.elf
+
+      - name: Decode the backtrace
+        if: github.event_name == 'workflow_dispatch' && inputs.backtrace != ''
+        env:
+          BT: ${{ inputs.backtrace }}
+        run: |
+          A2L=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-addr2line | head -1)
+          addrs=$(echo "$BT" | grep -oE '0x[0-9a-fA-F]{8}' | tr '\n' ' ')
+          echo "### Backtrace" >> "$GITHUB_STEP_SUMMARY"
+          "$A2L" -pfiaC -e .pio/build/watch/firmware.elf $addrs | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The Arduino IDE build (prebuilt core, no power management): kept
   # compiling so the sketch still opens and builds in the IDE. Releases use
