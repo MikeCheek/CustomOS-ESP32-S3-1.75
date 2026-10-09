@@ -37,7 +37,8 @@ jobs:
             pio-${{ hashFiles('platformio.ini', 'boards/*.json') }}-
 
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        # pioarduino 55.03.311 needs 6.1.19; 6.2 ships an SCons it breaks on
+        run: pip install "platformio==6.1.19"
 
       - name: Check FW_VERSION matches the tag
         if: startsWith(github.ref, 'refs/tags/v')
