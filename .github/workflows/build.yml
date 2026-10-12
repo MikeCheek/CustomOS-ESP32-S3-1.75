@@ -89,7 +89,7 @@ jobs:
 
       # The point of this build: make sure the rebuilt core (power management,
       # tickless idle) is what got linked, not the stock one.
-      - name: Check power management is in the image
+      - name: Check power management and the PSRAM moves are in the image
         run: |
           NM=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
           syms=$("$NM" .pio/build/watch/firmware.elf)
@@ -97,6 +97,13 @@ jobs:
             echo "$syms" | grep -qw "$s" || { echo "::error::$s missing - the stock core was linked, not the one built with custom_sdkconfig"; exit 1; }
           done
           echo "Power management and tickless idle linked in" >> "$GITHUB_STEP_SUMMARY"
+          # TinyUSB's buffers must be in PSRAM (0x3c.../0x3d...), not internal
+          # RAM (0x3f...) - Wi-Fi needs that room (pio/tinyusb_to_psram.py)
+          addr=$(echo "$syms" | awk '$3 == "_tud_cfg" { print $1; exit }')
+          case "$addr" in
+            3c*|3d*) echo "TinyUSB buffers in PSRAM (_tud_cfg at 0x$addr)" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::TinyUSB buffers not in PSRAM (_tud_cfg at '$addr')"; exit 1 ;;
+          esac
 
       # The watch only installs signed updates when a key is set in
       # ota_pubkey.h; it then downloads the *.signed.bin from the release.
