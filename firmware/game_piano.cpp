@@ -508,18 +508,18 @@ static void end_hold(float frac) {
 // ---- drawing -------------------------------------------------------------------------------
 // The part of a quadrant between radii ri and ro, with GAP-wide gaps
 // along the axes: one horizontal line per row.
-static void fill_quad_ring(Arduino_GFX *g, int lane, float ri, float ro, uint16_t c) {
+static void fill_quad_ring(Arduino_GFX *g, int lane, float ri, float ro, uint16_t c, int gap = GAP) {
     if (ro > R_OUT) ro = R_OUT;
     if (ri < R_IN) ri = R_IN;
     if (ro <= ri) return;
     int sx = LANE_SX[lane], sy = LANE_SY[lane];
     float ro2 = ro * ro, ri2 = ri * ri;
-    for (int dy = GAP; dy <= (int)ro; dy++) {
+    for (int dy = gap; dy <= (int)ro; dy++) {
         float d2 = (float)dy * dy;
         if (d2 >= ro2) break;
         int xo = (int)sqrtf(ro2 - d2);
         int xi = d2 < ri2 ? (int)ceilf(sqrtf(ri2 - d2)) : 0;
-        if (xi < GAP) xi = GAP;
+        if (xi < gap) xi = gap;
         if (xo < xi) continue;
         int y = CY + sy * dy;
         if (sx > 0) g->drawFastHLine(CX + xi, y, xo - xi + 1, c);
@@ -548,14 +548,23 @@ static void draw_tile(Arduino_GFX *g, const Tile &t, int i, uint32_t now) {
     float fr = r_front(t), br = fr - tile_l(t);
     uint16_t lc = LANE_COL[t.lane];
     if (t.state == 0) {
+        // Which one is next has to be obvious at a glance: the next tile
+        // is full brightness with a pulsing white halo, the one after it
+        // is dimmer, the rest dimmer still.
+        int order = i - s_next;
+        uint32_t k = order <= 0 ? 32 : order == 1 ? 17 : 9;
+        if (order <= 0) {
+            float pu = 0.5f + 0.5f * sinf(now * 0.012f);
+            fill_quad_ring(g, t.lane, br - 1, fr + 2, fx_lerp565(lc, COLOR_TEXT, 0.4f + 0.6f * pu), 2);
+        }
         // body: darker at the back, bright towards the front, a coloured edge
         float mid = br + (fr - br) * 0.45f;
-        fill_quad_ring(g, t.lane, br + 2, mid, fx_lerp565(COLOR_TEXT, lc, 0.55f));
-        fill_quad_ring(g, t.lane, mid, fr - 2, fx_lerp565(COLOR_TEXT, lc, 0.2f));
+        fill_quad_ring(g, t.lane, br + 2, mid, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.55f), k));
+        fill_quad_ring(g, t.lane, mid, fr - 2, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.2f), k));
         // the next tile's edge glows inside the Perfect window
-        bool ripe = i == s_next && fabsf(fr - R_HIT) < cur_speed() * WIN_PERFECT_MS / 1000.0f;
-        fill_quad_ring(g, t.lane, fr - (ripe ? 9 : 6), fr - 2, ripe ? GOLD : lc);
-        if (t.hold) fill_quad_ring(g, t.lane, br + 8, fr - 12, fx_lerp565(COLOR_TEXT, lc, 0.75f));
+        bool ripe = order <= 0 && fabsf(fr - R_HIT) < cur_speed() * WIN_PERFECT_MS / 1000.0f;
+        fill_quad_ring(g, t.lane, fr - (ripe ? 9 : 6), fr - 2, ripe ? GOLD : fx_scale565(lc, k));
+        if (t.hold) fill_quad_ring(g, t.lane, br + 8, fr - 12, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.75f), k));
     } else if (t.state == 1) {
         if (t.hold && i == s_holding) {
             float prog = fminf(1.0f, (s_scroll - s_hold_from) / tile_l(t));
@@ -647,6 +656,17 @@ static void draw_play(Arduino_GFX *g) {
     int disc = R_IN - 7 + (int)(3 * powf(1.0f - beat, 3));
     g->fillCircle(CX, CY, disc, COLOR_PANEL);
     g->drawCircle(CX, CY, disc, s_combo >= 20 ? GOLD : fx_scale565(COLOR_TEXT, 8));
+    // a pointer on the disc towards the next tile's lane
+    if (s_next < s_ntiles) {
+        int l = s_tiles[s_next].lane;
+        float sx = LANE_SX[l] * 0.7071f, sy = LANE_SY[l] * 0.7071f;   // along the diagonal
+        float px = -sy, py = sx;                                      // across it
+        float pu = 0.5f + 0.5f * sinf(now * 0.012f);
+        float tip = disc + 15 + 3 * pu, base = disc - 2;
+        g->fillTriangle(CX + (int)(sx * tip), CY + (int)(sy * tip),
+                        CX + (int)(sx * base + px * 13), CY + (int)(sy * base + py * 13),
+                        CX + (int)(sx * base - px * 13), CY + (int)(sy * base - py * 13), LANE_COL[l]);
+    }
     char b[16];
     snprintf(b, sizeof(b), "%d", s_score);
     ui_text_center(CX, CY - 10, COLOR_TEXT, b, s_score < 10000 ? 2 : 1);
