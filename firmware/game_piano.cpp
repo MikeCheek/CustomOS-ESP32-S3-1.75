@@ -11,7 +11,9 @@
  * hold tiles: hold them right through for a bonus.
  *
  * Stars come from accuracy (how well every tile was timed); the song's
- * progress runs round the edge of the screen.
+ * progress runs round the edge of the screen. The look is deliberately
+ * quiet - white tiles on black, greys for what comes later, one accent
+ * colour - so nothing competes with the next tile.
  *
  * Songs (piano_songs.cpp, plus /piano/*.txt on the SD card) are grouped by
  * genre; in each, clearing one unlocks the next. Every song can be played
@@ -43,41 +45,39 @@ static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 static const int R_IN = 54;              // tiles appear here (the score disc is inside)
 static const int R_OUT = LCD_WIDTH / 2 - 1;
 static const int R_HIT = 168;            // the timing ring
-static const int R_PROG = R_OUT - 5;     // the progress ring round the edge
+static const int R_PROG = R_OUT - 4;     // the progress arc round the edge
 static const int GAP = 5;                // half-width of the gaps along the axes
 static const int TPQ = 48;               // ticks per quarter note
 static const float PI2 = 6.2831853f;
+static const int RING_N = 180;           // points on the rings
 
 // lane = quadrant: 0 bottom-right, 1 bottom-left, 2 top-left, 3 top-right
 static const int8_t LANE_SX[4] = { 1, -1, -1, 1 }, LANE_SY[4] = { 1, 1, -1, -1 };
-static const uint16_t LANE_COL[4] = { COLOR565(0x40, 0xC8, 0xFF), COLOR565(0xB0, 0x7C, 0xFF),
-                                      COLOR565(0xFF, 0x6E, 0xB4), COLOR565(0x5C, 0xE0, 0x9A) };
+
+// Minimal palette: white tiles on black, greys for what comes later, one
+// accent for "good", red for misses, gold only for stars.
+static const uint16_t WHITE = COLOR_TEXT;
+static const uint16_t ACCENT = COLOR_ACCENT;
 static const uint16_t GOLD = COLOR565(0xFF, 0xC8, 0x3C);
-static const uint16_t GENRE_COL[PG_COUNT + 1] = { COLOR565(0x8C, 0x9E, 0xFF), COLOR565(0x5C, 0xE0, 0x9A),
-                                                  COLOR565(0xFF, 0x6E, 0x6E), COLOR565(0xFF, 0xB0, 0x40),
-                                                  COLOR565(0xB0, 0xB0, 0xB0) };
+static inline uint16_t grey(uint32_t k) { return fx_scale565(COLOR_TEXT, k); }   // k/32
 
 static const char *const DIFF_NAME[3] = { "Easy", "Normal", "Hard" };
-static const uint16_t DIFF_COL[3] = { COLOR_GOOD, COLOR_WARN, COLOR_BAD };
 static const int LIVES[3] = { 3, 2, 1 };
 
 // judgements
 enum Judge : uint8_t { J_PERFECT, J_GREAT, J_GOOD, J_MISS };
-static const char *const JUDGE_TXT[4] = { "PERFECT", "GREAT", "GOOD", "MISS" };
-static const uint16_t JUDGE_COL[4] = { GOLD, COLOR565(0x5C, 0xE0, 0xFF), COLOR_TEXT, COLOR_BAD };
+static const char *const JUDGE_TXT[4] = { "Perfect", "Great", "Good", "Miss" };
+static const char *const JUDGE_CAP[4] = { "PERFECT", "GREAT", "GOOD", "MISS" };
 static const int JUDGE_PTS[4] = { 100, 70, 40, 0 };
 static const float JUDGE_ACC[4] = { 1.0f, 0.75f, 0.45f, 0.0f };
 static const int WIN_PERFECT_MS = 70, WIN_GREAT_MS = 150;
+static uint16_t judge_col(int j) { return j == J_PERFECT ? ACCENT : j == J_GREAT ? WHITE : j == J_GOOD ? grey(18) : COLOR_BAD; }
 
 // ---- songs -----------------------------------------------------------------------------
 #define MAX_SONGS 80
 #define MAX_SD_SONGS 24
 #define G_SD PG_COUNT              // the SD card's "genre"
 struct SongRef { const char *title, *composer, *notes; uint16_t bpm; uint8_t genre; };
-struct Spark { float x, y, vx, vy; uint32_t t; uint16_t c; };
-struct Popup { char txt[12]; int x, y; uint32_t t; uint16_t c; uint8_t big; };
-struct Ripple { int16_t x, y; uint32_t t; uint16_t c; };
-struct Flake { float x, y, vy, vx; uint16_t c; };
 
 // The game's tables live in PSRAM while it's open (internal RAM is what
 // Wi-Fi needs next to Bluetooth).
@@ -87,11 +87,7 @@ struct PianoMem {
     int16_t genre_list[PG_COUNT + 1][MAX_SONGS];
     int16_t genre_n[PG_COUNT + 1];
     char *sd_text[MAX_SD_SONGS];
-    Spark sparks[32];
-    Popup popups[5];
-    Ripple ripples[8];
-    Flake flakes[48];
-    float ring_c[120], ring_s[120];  // the progress ring's dots
+    float ring_c[RING_N], ring_s[RING_N];
 };
 static PianoMem *s_m = nullptr;
 static int s_nsongs = 0;
@@ -282,8 +278,8 @@ static void build_song_list() {
         s_m->genre_list[g][s_m->genre_n[g]++] = i;
     }
     load_progress();
-    for (int k = 0; k < 120; k++) {
-        float a = -1.5707963f + k * PI2 / 120;
+    for (int k = 0; k < RING_N; k++) {
+        float a = -1.5707963f + k * PI2 / RING_N;   // from 12 o'clock, clockwise
         s_m->ring_c[k] = cosf(a);
         s_m->ring_s[k] = sinf(a);
     }
@@ -304,13 +300,16 @@ static int s_count[4];         // judgements
 static float s_acc_sum;        // accuracy points so far
 static int s_holding = -1;     // tile being held
 static float s_hold_from;      // scroll when the hold began
-static uint32_t s_last_ms, s_end_ms, s_ring_flash_ms;
-static uint16_t s_ring_flash_c;
-static uint32_t s_lane_glow_ms[4];
-static uint16_t s_lane_glow_c[4];
+static uint32_t s_last_ms, s_end_ms;
+static int s_judge = -1;       // last judgement, shown in the centre
+static uint32_t s_judge_ms;
+static uint32_t s_lane_ms[4];  // the timing ring lights up in a lane on a hit
+static uint16_t s_lane_c[4];
 static bool s_cleared, s_new_best;
 static int s_result_stars, s_result_acc;
-static int s_spark_i = 0, s_popup_i = 0, s_ripple_i = 0;
+// frame timing: input latency compensation and the perf log
+static float s_frame_ms = 30;
+static uint32_t s_perf_ms, s_perf_frames, s_perf_worst;
 
 static float tile_s(const Tile &t) { return t.start * s_ppt; }
 static float tile_l(const Tile &t) { return t.len * s_ppt; }
@@ -322,29 +321,6 @@ static uint16_t note_ms(const Tile &t) {
     return (uint16_t)constrain(ms * 1.1f, 160.0f, 1600.0f);
 }
 static uint16_t note_hz(int midi) { return (uint16_t)(440.0f * powf(2.0f, (midi - 69) / 12.0f)); }
-
-// ---- effects -------------------------------------------------------------------------------
-static void burst(int x, int y, uint16_t c, int n, float vmax) {
-    for (int k = 0; k < n; k++) {
-        Spark &p = s_m->sparks[s_spark_i++ % 32];
-        float a = random(360) * 0.0174533f, v = vmax * (0.4f + random(60) / 100.0f);
-        p = { (float)x, (float)y, cosf(a) * v, sinf(a) * v, millis(), c };
-    }
-}
-static void popup(const char *txt, int x, int y, uint16_t c, bool big) {
-    Popup &p = s_m->popups[s_popup_i++ % 5];
-    snprintf(p.txt, sizeof(p.txt), "%s", txt);
-    p.x = x; p.y = y; p.t = millis(); p.c = c; p.big = big;
-}
-static void ripple(int x, int y, uint16_t c) {
-    Ripple &r = s_m->ripples[s_ripple_i++ % 8];
-    r = { (int16_t)x, (int16_t)y, millis(), c };
-}
-// where in a lane a radius is
-static void lane_point(int lane, float r, int *x, int *y) {
-    *x = CX + (int)(LANE_SX[lane] * r * 0.7071f);
-    *y = CY + (int)(LANE_SY[lane] * r * 0.7071f);
-}
 
 // ---- song start / end ----------------------------------------------------------------------
 static void start_song(int song) {
@@ -397,12 +373,11 @@ static void start_song(int song) {
     memset(s_count, 0, sizeof(s_count));
     s_acc_sum = 0;
     s_holding = -1;
-    s_end_ms = s_ring_flash_ms = 0;
-    memset(s_lane_glow_ms, 0, sizeof(s_lane_glow_ms));
-    memset(s_m->sparks, 0, sizeof(s_m->sparks));
-    memset(s_m->popups, 0, sizeof(s_m->popups));
-    memset(s_m->ripples, 0, sizeof(s_m->ripples));
-    s_last_ms = millis();
+    s_end_ms = 0;
+    s_judge = -1;
+    memset(s_lane_ms, 0, sizeof(s_lane_ms));
+    s_last_ms = s_perf_ms = millis();
+    s_perf_frames = s_perf_worst = 0;
     s_state = ST_PLAY;
 }
 
@@ -421,27 +396,20 @@ static void finish(bool cleared) {
         uint32_t nv = stars | (acc << 2) | (best << 9);
         if (nv != v) { v = nv; store_progress(s_song, s_diff); }
     }
-    // confetti for three stars
-    for (int k = 0; k < 48; k++) {
-        Flake &f = s_m->flakes[k];
-        f = { (float)random(LCD_WIDTH), (float)(-random(300)), 60.0f + random(90), (random(40) - 20) * 1.0f,
-              k % 3 == 0 ? GOLD : LANE_COL[k & 3] };
-    }
     if (cleared) game_sfx_levelup();
     else game_sfx_gameover();
     s_state = ST_RESULT;
 }
 
-static void judge(int lane, Judge j, int x, int y) {
+static void judge(int lane, Judge j) {
     s_count[j]++;
+    s_judge = j;
+    s_judge_ms = millis();
+    s_lane_ms[lane] = millis();
+    s_lane_c[lane] = j == J_MISS ? COLOR_BAD : j == J_PERFECT ? ACCENT : WHITE;
     if (j == J_MISS) {
         s_combo = 0;
         s_lives--;
-        s_lane_glow_ms[lane] = millis();
-        s_lane_glow_c[lane] = COLOR_BAD;
-        s_ring_flash_ms = millis();
-        s_ring_flash_c = COLOR_BAD;
-        popup("MISS", x, y, COLOR_BAD, true);
         game_sfx_hit();
         if (s_lives <= 0) finish(false);
         return;
@@ -450,36 +418,25 @@ static void judge(int lane, Judge j, int x, int y) {
     s_score += (int)(JUDGE_PTS[j] * (1.0f + fminf(s_combo, 40) / 40.0f));
     s_combo++;
     if (s_combo > s_max_combo) s_max_combo = s_combo;
-    s_lane_glow_ms[lane] = millis();
-    s_lane_glow_c[lane] = j == J_PERFECT ? GOLD : LANE_COL[lane];
-    if (j == J_PERFECT) { s_ring_flash_ms = millis(); s_ring_flash_c = GOLD; }
-    popup(JUDGE_TXT[j], x, y, JUDGE_COL[j], j == J_PERFECT);
-    if (s_combo > 0 && s_combo % 25 == 0) {
-        char b[12];
-        snprintf(b, sizeof(b), "%d COMBO", s_combo);
-        popup(b, CX, CY - 90, GOLD, true);
-        game_sfx_powerup();
-    }
 }
 
-static void hit(int i, int x, int y) {
+// lag_ms: how long ago the finger actually landed (input latency)
+static void hit(int i, float lag_ms) {
     Tile &t = s_tiles[i];
     t.state = 1;
     t.hit_ms = millis();
     if (g_app_settings.sfx_enabled) audio_play_note(note_hz(t.midi), note_ms(t));
-    // timing against the ring
+    // timing against the ring, where the tile was when the finger landed
     Judge j = J_PERFECT;
     if (s_started) {
-        float ms = (r_front(t) - R_HIT) / (cur_speed() / 1000.0f);
+        float ms = (r_front(t) - R_HIT) / (cur_speed() / 1000.0f) - lag_ms;
         float a = fabsf(ms);
         j = a <= WIN_PERFECT_MS ? J_PERFECT : a <= WIN_GREAT_MS ? J_GREAT : J_GOOD;
     }
     t.judge = j;
     if (!t.hold) s_acc_sum += JUDGE_ACC[j];
     else { s_holding = i; s_hold_from = s_scroll; }
-    judge(t.lane, j, x, y);
-    ripple(x, y, j == J_PERFECT ? GOLD : LANE_COL[t.lane]);
-    burst(x, y, j == J_PERFECT ? GOLD : LANE_COL[t.lane], j == J_PERFECT ? 10 : 6, j == J_PERFECT ? 220 : 160);
+    judge(t.lane, j);
     s_started = true;
     while (s_next < s_ntiles && s_tiles[s_next].state) s_next++;
 }
@@ -490,15 +447,10 @@ static void end_hold(float frac) {
     s_holding = -1;
     s_acc_sum += JUDGE_ACC[t.judge] * (0.5f + 0.5f * frac);
     int beats = t.len / TPQ;
-    int x, y;
-    lane_point(t.lane, R_HIT - 30, &x, &y);
     if (frac >= 1.0f) {
-        int bonus = 40 * (beats > 0 ? beats : 1) * (t.judge == J_PERFECT ? 2 : 1);
-        s_score += bonus;
-        char b[12];
-        snprintf(b, sizeof(b), "HOLD +%d", bonus);
-        popup(b, x, y, GOLD, true);
-        burst(x, y, GOLD, 14, 240);
+        s_score += 40 * (beats > 0 ? beats : 1) * (t.judge == J_PERFECT ? 2 : 1);
+        s_lane_ms[t.lane] = millis();
+        s_lane_c[t.lane] = ACCENT;
         game_sfx_score();
     } else {
         s_score += (int)(20 * beats * frac);
@@ -506,7 +458,7 @@ static void end_hold(float frac) {
 }
 
 // ---- drawing -------------------------------------------------------------------------------
-// The part of a quadrant between radii ri and ro, with GAP-wide gaps
+// The part of a quadrant between radii ri and ro, with gap-wide gaps
 // along the axes: one horizontal line per row.
 static void fill_quad_ring(Arduino_GFX *g, int lane, float ri, float ro, uint16_t c, int gap = GAP) {
     if (ro > R_OUT) ro = R_OUT;
@@ -544,59 +496,45 @@ static void draw_stars(Arduino_GFX *g, int cx, int cy, int r, int n, int gap) {
     for (int k = 0; k < 3; k++) draw_star(g, cx + (k - 1) * gap, cy, r, k < n ? GOLD : COLOR_PANEL);
 }
 
+// A ring of dots from point k0 to k1 (of RING_N, from 12 o'clock).
+static void ring_dots(Arduino_GFX *g, int r, int k0, int k1, int step, int size, uint16_t c) {
+    for (int k = k0; k < k1; k += step) {
+        int x = CX + (int)(s_m->ring_c[k % RING_N] * r), y = CY + (int)(s_m->ring_s[k % RING_N] * r);
+        if (size <= 1) g->drawPixel(x, y, c);
+        else g->fillRect(x - size / 2, y - size / 2, size, size, c);
+    }
+}
+// the ring's quarter in a lane (lane 0 = 3 to 6 o'clock = points 45..90)
+static int lane_k0(int lane) { return ((lane + 1) * RING_N / 4) % RING_N; }
+
+// Tiles: the next one white, the one after grey, the rest darker - so the
+// order reads at a glance. Hold tiles are outlined. A hit tile fades out.
 static void draw_tile(Arduino_GFX *g, const Tile &t, int i, uint32_t now) {
     float fr = r_front(t), br = fr - tile_l(t);
-    uint16_t lc = LANE_COL[t.lane];
     if (t.state == 0) {
-        // Which one is next has to be obvious at a glance: the next tile
-        // is full brightness with a pulsing white halo, the one after it
-        // is dimmer, the rest dimmer still.
         int order = i - s_next;
-        uint32_t k = order <= 0 ? 32 : order == 1 ? 17 : 9;
-        if (order <= 0) {
-            float pu = 0.5f + 0.5f * sinf(now * 0.012f);
-            fill_quad_ring(g, t.lane, br - 1, fr + 2, fx_lerp565(lc, COLOR_TEXT, 0.4f + 0.6f * pu), 2);
-        }
-        // body: darker at the back, bright towards the front, a coloured edge
-        float mid = br + (fr - br) * 0.45f;
-        fill_quad_ring(g, t.lane, br + 2, mid, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.55f), k));
-        fill_quad_ring(g, t.lane, mid, fr - 2, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.2f), k));
-        // the next tile's edge glows inside the Perfect window
-        bool ripe = order <= 0 && fabsf(fr - R_HIT) < cur_speed() * WIN_PERFECT_MS / 1000.0f;
-        fill_quad_ring(g, t.lane, fr - (ripe ? 9 : 6), fr - 2, ripe ? GOLD : fx_scale565(lc, k));
-        if (t.hold) fill_quad_ring(g, t.lane, br + 8, fr - 12, fx_scale565(fx_lerp565(COLOR_TEXT, lc, 0.75f), k));
+        uint16_t c = order <= 0 ? WHITE : order == 1 ? grey(14) : grey(7);
+        fill_quad_ring(g, t.lane, br + 2, fr - 2, c);
+        if (t.hold) fill_quad_ring(g, t.lane, br + 6, fr - 6, COLOR_BG, GAP + 4);
+        // inside the Perfect window the front edge turns to the accent
+        if (order <= 0 && fabsf(fr - R_HIT) < cur_speed() * WIN_PERFECT_MS / 1000.0f)
+            fill_quad_ring(g, t.lane, fr - 6, fr - 2, ACCENT);
     } else if (t.state == 1) {
         if (t.hold && i == s_holding) {
             float prog = fminf(1.0f, (s_scroll - s_hold_from) / tile_l(t));
-            fill_quad_ring(g, t.lane, br + 2, fr - 2, fx_scale565(lc, 9));
-            fill_quad_ring(g, t.lane, fr - 2 - (tile_l(t) - 4) * prog, fr - 2, (now / 80) & 1 ? GOLD : lc);
+            fill_quad_ring(g, t.lane, br + 2, fr - 2, grey(6));
+            fill_quad_ring(g, t.lane, fr - 2 - (tile_l(t) - 4) * prog, fr - 2, ACCENT);
         } else {
             uint32_t a = now - t.hit_ms;
-            uint32_t k = a < 260 ? 16 - a * 16 / 260 : 0;
-            if (k) fill_quad_ring(g, t.lane, br + 2, fr - 2, fx_scale565(t.judge == J_PERFECT ? GOLD : lc, k));
+            if (a < 180) fill_quad_ring(g, t.lane, br + 2, fr - 2, fx_scale565(t.judge == J_PERFECT ? ACCENT : WHITE, 20 - a * 20 / 180));
         }
     } else {
-        fill_quad_ring(g, t.lane, br + 2, fr - 2, (now / 110) & 1 ? COLOR_BAD : fx_scale565(COLOR_BAD, 12));
+        fill_quad_ring(g, t.lane, br + 2, fr - 2, (now / 120) & 1 ? COLOR_BAD : fx_scale565(COLOR_BAD, 10));
     }
 }
 
 static void draw_play(Arduino_GFX *g) {
     uint32_t now = millis();
-    // lanes, glowing for a moment after a hit (red after a miss)
-    for (int l = 0; l < 4; l++) {
-        uint32_t a = now - s_lane_glow_ms[l];
-        uint16_t bg = COLOR565(0x07, 0x09, 0x0F);
-        if (s_lane_glow_ms[l] && a < 300) bg = fx_lerp565(bg, s_lane_glow_c[l], 0.22f * (1.0f - a / 300.0f));
-        fill_quad_ring(g, l, R_IN, R_OUT, bg);
-    }
-    // the timing ring
-    {
-        uint32_t a = now - s_ring_flash_ms;
-        bool fl = s_ring_flash_ms && a < 200;
-        uint16_t c = fl ? fx_lerp565(COLOR_TEXT_DIM, s_ring_flash_c, 1.0f - a / 200.0f) : fx_scale565(COLOR_TEXT, 12);
-        for (int k = 0; k < 120; k += fl ? 1 : 2)
-            g->fillCircle(CX + (int)(s_m->ring_c[k] * R_HIT), CY + (int)(s_m->ring_s[k] * R_HIT), fl ? 2 : 1, c);
-    }
     // tiles
     for (int i = s_next > 4 ? s_next - 4 : 0; i < s_ntiles; i++) {
         Tile &t = s_tiles[i];
@@ -605,85 +543,48 @@ static void draw_play(Arduino_GFX *g) {
         if (fr < R_IN) break;
         draw_tile(g, t, i, now);
     }
-    // "TAP" on the first tile
+    // the timing ring, over the tiles so the edge lines up with it; its
+    // quarter lights up for a moment where a tile was hit (red: missed)
+    ring_dots(g, R_HIT, 0, RING_N, 1, 1, grey(11));
+    for (int l = 0; l < 4; l++) {
+        uint32_t a = now - s_lane_ms[l];
+        if (!s_lane_ms[l] || a > 220) continue;
+        uint16_t c = fx_scale565(s_lane_c[l], 32 - a * 32 / 220);
+        int k0 = lane_k0(l);
+        ring_dots(g, R_HIT, k0 + 2, k0 + RING_N / 4 - 1, 1, 3, c);
+    }
+    // "tap" on the first tile
     if (!s_started && s_ntiles) {
         Tile &t = s_tiles[0];
-        int x, y;
-        lane_point(t.lane, r_front(t) - tile_l(t) / 2, &x, &y);
-        float pu = 0.5f + 0.5f * sinf(now * 0.008f);
-        ui_text_center(x, y, fx_lerp565(COLOR_BG, LANE_COL[t.lane], pu * 0.6f), "TAP", 2);
+        float rm = r_front(t) - tile_l(t) / 2;
+        ui_text_center(CX + (int)(LANE_SX[t.lane] * rm * 0.7071f), CY + (int)(LANE_SY[t.lane] * rm * 0.7071f),
+                       COLOR_BG, "TAP", 2);
     }
-    // ripples
-    for (Ripple &r : s_m->ripples) {
-        uint32_t a = now - r.t;
-        if (!r.t || a > 320) continue;
-        int rad = 8 + a * 46 / 320;
-        uint16_t c = fx_scale565(r.c, 32 - a * 32 / 320);
-        g->drawCircle(r.x, r.y, rad, c);
-        g->drawCircle(r.x, r.y, rad + 1, c);
-    }
-    // sparks
-    for (Spark &p : s_m->sparks) {
-        uint32_t a = now - p.t;
-        if (!p.t || a > 450) continue;
-        float tt = a / 1000.0f;
-        g->fillCircle((int)(p.x + p.vx * tt), (int)(p.y + p.vy * tt + 120 * tt * tt), a < 200 ? 2 : 1,
-                      fx_scale565(p.c, 32 - a * 32 / 450));
-    }
-    // progress round the edge: a track, the part played, a glowing head
-    {
-        float prog = s_ntiles ? (float)s_next / s_ntiles : 0;
-        int nfill = (int)(prog * 120 + 0.5f);
-        bool fever = s_combo >= 20;
-        for (int k = 0; k < 120; k++) {
-            int x = CX + (int)(s_m->ring_c[k] * R_PROG), y = CY + (int)(s_m->ring_s[k] * R_PROG);
-            if (k < nfill) {
-                uint16_t c = fever ? LANE_COL[(k / 8 + now / 120) & 3] : fx_lerp565(DIFF_COL[s_diff], COLOR_TEXT, (float)k / 120);
-                g->fillCircle(x, y, 2, c);
-            } else {
-                g->fillCircle(x, y, 1, fx_scale565(COLOR_TEXT, 6));
-            }
-        }
-        if (nfill > 0) {
-            int k = nfill - 1;
-            float pu = 0.5f + 0.5f * sinf(now * 0.01f);
-            g->fillCircle(CX + (int)(s_m->ring_c[k] * R_PROG), CY + (int)(s_m->ring_s[k] * R_PROG), 3 + (int)(pu * 2),
-                          fx_lerp565(COLOR_TEXT, GOLD, pu));
-        }
-    }
-    // centre: score, combo, lives - pulsing on the beat
-    float beat = s_started ? fmodf(s_scroll / (s_ppt * TPQ), 1.0f) : 0.5f;
-    int disc = R_IN - 7 + (int)(3 * powf(1.0f - beat, 3));
-    g->fillCircle(CX, CY, disc, COLOR_PANEL);
-    g->drawCircle(CX, CY, disc, s_combo >= 20 ? GOLD : fx_scale565(COLOR_TEXT, 8));
-    // a pointer on the disc towards the next tile's lane
-    if (s_next < s_ntiles) {
+    // progress: a thin arc round the edge from 12 o'clock
+    int nk = s_ntiles ? s_next * RING_N / s_ntiles : 0;
+    ring_dots(g, R_PROG, 0, nk, 1, 2, ACCENT);
+    if (nk > 0) ring_dots(g, R_PROG, nk - 1, nk, 1, 4, WHITE);
+    // centre: score, then the last judgement or the combo, lives
+    g->fillCircle(CX, CY, R_IN - 8, COLOR_PANEL);
+    if (s_next < s_ntiles) {     // a small pointer towards the next tile
         int l = s_tiles[s_next].lane;
-        float sx = LANE_SX[l] * 0.7071f, sy = LANE_SY[l] * 0.7071f;   // along the diagonal
-        float px = -sy, py = sx;                                      // across it
-        float pu = 0.5f + 0.5f * sinf(now * 0.012f);
-        float tip = disc + 15 + 3 * pu, base = disc - 2;
-        g->fillTriangle(CX + (int)(sx * tip), CY + (int)(sy * tip),
-                        CX + (int)(sx * base + px * 13), CY + (int)(sy * base + py * 13),
-                        CX + (int)(sx * base - px * 13), CY + (int)(sy * base - py * 13), LANE_COL[l]);
+        float sx = LANE_SX[l] * 0.7071f, sy = LANE_SY[l] * 0.7071f, px = -sy, py = sx;
+        float tip = R_IN - 1, base = R_IN - 8;
+        g->fillTriangle(CX + (int)(sx * tip), CY + (int)(sy * tip), CX + (int)(sx * base + px * 7),
+                        CY + (int)(sy * base + py * 7), CX + (int)(sx * base - px * 7), CY + (int)(sy * base - py * 7),
+                        grey(20));
     }
     char b[16];
     snprintf(b, sizeof(b), "%d", s_score);
-    ui_text_center(CX, CY - 10, COLOR_TEXT, b, s_score < 10000 ? 2 : 1);
-    if (s_combo >= 2) {
+    ui_text_center(CX, CY - 8, WHITE, b, s_score < 10000 ? 2 : 1);
+    if (s_judge >= 0 && now - s_judge_ms < 450) ui_text_center(CX, CY + 14, judge_col(s_judge), JUDGE_TXT[s_judge], 1);
+    else if (s_combo >= 5) {
         snprintf(b, sizeof(b), "x%d", s_combo);
-        ui_text_center(CX, CY + 12, s_combo >= 20 ? GOLD : COLOR_ACCENT, b, 1);
+        ui_text_center(CX, CY + 14, grey(18), b, 1);
     }
     int nl = LIVES[s_diff];
     for (int k = 0; k < nl; k++)
-        g->fillCircle(CX - 8 * (nl - 1) / 2 + k * 8, CY + 30, 2, k < s_lives ? COLOR_BAD : COLOR_BG);
-    // judgement popups, rising and fading
-    for (Popup &p : s_m->popups) {
-        uint32_t a = now - p.t;
-        if (!p.t || a > 600) continue;
-        uint16_t c = fx_scale565(p.c, a < 400 ? 32 : 32 - (a - 400) * 32 / 200);
-        ui_text_center(p.x, p.y - (int)(a * 0.05f), c, p.txt, p.big && a < 120 ? 2 : (p.big ? 2 : 1));
-    }
+        g->fillCircle(CX - 7 * (nl - 1) / 2 + k * 7, CY + 31, 2, k < s_lives ? grey(20) : COLOR_BG);
 }
 
 // ---- menu ----------------------------------------------------------------------------------
@@ -692,7 +593,7 @@ static const int ROW_X = (LCD_WIDTH - ROW_W) / 2;
 static UiScroll s_scroll_ui;
 static int s_press = -1;
 static bool s_prev = false;
-static uint32_t s_genre_ms = 0;          // genre switch animation
+static uint32_t s_genre_ms = 0;          // genre switch fade
 
 static int n_genres() { return s_m->genre_n[G_SD] ? PG_COUNT + 1 : PG_COUNT; }
 static const char *genre_name(int g) { return g == G_SD ? "SD card" : PIANO_GENRES[g]; }
@@ -717,161 +618,132 @@ static void draw_menu(Arduino_GFX *g) {
     int off = -ui_scroll_offset(&s_scroll_ui);
     int stars = 0;
     for (int i = 0; i < s_nsongs; i++) for (int d = 0; d < 3; d++) stars += stars_of(i, d);
-    // header
+    float in = fminf(1.0f, (now - s_genre_ms) / 200.0f);   // a quick fade on genre change
     if (off > -110) {
-        ui_text_center(CX, 40 + off, COLOR_TEXT, "Piano Tiles", 2);
+        ui_text_center(CX, 40 + off, WHITE, "Piano Tiles", 2);
         char b[24];
         snprintf(b, sizeof(b), "%d", stars);
-        draw_star(g, CX - 14 - ui_text_width(b, 1) / 2, 64 + off, 6, GOLD);
+        draw_star(g, CX - 12 - ui_text_width(b, 1) / 2, 64 + off, 5, GOLD);
         ui_text_center(CX + 2, 64 + off, COLOR_TEXT_DIM, b, 1);
-        // genre switcher: < Classical >
-        uint16_t gc = GENRE_COL[s_genre];
-        float in = fminf(1.0f, (now - s_genre_ms) / 220.0f);
-        g->fillRoundRect(CX - 140, 78 + off, 280, 34, 17, fx_scale565(gc, 6));
-        ui_text_center(CX + (int)((1.0f - fx_ease_out_cubic(in)) * 30), 95 + off, fx_lerp565(COLOR_BG, gc, in),
-                       genre_name(s_genre), 2);
-        g->fillTriangle(CX - 126, 95 + off, CX - 116, 87 + off, CX - 116, 103 + off, s_press == -10 ? COLOR_TEXT : gc);
-        g->fillTriangle(CX + 126, 95 + off, CX + 116, 87 + off, CX + 116, 103 + off, s_press == -11 ? COLOR_TEXT : gc);
+        // genre: < Classical >
+        ui_text_center(CX, 95 + off, fx_scale565(WHITE, (uint32_t)(32 * in)), genre_name(s_genre), 2);
+        g->fillTriangle(CX - 126, 95 + off, CX - 117, 88 + off, CX - 117, 102 + off, s_press == -10 ? WHITE : grey(12));
+        g->fillTriangle(CX + 126, 95 + off, CX + 117, 88 + off, CX + 117, 102 + off, s_press == -11 ? WHITE : grey(12));
         for (int k = 0; k < n_genres(); k++)
-            g->fillCircle(CX - 7 * (n_genres() - 1) + k * 14, 116 + off, k == s_genre ? 3 : 2,
-                          k == s_genre ? gc : COLOR_PANEL);
+            g->fillCircle(CX - 6 * (n_genres() - 1) + k * 12, 114 + off, 2, k == s_genre ? WHITE : COLOR_PANEL);
     }
     char t[48];
     int n = s_m->genre_n[s_genre];
+    uint32_t fade = (uint32_t)(32 * in);
     for (int k = 0; k < n; k++) {
         int i = s_m->genre_list[s_genre][k];
         int y = LIST_TOP + k * (ROW_H + ROW_GAP) + off;
         if (y + ROW_H < 0) continue;
         if (y > LCD_HEIGHT) break;
-        // rows slide in after a genre switch
-        int slide = (int)((1.0f - fx_ease_out_cubic(fminf(1.0f, (now - s_genre_ms) / (200.0f + k * 40)))) * 60);
-        int rx = ROW_X + slide;
         bool open = song_unlocked(i);
-        g->fillRoundRect(rx, y, ROW_W, ROW_H, 20, s_press == k ? ui_dim(COLOR_TEXT, 0.25f) : COLOR_PANEL);
-        int ix = rx + 34, iy = y + ROW_H / 2;
+        g->fillRoundRect(ROW_X, y, ROW_W, ROW_H, 20, s_press == k ? grey(5) : COLOR_PANEL);
+        int ix = ROW_X + 32, iy = y + ROW_H / 2;
         if (open) {
-            g->fillCircle(ix, iy, 20, LANE_COL[k & 3]);
             snprintf(t, sizeof(t), "%d", k + 1);
-            ui_text_center(ix, iy, COLOR_BG, t, 2);
+            ui_text_center(ix, iy, fx_scale565(grey(16), fade), t, 2);
         } else {   // a padlock
-            g->fillCircle(ix, iy, 20, COLOR_BG);
-            g->fillRoundRect(ix - 9, iy - 2, 18, 13, 3, COLOR_TEXT_DIM);
-            g->drawCircle(ix, iy - 4, 6, COLOR_TEXT_DIM);
-            g->drawCircle(ix, iy - 4, 5, COLOR_TEXT_DIM);
+            uint16_t lc = fx_scale565(grey(10), fade);
+            g->fillRoundRect(ix - 8, iy - 2, 16, 12, 3, lc);
+            g->drawCircle(ix, iy - 4, 5, lc);
+            g->drawCircle(ix, iy - 4, 4, lc);
         }
         snprintf(t, sizeof(t), "%s", s_m->songs[i].title);
-        ui_fit(t, 2, ROW_W - 64 - 92);
-        ui_print(rx + 64, y + 12, 2, open ? COLOR_TEXT : COLOR_TEXT_DIM, t);
+        ui_fit(t, 2, ROW_W - 60 - 92);
+        ui_print(ROW_X + 60, y + 12, 2, fx_scale565(open ? WHITE : COLOR_TEXT_DIM, fade), t);
         snprintf(t, sizeof(t), "%s", s_m->songs[i].composer);
-        ui_fit(t, 1, ROW_W - 64 - 92);
-        ui_print(rx + 64, y + 39, 1, COLOR_TEXT_DIM, t);
+        ui_fit(t, 1, ROW_W - 60 - 92);
+        ui_print(ROW_X + 60, y + 39, 1, fx_scale565(COLOR_TEXT_DIM, fade), t);
         int bs = best_stars(i);
         if (bs) {
-            draw_stars(g, rx + ROW_W - 46, iy - 8, 7, bs, 17);
+            draw_stars(g, ROW_X + ROW_W - 46, iy - 8, 6, bs, 15);
             int ba = 0;
             for (int d = 0; d < 3; d++) ba = acc_of(i, d) > ba ? acc_of(i, d) : ba;
             snprintf(t, sizeof(t), "%d%%", ba);
-            ui_text_center(rx + ROW_W - 46, iy + 13, COLOR_TEXT_DIM, t, 1);
+            ui_text_center(ROW_X + ROW_W - 46, iy + 12, COLOR_TEXT_DIM, t, 1);
         }
     }
 }
 
 // song card: difficulty and Play
-static const int PILL_W = 112, PILL_H = 64, PILL_Y = 184, PLAY_Y = 352, PLAY_R = 46;
+static const int PILL_W = 112, PILL_H = 64, PILL_Y = 184, PLAY_Y = 352, PLAY_R = 44;
 static int pill_x(int d) { return CX + (d - 1) * (PILL_W + 10); }
 
 static void draw_pick(Arduino_GFX *g) {
-    uint32_t now = millis();
     const SongRef &s = s_m->songs[s_song];
-    uint16_t gc = GENRE_COL[s.genre];
     char t[48];
-    ui_text_center(CX, 66, gc, genre_name(s.genre), 1);
+    ui_text_center(CX, 66, COLOR_TEXT_DIM, genre_name(s.genre), 1);
     snprintf(t, sizeof(t), "%s", s.title);
     ui_fit(t, 3, 360);
-    ui_text_center(CX, 100, COLOR_TEXT, t, 3);
+    ui_text_center(CX, 100, WHITE, t, 3);
     snprintf(t, sizeof(t), "%s  -  %d bpm", s.composer, s.bpm);
     ui_text_center(CX, 134, COLOR_TEXT_DIM, t, 1);
     for (int d = 0; d < 3; d++) {
         int x = pill_x(d) - PILL_W / 2;
         bool sel = d == s_diff;
-        uint16_t c = DIFF_COL[d];
-        g->fillRoundRect(x, PILL_Y, PILL_W, PILL_H, 18, sel ? fx_scale565(c, 10) : COLOR_PANEL);
-        if (sel) { g->drawRoundRect(x, PILL_Y, PILL_W, PILL_H, 18, c); g->drawRoundRect(x + 1, PILL_Y + 1, PILL_W - 2, PILL_H - 2, 17, c); }
-        ui_text_center(pill_x(d), PILL_Y + 20, sel ? COLOR_TEXT : COLOR_TEXT_DIM, DIFF_NAME[d], 2);
-        draw_stars(g, pill_x(d), PILL_Y + 46, 7, stars_of(s_song, d), 18);
+        g->fillRoundRect(x, PILL_Y, PILL_W, PILL_H, 18, COLOR_PANEL);
+        if (sel) { g->drawRoundRect(x, PILL_Y, PILL_W, PILL_H, 18, WHITE); g->drawRoundRect(x + 1, PILL_Y + 1, PILL_W - 2, PILL_H - 2, 17, WHITE); }
+        ui_text_center(pill_x(d), PILL_Y + 20, sel ? WHITE : COLOR_TEXT_DIM, DIFF_NAME[d], 2);
+        draw_stars(g, pill_x(d), PILL_Y + 46, 6, stars_of(s_song, d), 16);
     }
     if (best_of(s_song, s_diff)) {
         snprintf(t, sizeof(t), "Best %lu  -  %d%%", (unsigned long)best_of(s_song, s_diff), acc_of(s_song, s_diff));
-        ui_text_center(CX, PILL_Y + PILL_H + 22, COLOR_TEXT_DIM, t, 1);
     } else {
         snprintf(t, sizeof(t), "%d %s  -  %s", LIVES[s_diff], LIVES[s_diff] == 1 ? "life" : "lives",
                  s_diff == 0 ? "slower" : s_diff == 2 ? "faster, every note" : "full speed");
-        ui_text_center(CX, PILL_Y + PILL_H + 22, COLOR_TEXT_DIM, t, 1);
     }
-    // Play, breathing
-    float pu = 0.5f + 0.5f * sinf(now * 0.005f);
-    g->fillCircle(CX, PLAY_Y, PLAY_R + 4 + (int)(pu * 4), fx_scale565(DIFF_COL[s_diff], 6));
-    g->fillCircle(CX, PLAY_Y, PLAY_R, s_press == 5 ? ui_dim(DIFF_COL[s_diff], 0.6f) : DIFF_COL[s_diff]);
-    g->fillTriangle(CX - 12, PLAY_Y - 18, CX - 12, PLAY_Y + 18, CX + 20, PLAY_Y, COLOR_BG);
+    ui_text_center(CX, PILL_Y + PILL_H + 22, COLOR_TEXT_DIM, t, 1);
+    g->fillCircle(CX, PLAY_Y, PLAY_R, s_press == 5 ? ui_dim(ACCENT, 0.6f) : ACCENT);
+    g->fillTriangle(CX - 11, PLAY_Y - 17, CX - 11, PLAY_Y + 17, CX + 19, PLAY_Y, COLOR_BG);
 }
 
 static void draw_result(Arduino_GFX *g) {
-    uint32_t now = millis(), a = now - s_end_ms;
-    // confetti for three stars
-    if (s_result_stars == 3) {
-        float dt = 0.016f;
-        for (Flake &f : s_m->flakes) {
-            f.y += f.vy * dt;
-            f.x += f.vx * dt + sinf((now + f.vy * 10) * 0.004f) * 0.6f;
-            if (f.y > LCD_HEIGHT) { f.y = -10; f.x = random(LCD_WIDTH); }
-            if (f.y > 0) g->fillRect((int)f.x, (int)f.y, 4, 3, f.c);
-        }
-    }
-    ui_text_center(CX, 74, s_cleared ? COLOR_TEXT : COLOR_BAD, s_cleared ? "Cleared!" : "Missed!", 3);
+    uint32_t a = millis() - s_end_ms;
+    ui_text_center(CX, 74, s_cleared ? WHITE : COLOR_BAD, s_cleared ? "Cleared" : "Missed", 3);
     char t[48];
     snprintf(t, sizeof(t), "%s  -  %s", s_m->songs[s_song].title, DIFF_NAME[s_diff]);
     ui_fit(t, 1, 320);
     ui_text_center(CX, 106, COLOR_TEXT_DIM, t, 1);
-    for (int k = 0; k < 3; k++) {     // stars pop in one by one
-        uint32_t at = 300 + k * 260;
+    for (int k = 0; k < 3; k++) {     // the stars come in one after another
+        uint32_t at = 250 + k * 200;
         bool on = k < s_result_stars && a > at;
-        float sc = on ? fminf(1.0f, (a - at) / 180.0f) : 1.0f;
-        float pop = on ? 1.0f + 0.35f * sinf(sc * 3.14159f) : 1.0f;
-        draw_star(g, CX + (k - 1) * 62, 156 - (k == 1 ? 8 : 0), (int)(22 * pop), on ? GOLD : COLOR_PANEL);
+        float pop = on ? 1.0f + 0.25f * sinf(fminf(1.0f, (a - at) / 160.0f) * 3.14159f) : 1.0f;
+        draw_star(g, CX + (k - 1) * 58, 154, (int)(20 * pop), on ? GOLD : COLOR_PANEL);
     }
-    // score counts up
-    float up = fminf(1.0f, a / 900.0f);
+    float up = fminf(1.0f, a / 800.0f);
     snprintf(t, sizeof(t), "%d", (int)(s_score * fx_ease_out_cubic(up)));
-    ui_text_center(CX, 214, COLOR_TEXT, t, 4);
+    ui_text_center(CX, 212, WHITE, t, 4);
     snprintf(t, sizeof(t), "%d%% accuracy  -  best combo %d", s_result_acc, s_max_combo);
-    ui_text_center(CX, 248, s_new_best ? COLOR_GOOD : COLOR_TEXT_DIM, s_new_best ? "New best!" : t, 1);
-    if (s_new_best) ui_text_center(CX, 266, COLOR_TEXT_DIM, t, 1);
-    // judgement breakdown
+    ui_text_center(CX, 246, COLOR_TEXT_DIM, t, 1);
+    if (s_new_best) ui_text_center(CX, 264, ACCENT, "New best", 1);
     for (int j = 0; j < 4; j++) {
         int x = CX - 135 + j * 90;
         snprintf(t, sizeof(t), "%d", s_count[j]);
-        ui_text_center(x, 296, JUDGE_COL[j], t, 2);
-        ui_text_center(x, 318, COLOR_TEXT_DIM, JUDGE_TXT[j], 1);
+        ui_text_center(x, 296, j == J_MISS && s_count[j] ? COLOR_BAD : WHITE, t, 2);
+        ui_text_center(x, 318, COLOR_TEXT_DIM, JUDGE_CAP[j], 1);
     }
     bool next = s_cleared && index_in_genre(s_song) + 1 < s_m->genre_n[s_m->songs[s_song].genre];
-    g->fillRoundRect(CX - 150, 344, 140, 50, 25, s_press == 0 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+    g->fillRoundRect(CX - 150, 344, 140, 50, 25, s_press == 0 ? ui_dim(ACCENT, 0.6f) : ACCENT);
     ui_text_center(CX - 80, 369, COLOR_BG, "Retry", 2);
-    g->fillRoundRect(CX + 10, 344, 140, 50, 25, s_press == 1 ? ui_dim(COLOR_PANEL, 0.6f) : COLOR_PANEL);
-    ui_text_center(CX + 80, 369, COLOR_TEXT, next ? "Next" : "Songs", 2);
+    g->fillRoundRect(CX + 10, 344, 140, 50, 25, s_press == 1 ? grey(5) : COLOR_PANEL);
+    ui_text_center(CX + 80, 369, WHITE, next ? "Next" : "Songs", 2);
 }
 
 static void draw_pause(Arduino_GFX *g) {
     draw_play(g);
     g->fillCircle(CX, CY, 150, COLOR_BG);
-    g->drawCircle(CX, CY, 150, COLOR_PANEL);
-    ui_text_center(CX, CY - 70, COLOR_TEXT, "Paused", 3);
-    g->fillRoundRect(CX - 100, CY - 30, 200, 52, 26, COLOR_ACCENT);
+    ui_text_center(CX, CY - 70, WHITE, "Paused", 3);
+    g->fillRoundRect(CX - 100, CY - 30, 200, 52, 26, ACCENT);
     ui_text_center(CX, CY - 4, COLOR_BG, "Resume", 2);
     g->fillRoundRect(CX - 100, CY + 36, 200, 52, 26, COLOR_PANEL);
-    ui_text_center(CX, CY + 62, COLOR_TEXT, "Quit song", 2);
+    ui_text_center(CX, CY + 62, WHITE, "Quit song", 2);
 }
 
-// ---- screen callbacks --------------------------------------------------------------------------
+
 static void piano_create() {
     if (!s_m) s_m = (PianoMem *)heap_caps_calloc(1, sizeof(PianoMem), MALLOC_CAP_SPIRAM);
     if (!s_m) { ui_show_toast("Not enough memory", 1500); return; }
@@ -901,9 +773,20 @@ static void piano_tick() {
     if (s_state == ST_MENU) { ui_scroll_tick(&s_scroll_ui); return; }
     if (s_state != ST_PLAY) { s_last_ms = millis(); return; }
     uint32_t now = millis();
-    float dt = (now - s_last_ms) / 1000.0f;
+    uint32_t fms = now - s_last_ms;
+    float dt = fms / 1000.0f;
     if (dt > 0.05f) dt = 0.05f;
     s_last_ms = now;
+    // frame time: the input-latency estimate, and a log line every 5 s
+    s_frame_ms += ((float)fms - s_frame_ms) * 0.1f;
+    s_perf_frames++;
+    if (fms > s_perf_worst) s_perf_worst = fms;
+    if (now - s_perf_ms >= 5000) {
+        DEBUG_PRINTF("[piano] %.1f fps, %.1f ms/frame avg, %u worst\n", s_perf_frames * 1000.0f / (now - s_perf_ms),
+                     s_frame_ms, (unsigned)s_perf_worst);
+        s_perf_ms = now;
+        s_perf_frames = s_perf_worst = 0;
+    }
     if (!s_started) return;
     s_scroll += cur_speed() * dt;     // a little faster towards the end
     // a tile that got away
@@ -911,10 +794,9 @@ static void piano_tick() {
         Tile &t = s_tiles[s_next];
         if (r_front(t) - tile_l(t) > R_OUT - 4) {
             t.state = 2;
-            int lane = t.lane, x, y;
-            lane_point(lane, R_HIT, &x, &y);
+            int lane = t.lane;
             while (s_next < s_ntiles && s_tiles[s_next].state) s_next++;
-            judge(lane, J_MISS, x, y);
+            judge(lane, J_MISS);
             if (s_state != ST_PLAY) return;
         }
     }
@@ -944,8 +826,10 @@ static void piano_touch(int x, int y, bool pressed) {
         if (s_next >= s_ntiles) return;
         Tile &t = s_tiles[s_next];
         if (r_front(t) < R_IN + 6) return;       // not out yet: too early, no harm
-        if (lane == t.lane) hit(s_next, x, y);
-        else judge(lane, J_MISS, x, y);           // wrong lane
+        // The finger landed about half a frame before this frame saw it,
+        // plus the touch controller's own scan (~10 ms).
+        if (lane == t.lane) hit(s_next, s_frame_ms * 0.5f + 10.0f);
+        else judge(lane, J_MISS);                 // wrong lane
         return;
     }
     if (s_state == ST_PAUSE) {
