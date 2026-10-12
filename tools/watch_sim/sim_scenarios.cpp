@@ -99,17 +99,22 @@ void sim_scenarios() {
     sim_tap(233, 345);                     // Stop
     sim_run(300);
 
-    // Piano Tiles: song list, difficulty, a song under way
+    // Piano Tiles: song list, a song's card, a song under way, the result
     shot(&piano_screen, "piano_menu");
-    sim_tap(233, 137);                     // Twinkle Twinkle
-    sim_run(300);
-    sim_save("piano_pick");
-    sim_tap(233, 197);                     // Easy
+    sim_tap(233, 156);                     // Ode to Joy
     sim_run(400);
-    sim_tap(320, 146);                     // the first tile (top-right)
-    sim_run(700);
+    sim_save("piano_pick");
+    sim_tap(233, 352);                     // Play
+    sim_run(300);
+    sim_tap(330, 136);                     // the first tile (top-right)
+    sim_run(500);
+    sim_tap(330, 330);                     // the next one (bottom-right)
+    sim_run(500);
     sim_save("piano_play");
     record("anim_piano", 1600, 50);
+    sim_tap(60, 233); sim_run(100);        // two wrong lanes: the result screen
+    sim_tap(60, 233); sim_run(1600);
+    sim_save("piano_result");
 
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");

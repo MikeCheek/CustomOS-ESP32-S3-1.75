@@ -22,12 +22,17 @@
 #pragma once
 #include <stdint.h>
 
+enum PianoGenre : uint8_t { PG_CLASSICAL, PG_FOLK, PG_HOLIDAY, PG_DANCE, PG_COUNT };
+extern const char *const PIANO_GENRES[PG_COUNT];
+
 struct PianoSong {
     const char *title;
     const char *composer;
     uint16_t bpm;
+    uint8_t genre;            // PianoGenre
     const char *notes;
 };
 
+// In each genre, ordered roughly by difficulty: clearing one unlocks the next.
 extern const PianoSong PIANO_SONGS[];
 extern const int PIANO_SONG_COUNT;
