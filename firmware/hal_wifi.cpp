@@ -19,15 +19,24 @@ static bool s_hold = false, s_off_pending = false;
 void wifi_enable() {
     s_off_pending = false;   // someone wants it on again
     if (s_enabled) return;
-    // The Wi-Fi driver needs ~50 KB of internal RAM (its buffers can't go
-    // to PSRAM in this core build). With Bluetooth connected there may not
-    // be that much: WiFi.mode() then fails and a scan finds nothing, which
-    // used to look like "no networks around".
+    // The Wi-Fi driver needs ~50 KB of internal RAM when it starts (task
+    // stack, DMA receive buffers); its other buffers go to PSRAM. The
+    // PlatformIO build keeps everything else that can out of internal RAM
+    // (TinyUSB, the Bluetooth host, task stacks - platformio.ini) so that
+    // much stays free next to Bluetooth and USB. A start that still fails
+    // is retried once: Bluetooth's buffers come and go with its traffic.
     size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    if (!WiFi.mode(WIFI_STA)) {
+    bool ok = WiFi.mode(WIFI_STA);
+    if (!ok) {
+        WiFi.mode(WIFI_OFF);
+        delay(250);
+        ok = WiFi.mode(WIFI_STA);
+    }
+    if (!ok) {
         s_error = "Not enough memory for Wi-Fi";
-        DEBUG_PRINTF("[wifi] radio start FAILED (internal RAM free %u, largest %u)\n", (unsigned)free_int,
-                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+        DEBUG_PRINTF("[wifi] radio start FAILED (internal RAM free %u, largest %u, now %u)\n", (unsigned)free_int,
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
         WiFi.mode(WIFI_OFF);
         return;
     }

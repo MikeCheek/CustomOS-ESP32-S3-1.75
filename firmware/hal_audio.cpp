@@ -9,6 +9,7 @@
 #include <driver/i2s.h>
 #include <esp_heap_caps.h>
 #include <math.h>
+#include <esp_timer.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -97,7 +98,7 @@ static esp_err_t i2s_write_guarded(const void *data, size_t size, size_t *bytes_
 // — the task body and audio_play_sfx() are defined further down, once
 // play_tone_blocking() (the tone synthesis they share with audio_beep)
 // is available.
-struct SfxRequest { uint16_t freq_hz; uint16_t duration_ms; };
+struct SfxRequest { uint16_t freq_hz; uint16_t duration_ms; uint8_t piano; };
 static QueueHandle_t s_sfx_queue = nullptr;
 static TaskHandle_t  s_sfx_task_handle = nullptr;
 static void sfx_task(void *param);
@@ -642,7 +643,12 @@ bool audio_init() {
     if (!s_i2s_mutex) s_i2s_mutex = xSemaphoreCreateMutex();
     if (!s_sfx_queue) s_sfx_queue = xQueueCreate(4, sizeof(SfxRequest));
     if (!s_sfx_task_handle && s_sfx_queue) {
-        if (xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
+        // Stack in PSRAM (internal RAM is kept for Wi-Fi next to Bluetooth).
+        static StaticTask_t sfx_tcb;
+        StackType_t *sfx_stack = (StackType_t *)ps_malloc(4096);
+        if (sfx_stack) s_sfx_task_handle = xTaskCreateStaticPinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, sfx_stack, &sfx_tcb, 1);
+        if (!s_sfx_task_handle &&
+            xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
             DEBUG_PRINTF("[audio] sfx_task creation FAILED - game sound effects will be silent\n");
             s_sfx_task_handle = NULL;
         }
@@ -701,20 +707,91 @@ void audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
 
 // ---- SFX task body (queue/handles declared earlier, near audio_init) --
 
+// Piano-ish voice: four harmonics, each decaying faster than the one
+// below, a 3 ms attack and a short release. Written in 8 ms chunks and
+// paced ~50 ms ahead of the speaker (not the DMA ring's full ~250 ms),
+// and abandoned with a quick fade as soon as another request is queued,
+// so the next tap's note starts almost at once.
+static void play_piano_blocking(uint16_t freq_hz, uint16_t duration_ms) {
+    static int16_t sine[256];
+    static bool table = false;
+    if (!table) {
+        for (int i = 0; i < 256; i++) sine[i] = (int16_t)(sinf(i * 6.2831853f / 256) * 32767);
+        table = true;
+    }
+    const int H = 4;
+    static const float AMP[H] = { 1.0f, 0.42f, 0.2f, 0.09f };
+    uint32_t ph[H] = { 0 }, inc[H];
+    float env[H], dec[H];
+    float base = 2.4f + freq_hz / 450.0f;            // higher notes ring shorter
+    for (int h = 0; h < H; h++) {
+        inc[h] = (uint32_t)((double)freq_hz * (h + 1) * 4294967296.0 / SAMPLE_RATE);
+        env[h] = AMP[h];
+        dec[h] = expf(-(base * (1.0f + 0.9f * h)) / SAMPLE_RATE);
+    }
+    const int CH = 128, ATTACK = 48, RELEASE = 240;
+    int total = SAMPLE_RATE * duration_ms / 1000;
+    if (total < RELEASE * 2) total = RELEASE * 2;
+    int16_t buf[CH * 2];
+    int64_t t0 = esp_timer_get_time();
+    int done = 0, fade_left = -1;
+    while (done < total) {
+        if (fade_left < 0 && uxQueueMessagesWaiting(s_sfx_queue) > 0) fade_left = 64;   // cut for the next note
+        int n = total - done < CH ? total - done : CH;
+        if (fade_left >= 0 && n > fade_left) n = fade_left;
+        if (n <= 0) break;
+        for (int i = 0; i < n; i++) {
+            int k = done + i;
+            float g = 1.0f;
+            if (k < ATTACK) g = (float)k / ATTACK;
+            if (total - k < RELEASE) g *= (float)(total - k) / RELEASE;
+            if (fade_left >= 0) g *= (float)(fade_left - i) / 64;
+            float v = 0;
+            for (int h = 0; h < H; h++) {
+                v += sine[ph[h] >> 24] * env[h];
+                ph[h] += inc[h];
+                env[h] *= dec[h];
+            }
+            int16_t s = (int16_t)(v * g * 0.16f);
+            buf[i * 2] = s;
+            buf[i * 2 + 1] = s;
+        }
+        size_t written = 0;
+        i2s_write_guarded(buf, n * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+        done += n;
+        if (fade_left >= 0) break;
+        // Stay ~50 ms ahead of real time.
+        int64_t ahead_us = (int64_t)done * 1000000 / SAMPLE_RATE - (esp_timer_get_time() - t0);
+        if (ahead_us > 50000) vTaskDelay(pdMS_TO_TICKS((ahead_us - 40000) / 1000));
+    }
+}
+
 static void sfx_task(void *param) {
     (void)param;
     SfxRequest req;
     for (;;) {
         if (xQueueReceive(s_sfx_queue, &req, portMAX_DELAY) == pdTRUE) {
-            if (s_ok) play_tone_blocking(req.freq_hz, req.duration_ms);
+            if (!s_ok) continue;
+            if (req.piano) play_piano_blocking(req.freq_hz, req.duration_ms);
+            else play_tone_blocking(req.freq_hz, req.duration_ms);
         }
     }
 }
 
 void audio_play_sfx(uint16_t freq_hz, uint16_t duration_ms) {
     if (!s_ok || !s_sfx_queue) return;
-    SfxRequest req = { freq_hz, duration_ms };
+    SfxRequest req = { freq_hz, duration_ms, 0 };
     xQueueSend(s_sfx_queue, &req, 0); // non-blocking — drop if the queue is full
+}
+
+void audio_play_note(uint16_t freq_hz, uint16_t duration_ms) {
+    if (!s_ok || !s_sfx_queue) return;
+    SfxRequest req = { freq_hz, duration_ms, 1 };
+    if (xQueueSend(s_sfx_queue, &req, 0) != pdTRUE) {   // full: the newest note wins
+        SfxRequest old;
+        xQueueReceive(s_sfx_queue, &old, 0);
+        xQueueSend(s_sfx_queue, &req, 0);
+    }
 }
 
 int audio_mic_level_percent() {
@@ -1870,6 +1947,7 @@ uint8_t audio_get_volume() { return 80; }
 int audio_mic_level_percent() { return 0; }
 void audio_beep(uint16_t, uint16_t) {}
 void audio_play_sfx(uint16_t, uint16_t) {}
+void audio_play_note(uint16_t, uint16_t) {}
 bool audio_play_wav(const char *) { return false; }
 bool audio_play_mp3(const char *) { return false; }
 bool audio_update() { return false; }

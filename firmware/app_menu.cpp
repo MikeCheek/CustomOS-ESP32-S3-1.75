@@ -41,6 +41,7 @@ extern Screen recorder_screen;
 extern Screen breakout_screen;
 extern Screen pet_screen;
 extern Screen flappy_screen;
+extern Screen piano_screen;
 extern Screen fruitninja_screen;
 extern Screen runner_screen;
 extern Screen maze_screen;
@@ -114,6 +115,13 @@ static void icon_simon(Arduino_GFX *g, int cx, int cy, float br) {
     // Diamond
     g->fillTriangle(cx, cy - 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT));
     g->fillTriangle(cx, cy + 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT2));
+}
+
+static void icon_piano(Arduino_GFX *g, int cx, int cy, float br) {
+    // Piano keys: four white keys, three black ones on top
+    for (int k = 0; k < 4; k++) g->fillRoundRect(cx - 21 + k * 11, cy - 16, 10, 32, 2, IC(COLOR_TEXT));
+    for (int k = 0; k < 3; k++) g->fillRect(cx - 14 + k * 11, cy - 16, 6, 19, IC(COLOR_BG));
+    g->fillCircle(cx + 15, cy - 12, 4, IC(COLOR_ACCENT));
 }
 
 static void icon_plane(Arduino_GFX *g, int cx, int cy, float br) {
@@ -400,6 +408,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
     {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
     {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
+    {"Piano Tiles",   CAT_GAMES, icon_piano,         &piano_screen},
     {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
     {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
     {"Blackjack",     CAT_GAMES, icon_blackjack,     &blackjack_screen},

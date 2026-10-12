@@ -20,8 +20,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Calendar | Voice recorder | Flappy | Fruit Slice |
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
 | Settings | Battery | Update found on Wi-Fi | Software update |
-| ![](docs/screenshots/aod.png) | | | |
-| Always-on display | | | |
+| ![](docs/screenshots/aod.png) | ![](docs/screenshots/piano_menu.png) | ![](docs/screenshots/piano_pick.png) | ![](docs/screenshots/piano_play.png) |
+| Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
 
 ### In motion
 
@@ -45,7 +45,9 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
-- **Games** - Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
+- **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for
+  accuracy-based stars, combos and hold bonuses, Easy / Normal / Hard on any song, more from the SD card or
+  your own MIDI files via `tools/midi_to_piano.py`), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board).
 - **Power** - light sleep with the phone still connected, an always-on display, battery modes

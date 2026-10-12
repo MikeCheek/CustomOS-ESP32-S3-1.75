@@ -123,6 +123,7 @@ uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
 bool audio_mic_ok() { return true; }
 int audio_mic_level_percent() { return 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
+void audio_play_note(uint16_t, uint16_t) {}
 // Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
 int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
     if (!g_sim.recording) return 0;

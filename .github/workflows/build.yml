@@ -63,7 +63,7 @@ jobs:
         run: |
           pio run -e watch 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" = 0
-          grep -E "^(RAM|Flash):" build.log >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E "^(RAM|Flash):|tinyusb->psram" build.log >> "$GITHUB_STEP_SUMMARY" || true
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
 
@@ -89,7 +89,7 @@ jobs:
 
       # The point of this build: make sure the rebuilt core (power management,
       # tickless idle) is what got linked, not the stock one.
-      - name: Check power management is in the image
+      - name: Check power management and the PSRAM moves are in the image
         run: |
           NM=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
           syms=$("$NM" .pio/build/watch/firmware.elf)
@@ -97,6 +97,17 @@ jobs:
             echo "$syms" | grep -qw "$s" || { echo "::error::$s missing - the stock core was linked, not the one built with custom_sdkconfig"; exit 1; }
           done
           echo "Power management and tickless idle linked in" >> "$GITHUB_STEP_SUMMARY"
+          # TinyUSB's buffers must be in PSRAM (0x3c.../0x3d...), not internal
+          # RAM (0x3f...) - Wi-Fi needs that room (pio/tinyusb_to_psram.py)
+          addr=$(echo "$syms" | awk '$3 == "_tud_cfg" { print $1; exit }')
+          cat .pio/tinyusb_to_psram.log 2>/dev/null || echo "(no tinyusb_to_psram.log)"
+          L=~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3
+          echo "sections.ld .ext_ram.bss: $(grep -c 'ext_ram.bss' $L/ld/sections.ld 2>/dev/null)"
+          echo "sdkconfig: $(grep -h 'ALLOW_BSS_SEG_EXTERNAL' $L/sdkconfig 2>/dev/null | head -2 | tr '\n' ' ')"
+          case "$addr" in
+            3c*|3d*) echo "TinyUSB buffers in PSRAM (_tud_cfg at 0x$addr)" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::TinyUSB buffers not in PSRAM (_tud_cfg at '$addr')"; exit 1 ;;
+          esac
 
       # The watch only installs signed updates when a key is set in
       # ota_pubkey.h; it then downloads the *.signed.bin from the release.
