@@ -79,8 +79,13 @@ def main():
 
     tool_env = dict(os.environ)
     tool_env.update(env["ENV"])  # noqa: F821 - the toolchain's PATH
-    objcopy = env.subst("$OBJCOPY")  # noqa: F821
-    objdump = re.sub(r"objcopy$", "objdump", objcopy)
+    # The toolchain's binutils, named after its gcc ($OBJCOPY is esptool
+    # in this platform, not objcopy)
+    cc = env.subst("$CC")  # noqa: F821
+    if not cc.endswith("gcc"):
+        _log("unexpected compiler name %r - left as is" % cc)
+        return
+    objcopy, objdump = cc[:-3] + "objcopy", cc[:-3] + "objdump"
     try:
         names, _ = _bss_sections(objdump, stock, tool_env)
         if not names:
