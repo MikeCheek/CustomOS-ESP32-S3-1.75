@@ -416,8 +416,14 @@ void display_init() {
     s_cmd_lock = xSemaphoreCreateMutex();
     s_cmd_done = xSemaphoreCreateBinary();
     // The panel is brought up from the sender task itself, so the SPI bus
-    // is created on the same core that will always drive it.
-    xTaskCreatePinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, &s_task, SEND_CORE);
+    // is created on the same core that will always drive it. Its stack is
+    // in PSRAM: internal RAM is what Wi-Fi needs to start next to
+    // Bluetooth, and this task never touches flash (pixel DMA buffers are
+    // internal, see fast_init()).
+    static StaticTask_t tcb;
+    static StackType_t *stack = (StackType_t *)heap_caps_malloc(SEND_STACK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (stack) s_task = xTaskCreateStaticPinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, stack, &tcb, SEND_CORE);
+    else xTaskCreatePinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, &s_task, SEND_CORE);
     if (xSemaphoreTake(s_init_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         DEBUG_PRINTF("[display] sender task did not finish panel init\n");
     }

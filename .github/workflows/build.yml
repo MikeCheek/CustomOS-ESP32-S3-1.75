@@ -63,7 +63,7 @@ jobs:
         run: |
           pio run -e watch 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" = 0
-          grep -E "^(RAM|Flash):" build.log >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E "^(RAM|Flash):|tinyusb->psram" build.log >> "$GITHUB_STEP_SUMMARY" || true
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
 

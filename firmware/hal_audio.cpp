@@ -642,7 +642,12 @@ bool audio_init() {
     if (!s_i2s_mutex) s_i2s_mutex = xSemaphoreCreateMutex();
     if (!s_sfx_queue) s_sfx_queue = xQueueCreate(4, sizeof(SfxRequest));
     if (!s_sfx_task_handle && s_sfx_queue) {
-        if (xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
+        // Stack in PSRAM (internal RAM is kept for Wi-Fi next to Bluetooth).
+        static StaticTask_t sfx_tcb;
+        StackType_t *sfx_stack = (StackType_t *)ps_malloc(4096);
+        if (sfx_stack) s_sfx_task_handle = xTaskCreateStaticPinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, sfx_stack, &sfx_tcb, 1);
+        if (!s_sfx_task_handle &&
+            xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
             DEBUG_PRINTF("[audio] sfx_task creation FAILED - game sound effects will be silent\n");
             s_sfx_task_handle = NULL;
         }
