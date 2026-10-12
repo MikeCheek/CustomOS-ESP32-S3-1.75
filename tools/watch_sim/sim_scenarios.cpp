@@ -19,7 +19,7 @@ void sim_tap(int x, int y);
 void sim_link(const char *json);
 
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
-    flappy_screen, fruitninja_screen, battery_screen, recorder_screen;
+    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen;
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
 static uint32_t at(int hh, int mm) { return 20734u * 86400u + hh * 3600u + mm * 60u; }
@@ -98,6 +98,18 @@ void sim_scenarios() {
     record("anim_recorder", 1200, 40);
     sim_tap(233, 345);                     // Stop
     sim_run(300);
+
+    // Piano Tiles: song list, difficulty, a song under way
+    shot(&piano_screen, "piano_menu");
+    sim_tap(233, 137);                     // Twinkle Twinkle
+    sim_run(300);
+    sim_save("piano_pick");
+    sim_tap(233, 197);                     // Easy
+    sim_run(400);
+    sim_tap(320, 146);                     // the first tile (top-right)
+    sim_run(700);
+    sim_save("piano_play");
+    record("anim_piano", 1600, 50);
 
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");

@@ -51,6 +51,11 @@ void audio_beep(uint16_t freq_hz, uint16_t duration_ms);
 // See game_audio.h for the named sounds games actually call.
 void audio_play_sfx(uint16_t freq_hz, uint16_t duration_ms);
 
+// A piano-like note (a few decaying harmonics) on the same queue, for
+// playable instruments: it cuts off whatever note is sounding and is
+// kept only ~50 ms ahead of the speaker, so a tap is heard right away.
+void audio_play_note(uint16_t freq_hz, uint16_t duration_ms);
+
 // WAV file playback from SD card.
 // Starts playing <filename> (root of SD) through the speaker.
 // Non-blocking: call audio_update() from loop() to feed data.
