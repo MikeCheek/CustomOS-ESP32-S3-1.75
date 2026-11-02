@@ -22,6 +22,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Settings | Battery | Update found on Wi-Fi | Software update |
 | ![](docs/screenshots/aod.png) | ![](docs/screenshots/piano_menu.png) | ![](docs/screenshots/piano_pick.png) | ![](docs/screenshots/piano_play.png) |
 | Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
+| ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | | |
+| Assistant listening | Assistant answer | | |
 
 ### In motion
 
@@ -43,6 +45,9 @@ Built on Arduino + Arduino_GFX, no LVGL.
   spinning 3D bolt when charging starts.
 - **Phone link** - notifications with app icons and quick and voice replies, incoming calls (answer/decline), music remote with album art,
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
+- **Assistant** - ask out loud (app menu, or press BOOT twice): timers on the watch, reminders and alarms into
+  your calendar, music, weather, the agenda, Do Not Disturb, finding the phone, questions about your memos, or
+  anything else for the on-phone language model. Whisper and the LLM run on the phone, nothing goes online.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for

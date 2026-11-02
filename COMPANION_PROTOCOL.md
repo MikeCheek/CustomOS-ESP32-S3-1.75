@@ -62,6 +62,8 @@ Phone → watch (`"t"` = type):
 | `{"t":"wifi","on":1}` / `{"t":"wifi","on":0}` | start / stop the Wi-Fi transfer server (see below) |
 | `{"t":"crash"}` / `{"t":"crash","clr":1}` | send diagnostics (and clear the crash report) |
 | `{"t":"dict","id":123,"n":1,"tx":"text"}` / `{"t":"dict","id":123,"n":1,"err":"why"}` | voice reply transcription result (`n` echoes the watch's attempt number) |
+| `{"t":"ask","n":1,"st":"Thinking"}` | voice assistant progress (shown while the watch waits) |
+| `{"t":"ask","n":1,"q":"heard","a":"answer","do":"timer","s":300}` / `{"t":"ask","n":1,"err":"why"}` | voice assistant result; `do`/`s` optional: `timer` sets the watch timer to `s` seconds (0 cancels) |
 
 Watch → phone (`"e"` = event):
 
@@ -71,6 +73,7 @@ Watch → phone (`"e"` = event):
 | `{"e":"wifi","st":"ready","ip":"192.168.1.20","port":8080,"k":"<key>"}` / `{"e":"wifi","st":"err","why":"..."}` / `{"e":"wifi","st":"off"}` | Wi-Fi transfer server state |
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
+| `{"e":"ask","n":1,"f":"_ask.wav"}` | voice assistant question recorded: download `f`, transcribe, act on it, answer with `t:"ask"` |
 | `{"e":"req"}` | please resend battery + now playing |
 | `{"e":"img","k":"i"\|"a","h":789}` | send this app icon / album cover (as `0x03` frames); asked once per image, again after 20 s if nothing came |
 | `{"e":"med","a":"toggle"\|"next"\|"prev"\|"volUp"\|"volDown"}` | media control |

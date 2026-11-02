@@ -5,6 +5,7 @@
  * Direct Arduino_GFX drawing — no LVGL.
  */
 
+#include "app_assistant.h"
 #include <Wire.h>
 #include "complications.h"
 #include "dnd.h"
@@ -621,6 +622,7 @@ void loop() {
     }
     imu_steps_poll();            // hardware pedometer + midnight rollover
     calendar_update();           // event reminders (works without the phone)
+    assistant_timer_update();    // the assistant's timer rings, awake or asleep
 #if FEATURE_AUDIO
     power_set_screen_off(asleep && !audio_is_playing());   // MP3 decode needs the clock
 #else
@@ -640,6 +642,10 @@ void loop() {
         } else if (boot_evt == BTN_EVENT_LONG_PRESS) {
             if (ui_top_panel_is_open()) ui_top_panel_close();
             ui_go_home();
+        } else if (boot_evt == BTN_EVENT_DOUBLE_PRESS) {
+            // BOOT twice: ask the assistant
+            if (ui_top_panel_is_open()) ui_top_panel_close();
+            if (!ui_screen_on_top(&assistant_screen)) ui_push(&assistant_screen);
         }
         if (pwr_evt == BTN_EVENT_SHORT_PRESS) {
             // Play the "locking" particle animation first; it calls

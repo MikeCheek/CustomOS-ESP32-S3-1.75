@@ -21,6 +21,7 @@ struct MenuEntry {
 };
 
 extern Screen settings_screen;
+extern Screen assistant_screen;
 extern Screen notifications_screen;
 extern Screen ble_status_screen;
 extern Screen battery_screen;
@@ -292,6 +293,16 @@ static void icon_music(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx - 5, cy - 12, cx + 17, cy - 9, cx - 5, cy - 6, c);
 }
 
+static void icon_assistant(Arduino_GFX *g, int cx, int cy, float br) {
+    // A speech bubble with a sound wave
+    uint16_t c = IC(COLOR_ACCENT);
+    g->fillRoundRect(cx - 20, cy - 16, 40, 28, 12, c);
+    g->fillTriangle(cx - 10, cy + 10, cx - 2, cy + 10, cx - 14, cy + 20, c);
+    uint16_t w = IC(COLOR_BG);
+    static const int8_t H[5] = { 4, 10, 16, 10, 4 };
+    for (int k = 0; k < 5; k++) g->fillRoundRect(cx - 12 + k * 6, cy - 2 - H[k] / 2, 3, H[k], 1, w);
+}
+
 static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
@@ -385,6 +396,7 @@ static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
 }
 
 static const MenuEntry MENU_ENTRIES[] = {
+    {"Assistant",     CAT_TOOLS, icon_assistant,     &assistant_screen},
     {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},

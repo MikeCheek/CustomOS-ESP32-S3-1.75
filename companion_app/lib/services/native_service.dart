@@ -118,6 +118,23 @@ class NativeService {
     return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  /// Adds a reminder (a short event with an alert at [at]) to the phone's
+  /// main calendar. The event id, or null (no write permission / calendar).
+  Future<int?> addReminder(String title, DateTime at) async {
+    try {
+      final id = await _method.invokeMethod<int>('addReminder', {'title': title, 'begin': at.millisecondsSinceEpoch});
+      return id != null && id >= 0 ? id : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The phone's battery: {level (%), charging}.
+  Future<Map<String, dynamic>?> battery() async {
+    final m = await _method.invokeMethod<Map<dynamic, dynamic>>('getBattery');
+    return m == null ? null : Map<String, dynamic>.from(m);
+  }
+
   /// Fires "changed" (debounced) when the phone's calendar changes.
   Stream<String> get calendarChanges =>
       _calendar ??= _calendarStream.receiveBroadcastStream().map((e) => e.toString()).asBroadcastStream();

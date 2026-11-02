@@ -238,6 +238,41 @@ class GemmaService {
     return out;
   }
 
+  /// The voice assistant's fallback for requests its own rules don't know
+  /// (services/assistant_intents.dart): maps [request] to one of the same
+  /// actions, or answers it. Returns {"tool": ..., ...} - "answer" with
+  /// "text" for a plain answer - or null without a model.
+  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(
+      'You are the voice assistant of a smartwatch. It is ${now.toIso8601String().substring(0, 16)}.\n'
+      'Reply with ONLY one JSON object, no other text.\n'
+      'If the request is one of these actions, reply with it:\n'
+      '{"tool":"timer","seconds":300}\n'
+      '{"tool":"reminder","text":"what to remind","minutes":20}   (in N minutes)\n'
+      '{"tool":"reminder","text":"what to remind","time":"18:30","day":"today"}   (day: today or tomorrow)\n'
+      '{"tool":"music","cmd":"play"}   (cmd: play, pause, next, prev, volUp, volDown)\n'
+      '{"tool":"weather"}  {"tool":"agenda"}  {"tool":"battery"}  {"tool":"find_phone"}\n'
+      '{"tool":"dnd","on":true}  {"tool":"memos","query":"what to look for in the user\'s voice memos"}\n'
+      'Otherwise answer it yourself, in the language of the request, in at most 2 short sentences:\n'
+      '{"tool":"answer","text":"..."}\n\n'
+      'Request: $request /no_think',
+      temperature: 0.2,
+    );
+    if (out == null) return null;
+    final s = out.replaceAll('```json', '').replaceAll('```', '');
+    final a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a >= 0 && b > a) {
+      try {
+        final m = jsonDecode(s.substring(a, b + 1));
+        if (m is Map<String, dynamic> && m['tool'] is String) return m;
+      } catch (_) {}
+    }
+    // Not JSON: treat what it said as the answer.
+    final text = s.trim();
+    return text.isEmpty ? null : {'tool': 'answer', 'text': text};
+  }
+
   /// A 1-4 word name for a group of memos about [keywords], or null.
   Future<String?> nameCollection(List<String> keywords, List<String> titles) async {
     if (!await hasModel()) return null;

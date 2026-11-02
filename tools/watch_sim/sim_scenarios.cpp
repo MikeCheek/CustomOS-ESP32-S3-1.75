@@ -19,7 +19,8 @@ void sim_tap(int x, int y);
 void sim_link(const char *json);
 
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
-    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen;
+    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen;
+void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
 static uint32_t at(int hh, int mm) { return 20734u * 86400u + hh * 3600u + mm * 60u; }
@@ -98,6 +99,15 @@ void sim_scenarios() {
     record("anim_recorder", 1200, 40);
     sim_tap(233, 345);                     // Stop
     sim_run(300);
+
+    // Assistant: listening, then an answer that set a timer
+    shot(&assistant_screen, "assistant_listen", 900);
+    sim_tap(233, 233);
+    sim_run(200);
+    assistant_on_result(1, "Set a timer for 10 minutes for the pasta", "Timer set for 10 minutes.", "timer", 600, "");
+    sim_run(1500);
+    sim_save("assistant_answer");
+    g_sim.recording = false;
 
     // Piano Tiles: song list, a song's card, a song under way, the result
     shot(&piano_screen, "piano_menu");

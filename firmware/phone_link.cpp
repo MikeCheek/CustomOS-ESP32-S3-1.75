@@ -1,3 +1,4 @@
+#include "app_assistant.h"
 #include "phone_link.h"
 #include "complications.h"
 #include "dnd.h"
@@ -164,6 +165,10 @@ static void handle(const char *msg) {
         quick_replies_set(items, n);
     } else if (!strcmp(t, "dict")) {
         dictate_on_result(doc["id"] | 0u, doc["n"] | 0u, doc["tx"] | "", doc["err"] | "");
+    } else if (!strcmp(t, "ask")) {
+        uint32_t n = doc["n"] | 0u;
+        if (doc["st"].is<const char *>()) assistant_on_status(n, doc["st"]);
+        else assistant_on_result(n, doc["q"] | "", doc["a"] | "", doc["do"] | "", doc["s"] | 0, doc["err"] | "");
     } else if (!strcmp(t, "crash")) {
         // Crash report + status text for the app's Diagnostics page.
         if (doc["clr"] | 0) diag_clear_crash();

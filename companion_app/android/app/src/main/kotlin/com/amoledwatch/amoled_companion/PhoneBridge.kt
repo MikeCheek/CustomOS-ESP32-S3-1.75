@@ -2,6 +2,7 @@ package com.amoledwatch.amoled_companion
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -142,6 +143,18 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                         }
                     }
                     "watchCalendar" -> { watchCalendar(); result.success(true) }
+                    "addReminder" -> {
+                        if (app.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+                            result.error("permission", "WRITE_CALENDAR not granted", null)
+                        } else {
+                            val title = call.argument<String>("title") ?: ""
+                            val begin = call.argument<Number>("begin")?.toLong() ?: 0L
+                            Thread {
+                                val id = try { addReminder(title, begin) } catch (e: Exception) { -1L }
+                                main.post { result.success(id) }
+                            }.start()
+                        }
+                    }
                     "updateWidget" -> {
                         @Suppress("UNCHECKED_CAST")
                         WatchWidget.store(app, (call.arguments as? Map<String, Any?>) ?: emptyMap())
@@ -471,6 +484,44 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     // ---- calendar ----------------------------------------------------------------
 
     /** Event instances from a day ago to now + [hours], visible calendars only. */
+    /// A 5-minute event with an alert at its start in the phone's main
+    /// writable calendar, for the voice assistant's reminders and alarms.
+    /// The calendar observer then syncs it to the watch, which reminds on
+    /// its own. Returns the event id, or -1.
+    private fun addReminder(title: String, begin: Long): Long {
+        var calId = -1L
+        app.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.IS_PRIMARY,
+                CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.VISIBLE),
+            null, null, null
+        )?.use { c ->
+            var best = -1
+            while (c.moveToNext()) {
+                if (c.getInt(2) < CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR || c.getInt(3) == 0) continue
+                val score = if (c.getInt(1) != 0) 2 else 1
+                if (score > best) { best = score; calId = c.getLong(0) }
+            }
+        }
+        if (calId < 0) return -1
+        val ev = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, begin)
+            put(CalendarContract.Events.DTEND, begin + 5 * 60_000L)
+            put(CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+            put(CalendarContract.Events.HAS_ALARM, 1)
+        }
+        val uri = app.contentResolver.insert(CalendarContract.Events.CONTENT_URI, ev) ?: return -1
+        val id = uri.lastPathSegment?.toLongOrNull() ?: return -1
+        app.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, ContentValues().apply {
+            put(CalendarContract.Reminders.EVENT_ID, id)
+            put(CalendarContract.Reminders.MINUTES, 0)
+            put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+        })
+        return id
+    }
+
     private fun readEvents(hours: Int): List<Map<String, Any>> {
         val now = System.currentTimeMillis()
         // A day back: all-day events are stored UTC midnight to UTC midnight,

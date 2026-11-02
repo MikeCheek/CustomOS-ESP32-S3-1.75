@@ -117,7 +117,7 @@ void audio_seek(float) {}
 bool audio_get_stream_info(AudioStreamInfo *) { return false; }
 bool audio_is_recording() { return g_sim.recording; }
 bool audio_start_record(const char *) { g_sim.recording = true; return true; }
-bool audio_start_record_mono(const char *) { return false; }
+bool audio_start_record_mono(const char *) { g_sim.recording = true; return true; }
 void audio_stop_record() { g_sim.recording = false; }
 uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
 bool audio_mic_ok() { return true; }

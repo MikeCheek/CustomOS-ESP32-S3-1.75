@@ -12,6 +12,8 @@ import '../services/ble_service.dart';
 import '../services/native_service.dart';
 import '../services/weather_service.dart';
 import '../services/whisper_service.dart';
+import '../services/assistant_intents.dart';
+import '../services/gemma_service.dart';
 import 'ble_provider.dart';
 import 'notes_provider.dart';
 import 'settings_provider.dart';
@@ -400,6 +402,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case 'dict':
         await _transcribeReply((e['id'] as num?)?.toInt() ?? 0, (e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '');
         break;
+      case 'ask':
+        await _assistant((e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '');
+        break;
       case 'med':
         await _native.mediaCommand(e['a'] as String? ?? '');
         break;
@@ -727,6 +732,222 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         if (tmp != null && await tmp.exists()) await tmp.delete();
       } catch (_) {}
     }
+  }
+
+  // ---- voice assistant --------------------------------------------------------------
+
+  /// The watch asked something out loud (app_assistant.cpp): fetch the
+  /// recording, transcribe it, work out what it asks for - the rules in
+  /// assistant_intents.dart first, then the local LLM - do it, and send the
+  /// answer back. Timers run on the watch; everything else happens here.
+  Future<void> _assistant(int seq, String file) async {
+    Future<void> status(String st) => _ble.sendLink({'t': 'ask', 'n': seq, 'st': st});
+    Future<void> fail(String why) => _ble.sendLink({'t': 'ask', 'n': seq, 'err': why});
+    if (file.isEmpty) return fail('Nothing recorded');
+    final whisper = WhisperService.instance;
+    File? tmp;
+    try {
+      await whisper.loadPrefs();
+      if (!await whisper.isDownloaded()) {
+        return fail('Download the speech model in the companion app first');
+      }
+      await status('Listening');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: receiving');
+      final bytes = await _ref.read(notesProvider.notifier).fetchTemp(file, timeout: const Duration(seconds: 60));
+      final dir = await getTemporaryDirectory();
+      tmp = File('${dir.path}/assistant_$seq.wav');
+      await tmp.writeAsBytes(bytes);
+      await status('Understanding');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: transcribing');
+      final heard = (await whisper.transcribe(tmp.path))
+          .replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (heard.isEmpty) return fail('Didn\'t catch that - try again');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: "$heard"');
+      final reply = await _assistantReply(heard, () => status('Thinking'));
+      await _ble.sendLink({
+        't': 'ask',
+        'n': seq,
+        'q': _clip(heard, 160),
+        'a': _clip(reply.answer, 360),
+        if (reply.timer != null) 'do': 'timer',
+        if (reply.timer != null) 's': reply.timer,
+      });
+    } catch (e) {
+      await fail(_clip(e.toString().replaceFirst('Exception: ', ''), 90));
+    } finally {
+      if (mounted) state = state.copyWith(dictation: null);
+      try {
+        if (tmp != null && await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// What to say back to [heard] (and a watch timer to set, in seconds;
+  /// 0 cancels it). [thinking] is called before the LLM is asked.
+  Future<({String answer, int? timer})> _assistantReply(String heard, Future<void> Function() thinking) async {
+    final now = DateTime.now();
+    var intent = parseAssistantIntent(heard, now);
+    final it = intent.italian;
+    String t(String en, String itx) => it ? itx : en;
+    final gemma = GemmaService.instance;
+
+    // Not something the rules know: let the LLM map it to an action or answer.
+    if (intent.kind == IntentKind.none) {
+      await thinking();
+      final r = await gemma.assistantRoute(heard, now);
+      if (r == null) {
+        return (
+          answer: t('I can set timers and reminders, control music, and tell you the weather or your agenda. '
+                  'Install a language model in the app to ask anything else.',
+              'Posso impostare timer e promemoria, controllare la musica, dirti il meteo o gli impegni. '
+                  'Installa un modello linguistico nell\'app per chiedere altro.'),
+          timer: null
+        );
+      }
+      intent = _intentFromLlm(r, now, it);
+      if (intent.kind == IntentKind.none) return (answer: (r['text'] ?? '').toString().trim(), timer: null);
+    }
+
+    String hm(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    String dur(int s) {
+      final h = s ~/ 3600, m = s % 3600 ~/ 60, sec = s % 60;
+      final parts = <String>[
+        if (h > 0) it ? '$h ${h == 1 ? 'ora' : 'ore'}' : '$h hour${h == 1 ? '' : 's'}',
+        if (m > 0) it ? '$m ${m == 1 ? 'minuto' : 'minuti'}' : '$m minute${m == 1 ? '' : 's'}',
+        if (sec > 0) it ? '$sec secondi' : '$sec seconds',
+      ];
+      return parts.join(it ? ' e ' : ' and ');
+    }
+
+    switch (intent.kind) {
+      case IntentKind.timer:
+        return (answer: t('Timer set for ${dur(intent.seconds!)}.', 'Timer di ${dur(intent.seconds!)} avviato.'), timer: intent.seconds);
+      case IntentKind.cancelTimer:
+        return (answer: t('Timer cancelled.', 'Timer annullato.'), timer: 0);
+      case IntentKind.reminder:
+        final at = intent.at!;
+        final id = await _native.addReminder(intent.text ?? t('Reminder', 'Promemoria'), at);
+        if (id == null) {
+          return (
+            answer: t('I couldn\'t add it to your calendar - allow calendar access in the companion app.',
+                'Non sono riuscito ad aggiungerlo al calendario: consenti l\'accesso al calendario nell\'app.'),
+            timer: null
+          );
+        }
+        final today = at.day == now.day && at.month == now.month;
+        final when = today ? t('today at ${hm(at)}', 'oggi alle ${hm(at)}') : t('tomorrow at ${hm(at)}', 'domani alle ${hm(at)}');
+        final daysAway = DateTime(at.year, at.month, at.day).difference(DateTime(now.year, now.month, now.day)).inDays;
+        final whenText = daysAway <= 1 ? when : t('on ${at.day}/${at.month} at ${hm(at)}', 'il ${at.day}/${at.month} alle ${hm(at)}');
+        return (answer: t('Reminder set: ${intent.text}, $whenText.', 'Promemoria: ${intent.text}, $whenText.'), timer: null);
+      case IntentKind.music:
+        final ok = await _native.mediaCommand(intent.command!);
+        if (!ok) return (answer: t('Nothing is playing on your phone.', 'Non c\'è niente in riproduzione sul telefono.'), timer: null);
+        const en = {'play': 'Playing.', 'pause': 'Paused.', 'next': 'Next track.', 'prev': 'Previous track.', 'volUp': 'Volume up.', 'volDown': 'Volume down.'};
+        const itx = {'play': 'Riproduzione.', 'pause': 'In pausa.', 'next': 'Brano successivo.', 'prev': 'Brano precedente.', 'volUp': 'Volume su.', 'volDown': 'Volume giù.'};
+        return (answer: (it ? itx : en)[intent.command] ?? 'OK', timer: null);
+      case IntentKind.weather:
+        final w = state.weather;
+        if (w == null) return (answer: t('I don\'t have the weather yet.', 'Non ho ancora il meteo.'), timer: null);
+        final f = w.forecast.isNotEmpty ? w.forecast.first : null;
+        final rest = f == null ? '' : t(' Today ${f.low.round()}° to ${f.high.round()}°.', ' Oggi da ${f.low.round()}° a ${f.high.round()}°.');
+        return (answer: '${w.tempC.round()}°, ${w.condition}.$rest', timer: null);
+      case IntentKind.time:
+        return (answer: t('It\'s ${hm(now)}.', 'Sono le ${hm(now)}.'), timer: null);
+      case IntentKind.date:
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const giorni = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+        return (
+          answer: t('${days[now.weekday - 1]}, ${now.day}/${now.month}/${now.year}.',
+              'Oggi è ${giorni[now.weekday - 1]} ${now.day}/${now.month}/${now.year}.'),
+          timer: null
+        );
+      case IntentKind.battery:
+        final b = await _native.battery();
+        final lvl = (b?['level'] as num?)?.toInt() ?? -1;
+        if (lvl < 0) return (answer: t('I can\'t read the phone\'s battery.', 'Non riesco a leggere la batteria.'), timer: null);
+        final ch = b?['charging'] == true;
+        return (answer: t('Your phone is at $lvl%${ch ? ', charging' : ''}.', 'Il telefono è al $lvl%${ch ? ', in carica' : ''}.'), timer: null);
+      case IntentKind.agenda:
+        List<Map<String, dynamic>> events;
+        try {
+          events = await _native.getEvents(hours: 36);
+        } catch (_) {
+          return (answer: t('Allow calendar access in the companion app.', 'Consenti l\'accesso al calendario nell\'app.'), timer: null);
+        }
+        final upcoming = [
+          for (final e in events)
+            if (((e['end'] as num?)?.toInt() ?? 0) > now.millisecondsSinceEpoch && e['allDay'] != true) e
+        ];
+        if (upcoming.isEmpty) return (answer: t('Nothing else on your calendar today.', 'Nessun altro impegno oggi.'), timer: null);
+        final parts = [
+          for (final e in upcoming.take(3))
+            '${hm(DateTime.fromMillisecondsSinceEpoch((e['begin'] as num).toInt()))} ${e['title']}'
+        ];
+        return (answer: '${t('Next:', 'Prossimi:')} ${parts.join(', ')}.', timer: null);
+      case IntentKind.findPhone:
+        await _native.findPhone(true);
+        if (mounted) state = state.copyWith(findingPhone: true);
+        return (answer: t('Ringing your phone.', 'Faccio squillare il telefono.'), timer: null);
+      case IntentKind.dnd:
+        final ok = await _native.setDnd(intent.on!);
+        if (!ok) return (answer: t('Allow Do Not Disturb access in the companion app.', 'Consenti l\'accesso a Non disturbare nell\'app.'), timer: null);
+        return (answer: intent.on! ? t('Do Not Disturb is on.', 'Non disturbare attivo.') : t('Do Not Disturb is off.', 'Non disturbare disattivato.'), timer: null);
+      case IntentKind.memos:
+        final kb = _ref.read(knowledgeProvider);
+        final q = intent.text ?? heard;
+        final ctx = kb.contextFor(q);
+        if (ctx.isEmpty) return (answer: t('I couldn\'t find anything about that in your memos.', 'Non ho trovato niente nei tuoi memo.'), timer: null);
+        await thinking();
+        final ans = await gemma.ask(q, [for (final c in ctx) c.$2]);
+        final text = (ans ?? ctx.first.$1.summary).replaceAll(RegExp(r'\s*\[\d+\]'), '').trim();
+        return (answer: text.isEmpty ? ctx.first.$1.displayTitle : text, timer: null);
+      case IntentKind.none:
+        return (answer: '', timer: null);
+    }
+  }
+
+  /// The LLM's {"tool": ...} as an intent (IntentKind.none for an answer).
+  AssistantIntent _intentFromLlm(Map<String, dynamic> r, DateTime now, bool it) {
+    int? n(Object? v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}');
+    switch (r['tool']) {
+      case 'timer':
+        final s = n(r['seconds']);
+        if (s != null && s > 0 && s <= 86400) return AssistantIntent(IntentKind.timer, italian: it, seconds: s);
+        break;
+      case 'reminder':
+        final text = (r['text'] ?? '').toString().trim();
+        DateTime? at;
+        final mins = n(r['minutes']);
+        if (mins != null && mins > 0) at = now.add(Duration(minutes: mins));
+        final tm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch((r['time'] ?? '').toString());
+        if (at == null && tm != null) {
+          at = DateTime(now.year, now.month, now.day, int.parse(tm.group(1)!), int.parse(tm.group(2)!));
+          if (r['day'] == 'tomorrow' || !at.isAfter(now)) at = at.add(const Duration(days: 1));
+        }
+        if (at != null) {
+          return AssistantIntent(IntentKind.reminder, italian: it, at: at, text: text.isEmpty ? (it ? 'Promemoria' : 'Reminder') : text);
+        }
+        break;
+      case 'music':
+        const cmds = {'play', 'pause', 'next', 'prev', 'volUp', 'volDown'};
+        if (cmds.contains(r['cmd'])) return AssistantIntent(IntentKind.music, italian: it, command: r['cmd'] as String);
+        break;
+      case 'weather':
+        return AssistantIntent(IntentKind.weather, italian: it);
+      case 'agenda':
+        return AssistantIntent(IntentKind.agenda, italian: it);
+      case 'battery':
+        return AssistantIntent(IntentKind.battery, italian: it);
+      case 'find_phone':
+        return AssistantIntent(IntentKind.findPhone, italian: it);
+      case 'dnd':
+        return AssistantIntent(IntentKind.dnd, italian: it, on: r['on'] != false);
+      case 'memos':
+        return AssistantIntent(IntentKind.memos, italian: it, text: (r['query'] ?? '').toString());
+    }
+    return AssistantIntent(IntentKind.none, italian: it);
   }
 
   // ---- phone -> watch -----------------------------------------------------------------
