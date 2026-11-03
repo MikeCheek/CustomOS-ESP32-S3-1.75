@@ -106,6 +106,37 @@ static void check_file_transfer() {
         return;
     }
 
+    // The assistant's answer, spoken (the app's text-to-speech): "say:<x>.wav"
+    // into /Recordings/_say.wav (hidden from the list), played while the
+    // assistant is still on screen.
+    bool spoken = !strncmp(ble_file_name(), "say:", 4);
+    if (st == BLE_FILE_PENDING && spoken) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && spoken) {
+#if FEATURE_SD_CARD && FEATURE_AUDIO
+        int len = ble_file_bytes_received();
+        if (sd_is_mounted() && !usb_msc_host_active() && len > 44 && len <= 1024 * 1024 &&
+            ui_screen_on_top(&assistant_screen) && !audio_is_recording()) {
+            SD.mkdir("/Recordings");
+            SD.remove("/Recordings/_say.wav");
+            File f = SD.open("/Recordings/_say.wav", FILE_WRITE);
+            bool ok = false;
+            if (f) {
+                ok = f.write(ble_file_data(), len) == (size_t)len;
+                f.close();
+            }
+            if (ok) {
+                if (audio_is_playing()) audio_stop_playback();
+                audio_play_wav("/Recordings/_say.wav");
+            }
+        }
+#endif
+        ble_consume_file();
+        return;
+    }
+
     // A Piano Tiles song from the app (hummed or from MIDI): "pt:<name>.txt"
     // into /piano/, where the game finds it next time it opens.
     bool piano_song = !strncmp(ble_file_name(), "pt:", 3);

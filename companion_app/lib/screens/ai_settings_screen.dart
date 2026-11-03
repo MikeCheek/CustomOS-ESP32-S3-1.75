@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
+import '../services/tts_service.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -34,6 +35,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   bool _diarInstalled = false, _diarOn = true, _diarBusy = false;
   double _diarProgress = 0;
 
+  final _tts = TtsService.instance;
+  final Map<String, bool> _voiceInstalled = {};
+  bool _ttsOn = true;
+  String? _voiceBusy;
+  double _voiceProgress = 0;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +65,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     _tokenCtrl.text = await _llm.hfToken();
     _diarInstalled = await _diar.isInstalled();
     _diarOn = await _diar.enabled();
+    for (final v in TtsService.voices) {
+      _voiceInstalled[v.id] = await _tts.isInstalled(v);
+    }
+    _ttsOn = await _tts.enabled();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -99,6 +110,24 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _diarBusy = false);
+    }
+  }
+
+  Future<void> _installVoice(TtsVoice v) async {
+    setState(() {
+      _voiceBusy = v.id;
+      _voiceProgress = 0;
+    });
+    try {
+      await _tts.install(v, onProgress: (p) {
+        if (mounted) setState(() => _voiceProgress = p);
+      });
+      _voiceInstalled[v.id] = true;
+      if (mounted) showSnack(context, 'The assistant now answers out loud on the watch');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _voiceBusy = null);
     }
   }
 
@@ -252,6 +281,39 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     onChanged: (v) async {
                       await _diar.setEnabled(v);
                       setState(() => _diarOn = v);
+                    },
+                  ),
+                const SectionLabel('Spoken answers (text to speech)'),
+                for (final v in TtsService.voices) ...[
+                  _ModelCard(
+                    title: v.label,
+                    subtitle: 'Piper voice via sherpa-onnx: the assistant\'s answers on the watch speaker · ${_size(v.sizeBytes)}',
+                    selected: _ttsOn,
+                    installed: _voiceInstalled[v.id] == true,
+                    busy: _voiceBusy == v.id,
+                    progress: _voiceProgress,
+                    onInstall: _voiceBusy == null ? () => _installVoice(v) : null,
+                    onSelect: () async {
+                      await _tts.setEnabled(true);
+                      setState(() => _ttsOn = true);
+                    },
+                    onDelete: () async {
+                      await _tts.delete(v);
+                      setState(() => _voiceInstalled[v.id] = false);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (_voiceInstalled.values.any((x) => x))
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    title: const Text('Say the answers', style: TextStyle(color: AppColors.text, fontSize: 14)),
+                    subtitle: const Text('Italian answers use the Italian voice when it\'s installed',
+                        style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                    value: _ttsOn,
+                    onChanged: (v) async {
+                      await _tts.setEnabled(v);
+                      setState(() => _ttsOn = v);
                     },
                   ),
                 const SectionLabel('Summaries (on-device LLM)'),

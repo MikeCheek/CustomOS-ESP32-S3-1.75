@@ -50,6 +50,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
 - **Assistant** - ask out loud (app menu, or press BOOT twice): timers on the watch, reminders and alarms into
   your calendar, music, weather, the agenda, Do Not Disturb, finding the phone, questions about your memos, or
   anything else for the on-phone language model. Whisper and the LLM run on the phone, nothing goes online.
+  With a Piper voice installed (English, Italian) it also says the answer on the watch speaker.
 - **Wake word** - say "Alexa", "Jarvis", "Hi ESP"... and the assistant opens (Espressif ESP-SR WakeNet on both
   microphones, models on the SD card, installed from the app: Transcription & AI > Wake word). Off by default;
   Settings > Sound > Voice turns it on, picks the word and whether it also listens with the screen off. The same

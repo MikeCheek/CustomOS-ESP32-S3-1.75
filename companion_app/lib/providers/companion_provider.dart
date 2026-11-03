@@ -19,6 +19,7 @@ import 'notes_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import '../services/smart_replies.dart';
+import '../services/tts_service.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -775,6 +776,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         if (reply.timer != null) 'do': 'timer',
         if (reply.timer != null) 's': reply.timer,
       });
+      // Then say it on the watch's speaker, when a voice is installed.
+      unawaited(_speakAnswer(reply.answer, parseAssistantIntent(heard, DateTime.now()).italian ? 'it' : 'en'));
     } catch (e) {
       await fail(_clip(e.toString().replaceFirst('Exception: ', ''), 90));
     } finally {
@@ -782,6 +785,19 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       try {
         if (tmp != null && await tmp.exists()) await tmp.delete();
       } catch (_) {}
+    }
+  }
+
+  Future<void> _speakAnswer(String text, String lang) async {
+    try {
+      final tts = TtsService.instance;
+      if (text.trim().isEmpty || !await tts.enabled()) return;
+      final voice = await tts.voiceFor(lang);
+      if (voice == null) return;
+      final wav = await tts.speak(voice, _clip(text, 360));
+      if (_ble.isConnected) await _ble.sendFile('say:answer.wav', wav);
+    } catch (e) {
+      print('[Companion] spoken answer failed: $e');
     }
   }
 
