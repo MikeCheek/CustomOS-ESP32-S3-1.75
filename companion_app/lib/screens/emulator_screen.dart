@@ -2,21 +2,16 @@ import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
+import '../emulator/emulator_controller.dart';
 import '../emulator/watch_emulator.dart';
-import '../providers/ble_provider.dart';
-import '../services/memo_player.dart';
-import '../services/phone_recorder.dart';
-import 'package:permission_handler/permission_handler.dart';
-import '../services/ble_service.dart';
 import '../theme/app_theme.dart';
 
-/// A watch on the phone: the firmware's own screens and apps, running here.
-/// While it's open and no real watch is connected, the app treats it as the
-/// watch (BleService.attachVirtual): notifications, music, weather, the
-/// assistant's answers, smart replies... reach it like over Bluetooth.
+/// A watch on the phone: the firmware's own screens and apps, running here
+/// (emulator/emulator_controller.dart runs it; this screen shows it and
+/// passes touches and buttons). Linked to the app as the watch whenever no
+/// real watch is connected; "Keep it as my watch" keeps it running and
+/// linked after this screen closes, and with the next app start.
 class EmulatorScreen extends ConsumerStatefulWidget {
   const EmulatorScreen({super.key});
 
@@ -25,76 +20,46 @@ class EmulatorScreen extends ConsumerStatefulWidget {
 }
 
 class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTickerProviderStateMixin {
-  final WatchEmulator? _emu = WatchEmulator.instance;
+  late final EmulatorController _ctl = ref.read(emulatorProvider);
+  WatchEmulator? get _emu => _ctl.emu;
   Ticker? _ticker;
   ui.Image? _image;
   int _shownSeq = -1;
-  bool _decoding = false;
+  bool _decoding = false, _keep = false;
   double _scale = 1;
-  BleService? _ble;
-  bool _linked = false;
-  // phase 3: the phone's accelerometer in, the watch's sound out (EmuIo.kt)
-  static const _sound = MethodChannel('com.amoledwatch.emu_sound');
-  static const _accel = EventChannel('com.amoledwatch.emu_accel');
-  StreamSubscription<dynamic>? _accelSub;
-  // phase 4: the phone's microphone records for the watch, the phone plays its files
-  bool _recording = false, _playing = false;
-  Timer? _micPoll;
-  Completer<void>? _recDone;
+  StreamSubscription<void>? _changes;
 
   @override
   void initState() {
     super.initState();
-    final emu = _emu;
-    if (emu == null) return;
-    getApplicationSupportDirectory().then((d) {
+    if (_emu == null) return;
+    _changes = _ctl.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
+    EmulatorController.keepRunning().then((k) {
+      if (mounted) setState(() => _keep = k);
+    });
+    _ctl.start().then((_) {
       if (!mounted) return;
-      emu.start('${d.path}/watch_emulator');
-      _ble = ref.read(bleServiceProvider);
-      _linked = _ble!.attachVirtual(emu);
-      emu.setConnected(_linked);
-      emu.onSay = (path) => _play(path);
-      _accelSub = _accel.receiveBroadcastStream().listen((v) {
-        if (v is List && v.length >= 3) {
-          emu.setAccel((v[0] as num).toDouble(), (v[1] as num).toDouble(), (v[2] as num).toDouble());
-        }
-      }, onError: (_) {});
-      _ticker = createTicker((_) => _tick())..start();
+      _ctl.visible = true;
+      _ticker = createTicker((_) => _render())..start();
       setState(() {});
     });
   }
 
   @override
   void dispose() {
-    final emu = _emu;
-    if (emu != null && _linked) {
-      emu.setConnected(false);
-      _ble?.detachVirtual(emu);
-    }
-    _accelSub?.cancel();
-    _micPoll?.cancel();
-    if (_recording) PhoneRecorder.stop().catchError((_) => 0);
-    final rd = _recDone;
-    if (rd != null && !rd.isCompleted) rd.complete();
-    _sound.invokeMethod('stop').catchError((_) => null);
+    _changes?.cancel();
+    _ctl.visible = false;
+    if (!_keep) _ctl.stop();
     _ticker?.dispose();
     _image?.dispose();
     super.dispose();
   }
 
-  void _tick() {
+  // The controller steps the watch; this only shows its new frames.
+  void _render() {
     final emu = _emu!;
-    emu.step();
-    if (_linked) {
-      for (final m in emu.takeMessages()) {
-        _ble?.virtualIncoming(m);
-      }
-    }
-    for (final ev in emu.takeEvents()) {
-      _onEvent(ev);
-    }
-    final tones = emu.takeSounds();
-    if (tones.isNotEmpty) _sound.invokeMethod('tones', tones).catchError((_) => null);
     final seq = emu.frameSeq;
     if (seq == _shownSeq || _decoding) return;
     _decoding = true;
@@ -112,74 +77,7 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
     });
   }
 
-  Future<void> _onEvent(Map<String, dynamic> ev) async {
-    final emu = _emu!;
-    switch (ev['ev']) {
-      case 'rec':
-        if (ev['on'] == 1) {
-          await _startRec(ev['path'] as String? ?? '');
-        } else {
-          await _stopRec();
-        }
-        break;
-      case 'play':
-        await _play(ev['path'] as String? ?? '');
-        break;
-      case 'stop':
-        if (_playing) await ref.read(memoPlayerProvider.notifier).stop();
-        _playing = false;
-        emu.setPlaying(false);
-        break;
-    }
-  }
-
-  Future<void> _startRec(String path) async {
-    final emu = _emu!;
-    if (_recording || path.isEmpty) return;
-    final done = Completer<void>();
-    _recDone = done;
-    emu.recordingDone = done.future;
-    if (!(await Permission.microphone.request()).isGranted || !await PhoneRecorder.start(path)) {
-      if (mounted) showSnackSafe('The watch wanted the microphone - allow it for the app');
-      done.complete();
-      return;
-    }
-    _recording = true;
-    _micPoll = Timer.periodic(const Duration(milliseconds: 80), (_) async {
-      final p = await PhoneRecorder.poll();
-      emu.setMicLevel(p.level);
-    });
-  }
-
-  Future<void> _stopRec() async {
-    _micPoll?.cancel();
-    _micPoll = null;
-    _emu?.setMicLevel(0);
-    if (_recording) {
-      _recording = false;
-      try {
-        await PhoneRecorder.stop();
-      } catch (_) {}
-    }
-    final d = _recDone;
-    _recDone = null;
-    if (d != null && !d.isCompleted) d.complete();
-  }
-
-  Future<void> _play(String path) async {
-    if (path.isEmpty) return;
-    _playing = true;
-    await ref.read(memoPlayerProvider.notifier).playPath(path, name: '__emu');
-  }
-
-  void showSnackSafe(String text) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
-  }
-
-  void _touch(Offset p, bool down) {
-    final emu = _emu!;
-    emu.touch((p.dx / _scale).round(), (p.dy / _scale).round(), down);
-  }
+  void _touch(Offset p, bool down) => _emu!.touch((p.dx / _scale).round(), (p.dy / _scale).round(), down);
 
   Widget _button(String label, int which) {
     final emu = _emu!;
@@ -198,12 +96,7 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
   @override
   Widget build(BuildContext context) {
     final emu = _emu;
-    ref.listen<PlayerState>(memoPlayerProvider, (prev, next) {
-      if (_playing && (prev?.name == '__emu') && (next.name != '__emu' || !next.playing)) {
-        _playing = false;
-        _emu?.setPlaying(false);
-      }
-    });
+    final linked = _ctl.linked;
     return Scaffold(
       appBar: AppBar(title: const Text('Watch emulator')),
       body: emu == null
@@ -245,20 +138,34 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
                   const SizedBox(width: 14),
                   _button('PWR', WatchEmulator.power),
                 ]),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  title: const Text('Keep it as my watch', style: TextStyle(color: AppColors.text, fontSize: 14)),
+                  subtitle: const Text(
+                      'Keeps running and linked when you leave this screen and when the app restarts, '
+                      'until a real watch connects (uses some battery)',
+                      style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                  value: _keep,
+                  onChanged: (v) async {
+                    await _ctl.setKeepRunning(v);
+                    setState(() => _keep = v);
+                  },
+                ),
+                const SizedBox(height: 6),
                 Text(
-                  _linked
-                      ? 'Linked to this app like a real watch: notifications, music, weather, the assistant\'s '
-                          'answers and smart replies arrive here.'
-                      : 'A real watch is connected, so the emulator runs on its own (no phone link).',
+                  linked
+                      ? 'Linked to this app as the watch: notifications, calls, music, weather, the assistant, '
+                          'smart replies, Catch me up, timers and files arrive here.'
+                      : 'A real watch is connected: it stays the watch, the emulator runs on its own.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: _linked ? AppColors.success : AppColors.warning, fontSize: 12),
+                  style: TextStyle(color: linked ? AppColors.success : AppColors.warning, fontSize: 12),
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'The watch\'s own firmware code (screens, apps, games) running on this phone. '
                   'Swipe and tap the screen like the watch. BOOT: tap = back, double = assistant, hold = home. '
-                  'PWR: tap = screen off/on. Its settings and SD card are kept between runs. Tilting the phone tilts the watch '
+                  'PWR: tap = screen off/on. Its settings and SD card are kept. Tilting the phone tilts the watch '
                   '(games, fall detection, sleep), its sounds play here and it records with the phone\'s microphone '
                   '(recorder, assistant, voice replies).',
                   textAlign: TextAlign.center,

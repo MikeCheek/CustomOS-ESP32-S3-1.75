@@ -71,6 +71,12 @@ class BleService {
     if (was) _connectionController.add(false);
   }
 
+  /// After a real watch went away while the emulator stayed attached:
+  /// tell the app the (emulated) watch is connected again.
+  void reannounceVirtual() {
+    if (isVirtual) _connectionController.add(true);
+  }
+
   /// The emulated watch while it's the one the app talks to.
   VirtualWatch? get virtualWatch => isVirtual ? _virtual : null;
 

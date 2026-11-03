@@ -57,6 +57,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   answers, smart replies and Catch me up reach it; its settings are kept between runs. The phone's
   accelerometer is the watch's (tilt games, fall detection, sleep) and its beeps, effects and piano play here.
   Its SD card is a folder in the app; it records with the phone's microphone (recorder, assistant, voice replies).
+  "Keep it as my watch" keeps it running and linked in the background and after a restart, until a real
+  watch connects.
 - **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
   voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
   who-said-what and Piano Tiles songs.

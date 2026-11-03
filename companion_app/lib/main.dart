@@ -5,6 +5,7 @@ import 'providers/ble_provider.dart';
 import 'providers/companion_provider.dart';
 import 'providers/notes_provider.dart';
 import 'services/gemma_service.dart';
+import 'emulator/emulator_controller.dart';
 
 /// Runs once per app process. The process can start without any UI (the
 /// system binds the notification listener, or the link service restarts),
@@ -23,6 +24,10 @@ Future<void> main() async {
   container.read(bleProvider);       // auto-reconnect to the last watch
   container.read(companionProvider); // notifications, calls, media, battery, weather
   container.read(notesProvider);     // recordings sync
+  // the in-app watch emulator, when it's kept as the watch (Watch emulator screen)
+  container.read(emulatorProvider).autoStart().catchError((Object e) {
+    debugPrint('[main] emulator: $e');
+  });
 
   runApp(UncontrolledProviderScope(container: container, child: const AmoledCompanionApp()));
 }
