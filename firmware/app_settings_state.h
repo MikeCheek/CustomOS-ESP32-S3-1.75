@@ -98,6 +98,9 @@ struct AppSettings {
     bool voice_clean = true;                 // noise suppression + auto gain on voice recordings
     char wake_model[24] = "";                // folder in /srmodels, "" = the first one there
     bool fall_detect = false;                // app_fall.h: ask "Did you fall?", then alert the phone
+    bool sleep_track = true;                 // app_sleep.h: movement-based sleep tracking at night
+    bool alarm_on = false;                   // the smart alarm
+    uint16_t alarm_min = 7 * 60;             // its time, minutes after midnight
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced

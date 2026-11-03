@@ -22,6 +22,7 @@ struct MenuEntry {
 
 extern Screen settings_screen;
 extern Screen assistant_screen;
+extern Screen sleep_screen;
 extern Screen notifications_screen;
 extern Screen ble_status_screen;
 extern Screen battery_screen;
@@ -303,6 +304,13 @@ static void icon_assistant(Arduino_GFX *g, int cx, int cy, float br) {
     for (int k = 0; k < 5; k++) g->fillRoundRect(cx - 12 + k * 6, cy - 2 - H[k] / 2, 3, H[k], 1, w);
 }
 
+static void icon_sleep(Arduino_GFX *g, int cx, int cy, float br) {
+    // a crescent moon and a small star
+    g->fillCircle(cx - 2, cy, 18, IC(COLOR_ACCENT2));
+    g->fillCircle(cx + 7, cy - 6, 15, IC(COLOR_PANEL));
+    g->fillCircle(cx + 14, cy + 10, 3, IC(COLOR_TEXT));
+}
+
 static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
@@ -400,6 +408,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
+    {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
     {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"BLE Status",    CAT_TOOLS, icon_ble,           &ble_status_screen},

@@ -65,6 +65,9 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putBool("v_clean", s.voice_clean);
     s_prefs.putString("vw_model", s.wake_model);
     s_prefs.putBool("fall_on", s.fall_detect);
+    s_prefs.putBool("sleep_on", s.sleep_track);
+    s_prefs.putBool("alarm_on", s.alarm_on);
+    s_prefs.putUShort("alarm_min", s.alarm_min);
     s_prefs.putUChar("batt_mode", s.battery_mode);
     s_prefs.putBool("sv_wifi", s.saver_prev_wifi);
     s_prefs.putBool("sv_gps", s.saver_prev_gps);
@@ -132,6 +135,9 @@ bool nvs_load_settings(AppSettings &s) {
     s.voice_clean = s_prefs.getBool("v_clean", true);
     s_prefs.getString("vw_model", s.wake_model, sizeof(s.wake_model));
     s.fall_detect = s_prefs.getBool("fall_on", false);
+    s.sleep_track = s_prefs.getBool("sleep_on", true);
+    s.alarm_on = s_prefs.getBool("alarm_on", false);
+    s.alarm_min = s_prefs.getUShort("alarm_min", 7 * 60) % 1440;
     s.battery_mode = s_prefs.getUChar("batt_mode", 1);
     s.saver_prev_wifi = s_prefs.getBool("sv_wifi", false);
     s.saver_prev_gps = s_prefs.getBool("sv_gps", false);

@@ -22,8 +22,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Settings | Battery | Update found on Wi-Fi | Software update |
 | ![](docs/screenshots/aod.png) | ![](docs/screenshots/piano_menu.png) | ![](docs/screenshots/piano_pick.png) | ![](docs/screenshots/piano_play.png) |
 | Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
-| ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | ![](docs/screenshots/fall_alert.png) | |
-| Assistant listening | Assistant answer | Fall detection | |
+| ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | ![](docs/screenshots/fall_alert.png) | ![](docs/screenshots/sleep_app.png) |
+| Assistant listening | Assistant answer | Fall detection | Sleep and smart alarm |
 
 ### In motion
 
@@ -63,6 +63,9 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board); fall detection (free fall, impact, lying still: "Did you fall?" for 30 s, then the phone rings
   and texts your emergency contact with the location).
+- **Sleep** - tracked from wrist movement at night (the arm-angle method of van Hees et al.): time asleep, how
+  much of it was still, minutes awake, the night as a chart; a smart alarm rings up to 30 minutes early when
+  you stir, at the set time at the latest.
 - **Power** - light sleep with the phone still connected, an always-on display, battery modes
   (Balanced / Saver / Ultra), wake on wrist raise or tap, auto-dim.
 - **System** - encrypted pairing, crash reports, signed firmware updates over Bluetooth or Wi-Fi with automatic

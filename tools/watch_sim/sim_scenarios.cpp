@@ -20,7 +20,8 @@ void sim_link(const char *json);
 
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
     flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
-    fall_alert_screen;
+    fall_alert_screen, sleep_screen;
+void sleep_load_demo();
 void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
@@ -112,6 +113,9 @@ void sim_scenarios() {
 
     // Fall detection asking
     shot(&fall_alert_screen, "fall_alert", 8000);
+    sleep_load_demo();
+    shot(&sleep_screen, "sleep_app");
+    g_app_settings.alarm_on = false;
 
     // Piano Tiles: song list, a song's card, a song under way, the result
     shot(&piano_screen, "piano_menu");
