@@ -18,6 +18,9 @@ void emu_set_connected(int);
 void emu_link_push(const char *);
 int emu_link_pop(char *, int);
 void emu_set_data(int, const char *);
+void emu_set_accel(float, float, float);
+int emu_take_sounds(int32_t *, int);
+void emu_set_option(const char *, int);
 }
 
 static void wait_ms(int ms) {
@@ -63,5 +66,22 @@ int main(int argc, char **argv) {
     while ((n = emu_link_pop(buf, sizeof(buf))) > 0) { printf("watch -> app: %s\n", buf); got++; }
     snprintf(p, sizeof(p), "%s/emu_link.ppm", out); save(p);
     if (!got) { printf("FAIL: no message from the watch\n"); return 1; }
+
+    // phase 3: a fall on the phone's accelerometer (62.5 Hz), then the alert's beeps
+    auto acc = [](float x, float y, float z, float secs) {
+        for (int i = 0; i < (int)(secs * 62.5f); i++) { emu_set_accel(x, y, z); if (i % 4 == 0) emu_step(); wait_ms(16); }
+    };
+    // (fall detection is off by default: turn it on as Settings would)
+    emu_set_option("fall", 1);
+    acc(-1, 0, 0, 2);
+    acc(-0.2f, 0.1f, 0.1f, 0.3f);
+    acc(2.0f, 2.2f, 1.5f, 0.05f);
+    acc(0.3f, 0.4f, 1.3f, 1.0f);
+    acc(0.05f, 0.1f, 0.98f, 3.2f);
+    run(1500);
+    int32_t snd[64 * 3];
+    int ns = emu_take_sounds(snd, 64);
+    printf("sounds after the fall: %d%s\n", ns, ns ? "" : " (none)");
+    snprintf(p, sizeof(p), "%s/emu_fall.ppm", out); save(p);
     return emu_frame_seq() > 0 ? 0 : 1;
 }

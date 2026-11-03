@@ -1,5 +1,6 @@
 #include <time.h>
 #include "board_pins.h"
+#include "app_settings_state.h"
 // Stand-ins for the hardware layers (hal_*.cpp, diag.cpp, the .ino's
 // helpers) with demo values, so screens show a lived-in watch.
 #include <Arduino.h>
@@ -43,10 +44,34 @@ WatchTime rtc_now() {
     uint32_t s = g_sim.second + millis() / 1000;
     return { 2026, 10, 8, g_sim.hour, g_sim.minute + (int)(s / 60) % 60, (int)(s % 60), 4, true };
 }
-ImuSample imu_read() { return { true, 0, 0, 1, 0, 0, 0, 25 }; }
-bool imu_fifo_enable(bool) { return true; }
-int imu_fifo_read(float *, int) { return 0; }
-void imu_get_calibrated_tilt(const ImuSample &, float &x, float &y) { x = y = 0; }
+// The accelerometer: flat for the screenshots, the phone's own in the
+// emulator (sim_set_accel, ~62.5 Hz like the QMI8658), also into the FIFO.
+static float s_acc[3] = {0, 0, 1};
+static float s_fifo[256][3];
+static int s_fifo_n = 0;
+static bool s_fifo_on = false;
+void sim_set_accel(float x, float y, float z) {
+    s_acc[0] = x; s_acc[1] = y; s_acc[2] = z;
+    if (s_fifo_on && s_fifo_n < 256) { s_fifo[s_fifo_n][0] = x; s_fifo[s_fifo_n][1] = y; s_fifo[s_fifo_n][2] = z; s_fifo_n++; }
+}
+ImuSample imu_read() { return { true, s_acc[0], s_acc[1], s_acc[2], 0, 0, 0, 25 }; }
+bool imu_fifo_enable(bool on) { s_fifo_on = on; if (!on) s_fifo_n = 0; return true; }
+int imu_fifo_read(float *xyz, int max) {
+    int n = s_fifo_n < max ? s_fifo_n : max;
+    memcpy(xyz, s_fifo, n * 3 * sizeof(float));
+    memmove(s_fifo, s_fifo[n], (s_fifo_n - n) * 3 * sizeof(float));
+    s_fifo_n -= n;
+    return n;
+}
+// Same axis mapping as hal_imu.cpp (Settings > Calibration).
+void imu_get_calibrated_tilt(const ImuSample &sample, float &tilt_x, float &tilt_y) {
+    float raw_axes[2] = { sample.ax, sample.ay };
+    int8_t mx = g_app_settings.tilt_map_x_from, my = g_app_settings.tilt_map_y_from;
+    if (mx < 0 || mx > 1) mx = 0;
+    if (my < 0 || my > 1) my = 1;
+    tilt_x = (float)g_app_settings.tilt_sign_x * raw_axes[mx];
+    tilt_y = (float)g_app_settings.tilt_sign_y * raw_axes[my];
+}
 uint32_t imu_get_step_count() { return g_sim.steps; }
 void imu_step_counter_update(const ImuSample &) {}
 TouchPoint touch_read() { return { false, 0, 0 }; }
@@ -212,10 +237,30 @@ void espnow_enable() {}
 void espnow_disable() {}
 
 // ---- audio -----------------------------------------------------------------------------
-uint8_t audio_get_volume() { return 70; }
-void audio_set_volume(uint8_t) {}
-void audio_beep(uint16_t, uint16_t) {}
-void audio_play_sfx(uint16_t, uint16_t) {}
+// Sound: in the emulator the tones are queued for the app to play
+// (sim_take_tones); the screenshots stay silent.
+struct SimTone { uint16_t f, ms; uint8_t kind; };   // kind 0 beep / effect, 1 piano note
+static SimTone s_tones[64];
+static int s_tone_n = 0;
+static uint8_t s_volume = 70;
+static void sim_tone(uint16_t f, uint16_t ms, uint8_t kind) {
+    if (g_sim.live && s_tone_n < 64) s_tones[s_tone_n++] = { f, ms, kind };
+}
+int sim_take_tones(int32_t *out, int max) {
+    int n = s_tone_n < max ? s_tone_n : max;
+    for (int i = 0; i < n; i++) {
+        out[i * 3] = s_tones[i].f;
+        out[i * 3 + 1] = s_tones[i].ms;
+        out[i * 3 + 2] = s_tones[i].kind | (s_volume << 8);
+    }
+    memmove(s_tones, s_tones + n, (s_tone_n - n) * sizeof(SimTone));
+    s_tone_n -= n;
+    return n;
+}
+uint8_t audio_get_volume() { return g_sim.live ? s_volume : 70; }
+void audio_set_volume(uint8_t v) { s_volume = v > 100 ? 100 : v; }
+void audio_beep(uint16_t f, uint16_t ms) { sim_tone(f, ms, 0); }
+void audio_play_sfx(uint16_t f, uint16_t ms) { sim_tone(f, ms, 0); }
 bool audio_play_mp3(const char *) { return false; }
 bool audio_play_wav(const char *) { return false; }
 bool audio_is_playing() { return false; }
@@ -232,7 +277,7 @@ uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
 bool audio_mic_ok() { return true; }
 int audio_mic_level_percent() { return 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
-void audio_play_note(uint16_t, uint16_t) {}
+void audio_play_note(uint16_t f, uint16_t ms) { sim_tone(f, ms, 1); }
 // Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
 int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
     if (!g_sim.recording) return 0;

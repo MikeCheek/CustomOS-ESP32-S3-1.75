@@ -24,6 +24,9 @@
 #include "phone_link.h"
 #include "app_notifications.h"
 #include "app_assistant.h"
+#include "app_calendar.h"
+#include "app_fall.h"
+#include "app_sleep.h"
 #include "sim_state.h"
 #include "hal_nvs.h"
 #include "dnd.h"
@@ -41,6 +44,9 @@ bool sim_link_pop(std::string &out);
 void sim_set_weather(const char *json);
 void sim_set_fitness(const char *json);
 void sim_prefs_enable(const char *path);
+void sim_set_accel(float x, float y, float z);
+int sim_take_tones(int32_t *out, int max);
+void audio_set_volume(uint8_t v);
 
 // ---- time: the real clock ------------------------------------------------------------
 static uint64_t now_us() {
@@ -100,6 +106,7 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     quick_replies_load();
     comp_load();
     g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
+    audio_set_volume(g_app_settings.volume);
     ui_fonts_set_smooth(g_app_settings.smooth_fonts);
     ui_init(nullptr);
     watchface_registry_init();
@@ -112,6 +119,9 @@ __attribute__((visibility("default"))) void emu_step() {
     phone_link_update();
     notifications_update();
     assistant_timer_update();
+    calendar_update();      // event reminders the app sent
+    fall_update();          // with the phone's accelerometer (phase 3)
+    sleeptrack_update();
     ui_update();
     ui_poll_gestures();
 }
@@ -201,6 +211,23 @@ __attribute__((visibility("default"))) void emu_set_data(int kind, const char *j
     if (!json) return;
     if (kind == 2) sim_set_weather(json);
     else if (kind == 3) sim_set_fitness(json);
+}
+
+// ---- sensors and sound (phase 3) ----------------------------------------------------
+// The phone's accelerometer in g (x right, y up, z out of the screen - the
+// watch's axes when it lies the same way), ~62.5 times a second.
+__attribute__((visibility("default"))) void emu_set_accel(float x, float y, float z) { sim_set_accel(x, y, z); }
+
+// Tones the watch played since the last call: (frequency Hz, length ms,
+// kind | volume << 8) per tone, kind 0 = beep / effect, 1 = piano note.
+// Returns how many.
+__attribute__((visibility("default"))) int emu_take_sounds(int32_t *out, int max) { return sim_take_tones(out, max); }
+
+// A few settings by name, for tests and tools ("fall", "sleep"): 1 on, 0 off.
+__attribute__((visibility("default"))) void emu_set_option(const char *name, int on) {
+    if (!name) return;
+    if (!strcmp(name, "fall")) g_app_settings.fall_detect = on != 0;
+    else if (!strcmp(name, "sleep")) g_app_settings.sleep_track = on != 0;
 }
 
 }  // extern "C"

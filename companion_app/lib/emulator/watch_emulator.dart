@@ -20,6 +20,10 @@ class WatchEmulator implements VirtualWatch {
         _push = _lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('emu_link_push'),
         _pop = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>('emu_link_pop'),
         _data = _lib.lookupFunction<Void Function(Int32, Pointer<Utf8>), void Function(int, Pointer<Utf8>)>('emu_set_data'),
+        _accel = _lib.lookupFunction<Void Function(Float, Float, Float), void Function(double, double, double)>(
+            'emu_set_accel'),
+        _sounds = _lib.lookupFunction<Int32 Function(Pointer<Int32>, Int32), int Function(Pointer<Int32>, int)>(
+            'emu_take_sounds'),
         width = _lib.lookupFunction<Int32 Function(), int Function()>('emu_width')(),
         height = _lib.lookupFunction<Int32 Function(), int Function()>('emu_height')();
 
@@ -47,6 +51,9 @@ class WatchEmulator implements VirtualWatch {
   final void Function(Pointer<Utf8>) _push;
   final int Function(Pointer<Utf8>, int) _pop;
   final void Function(int, Pointer<Utf8>) _data;
+  final void Function(double, double, double) _accel;
+  final int Function(Pointer<Int32>, int) _sounds;
+  Pointer<Int32>? _soundBuf;
   Pointer<Utf8>? _popBuf;
   int _popCap = 0;
   final int width, height;
@@ -98,6 +105,19 @@ class WatchEmulator implements VirtualWatch {
     final p = json.toNativeUtf8();
     _data(kind, p);
     malloc.free(p);
+  }
+
+  // ---- sensors and sound (phase 3) ---------------------------------------------------
+  /// The phone's accelerometer, in g.
+  void setAccel(double x, double y, double z) => _accel(x, y, z);
+
+  /// Tones the watch played since the last call, as (freq, ms, kind | volume << 8)
+  /// triples - what EmuIo.kt plays.
+  List<int> takeSounds() {
+    const max = 64;
+    _soundBuf ??= malloc<Int32>(max * 3);
+    final n = _sounds(_soundBuf!, max);
+    return n <= 0 ? const [] : _soundBuf!.asTypedList(n * 3).toList();
   }
 
   /// What the watch sent to its phone since the last call.

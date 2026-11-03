@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../emulator/watch_emulator.dart';
@@ -28,6 +30,10 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
   double _scale = 1;
   BleService? _ble;
   bool _linked = false;
+  // phase 3: the phone's accelerometer in, the watch's sound out (EmuIo.kt)
+  static const _sound = MethodChannel('com.amoledwatch.emu_sound');
+  static const _accel = EventChannel('com.amoledwatch.emu_accel');
+  StreamSubscription<dynamic>? _accelSub;
 
   @override
   void initState() {
@@ -40,6 +46,11 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
       _ble = ref.read(bleServiceProvider);
       _linked = _ble!.attachVirtual(emu);
       emu.setConnected(_linked);
+      _accelSub = _accel.receiveBroadcastStream().listen((v) {
+        if (v is List && v.length >= 3) {
+          emu.setAccel((v[0] as num).toDouble(), (v[1] as num).toDouble(), (v[2] as num).toDouble());
+        }
+      }, onError: (_) {});
       _ticker = createTicker((_) => _tick())..start();
       setState(() {});
     });
@@ -52,6 +63,8 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
       emu.setConnected(false);
       _ble?.detachVirtual(emu);
     }
+    _accelSub?.cancel();
+    _sound.invokeMethod('stop').catchError((_) => null);
     _ticker?.dispose();
     _image?.dispose();
     super.dispose();
@@ -65,6 +78,8 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
         _ble?.virtualIncoming(m);
       }
     }
+    final tones = emu.takeSounds();
+    if (tones.isNotEmpty) _sound.invokeMethod('tones', tones).catchError((_) => null);
     final seq = emu.frameSeq;
     if (seq == _shownSeq || _decoding) return;
     _decoding = true;
@@ -158,8 +173,8 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
                 const Text(
                   'The watch\'s own firmware code (screens, apps, games) running on this phone. '
                   'Swipe and tap the screen like the watch. BOOT: tap = back, double = assistant, hold = home. '
-                  'PWR: tap = screen off/on. Its settings are kept between runs. Sensors, sound and the '
-                  'microphone aren\'t connected yet.',
+                  'PWR: tap = screen off/on. Its settings are kept between runs. Tilting the phone tilts the watch '
+                  '(games, raise to wake, fall detection, sleep) and its sounds play here; the microphone isn\'t connected.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.45),
                 ),
