@@ -51,6 +51,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   shows them first, before your quick replies and voice dictation.
 - **Catch me up and translate** - on the watch's Notifications (or the app's Messages): the on-phone LLM sums up
   the last day's notifications, what needs an answer first, and translates a message into your language.
+- **Watch emulator** - the app runs the watch's own firmware code (screens, apps, games) on the phone:
+  swipe and tap it like the watch, BOOT and PWR buttons below (Android; `tools/watch_sim/emu_main.cpp`).
 - **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
   voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
   who-said-what and Piano Tiles songs.

@@ -22,6 +22,7 @@ import 'memo_insights.dart';
 import 'piano_song_screen.dart';
 import 'assistant_screen.dart';
 import 'messages_screen.dart';
+import 'emulator_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -135,6 +136,13 @@ class HomeScreen extends ConsumerWidget {
                       title: 'Messages',
                       subtitle: 'Catch me up, translate, smart replies',
                       onTap: () => _push(context, const MessagesScreen()),
+                    ),
+                    NavRow(
+                      icon: Icons.watch_outlined,
+                      color: AppColors.accent3,
+                      title: 'Watch emulator',
+                      subtitle: 'The watch\'s firmware, running on this phone',
+                      onTap: () => _push(context, const EmulatorScreen()),
                     ),
                     NavRow(
                       icon: Icons.piano,

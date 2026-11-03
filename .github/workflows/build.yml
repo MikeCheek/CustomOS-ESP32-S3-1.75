@@ -239,6 +239,8 @@ jobs:
               echo "retrying"; rm -rf "$ANDROID_HOME/ndk/$NDK"; sleep 10
             done
           done
+          # CMake for the watch emulator's native library (build.gradle.kts)
+          yes | "$SDKM" --install "cmake;3.22.1" > /dev/null
 
       - run: flutter pub get
 

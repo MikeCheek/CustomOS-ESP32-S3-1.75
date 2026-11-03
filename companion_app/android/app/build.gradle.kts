@@ -19,6 +19,15 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // The watch emulator: the firmware's screen code as a native library
+    // (src/main/cpp/CMakeLists.txt).
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     // Several native plugins (whisper.cpp, LiteRT, sherpa-onnx) may each
     // bring the same C++ runtime: keep one copy instead of failing the merge.
     packaging {

@@ -28,6 +28,8 @@ dependencies:
   # Who said what in a memo (speaker diarization, onnxruntime)
   sherpa_onnx: ^2.0.1
   archive: ^4.0.7
+  # The watch emulator's native library (dart:ffi)
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:

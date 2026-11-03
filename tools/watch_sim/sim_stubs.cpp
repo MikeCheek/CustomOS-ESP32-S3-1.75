@@ -1,3 +1,5 @@
+#include <time.h>
+#include "board_pins.h"
 // Stand-ins for the hardware layers (hal_*.cpp, diag.cpp, the .ino's
 // helpers) with demo values, so screens show a lived-in watch.
 #include <Arduino.h>
@@ -32,6 +34,12 @@ bool power_since_unplugged(int *p, uint32_t *ms) { if (p) *p = 97; if (ms) *ms =
 void power_poll_pek_button() {}
 void power_shutdown() {}
 WatchTime rtc_now() {
+    if (g_sim.live) {
+        time_t now = time(nullptr);
+        struct tm t;
+        localtime_r(&now, &t);
+        return { t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, t.tm_wday, true };
+    }
     uint32_t s = g_sim.second + millis() / 1000;
     return { 2026, 10, 8, g_sim.hour, g_sim.minute + (int)(s / 60) % 60, (int)(s % 60), 4, true };
 }
@@ -43,13 +51,40 @@ uint32_t imu_get_step_count() { return g_sim.steps; }
 void imu_step_counter_update(const ImuSample &) {}
 TouchPoint touch_read() { return { false, 0, 0 }; }
 bool touch_read_raw(uint16_t &, uint16_t &) { return false; }
-void touch_set_gesture_mode(uint8_t) {}
+// Swipes, classified like hal_touch.cpp's evaluate_swipe() from the
+// touches the emulator passes in (sim_touch_track); the screenshot
+// scenarios never swipe.
+static uint8_t s_gmode = 0;
+static int s_sx, s_sy, s_lx, s_ly;
+static uint32_t s_sms = 0, s_last_swipe = 0;
+static bool s_tracking = false, s_sw_l = false, s_sw_r = false, s_sw_u = false, s_sw_d = false;
+void sim_touch_track(int x, int y, bool down) {
+    uint32_t now = millis();
+    if (down) {
+        if (!s_tracking) { s_tracking = true; s_sx = x; s_sy = y; s_sms = now; }
+        s_lx = x; s_ly = y;
+        return;
+    }
+    if (!s_tracking) return;
+    s_tracking = false;
+    if (now - s_last_swipe < 350 || now - s_sms >= 500) return;
+    int dx = s_lx - s_sx, dy = s_ly - s_sy, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int cx = s_sx - LCD_WIDTH / 2, cy = s_sy - LCD_HEIGHT / 2;
+    bool on_screen = cx * cx + cy * cy <= (LCD_WIDTH / 2) * (LCD_WIDTH / 2);
+    bool edge = s_gmode == 1;
+    if (dx > 55 && ady < 50 && (!edge || (s_sx < 70 && on_screen))) { s_sw_r = true; s_last_swipe = now; return; }
+    if (dx < -55 && ady < 50 && (!edge || (s_sx > LCD_WIDTH - 70 && on_screen))) { s_sw_l = true; s_last_swipe = now; return; }
+    if (dy < -55 && adx < 50) { s_sw_u = true; s_last_swipe = now; return; }
+    if (dy > 50 && adx < 50 && (!edge || s_sy < 100)) { s_sw_d = true; s_last_swipe = now; return; }
+}
+static bool take(bool &f) { bool v = f; f = false; return v; }
+void touch_set_gesture_mode(uint8_t m) { s_gmode = m; }
 void touch_set_fast_taps(bool) {}
-void touch_cancel_swipes() {}
-bool touch_swipe_down_detected() { return false; }
-bool touch_swipe_up_detected() { return false; }
-bool touch_swipe_left_detected() { return false; }
-bool touch_swipe_right_detected() { return false; }
+void touch_cancel_swipes() { s_sw_l = s_sw_r = s_sw_u = s_sw_d = false; }
+bool touch_swipe_down_detected() { return take(s_sw_d); }
+bool touch_swipe_up_detected() { return take(s_sw_u); }
+bool touch_swipe_left_detected() { return take(s_sw_l); }
+bool touch_swipe_right_detected() { return take(s_sw_r); }
 GpsPresence gps_presence() { return GPS_PRESENT; }
 bool gps_is_enabled() { return false; }
 void gps_enable() {}
