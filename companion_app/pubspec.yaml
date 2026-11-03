@@ -45,5 +45,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # iOS: CocoaPods only - several plugins (whisper_ggml, ML Kit, ffmpeg) have no Swift
+  # package, and the mix built the app for iOS 15.6 (the pods need 16)
+  config:
+    enable-swift-package-manager: false
   assets:
     - assets/logo.png
