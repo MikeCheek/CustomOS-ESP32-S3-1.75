@@ -106,6 +106,36 @@ static void check_file_transfer() {
         return;
     }
 
+    // A Piano Tiles song from the app (hummed or from MIDI): "pt:<name>.txt"
+    // into /piano/, where the game finds it next time it opens.
+    bool piano_song = !strncmp(ble_file_name(), "pt:", 3);
+    if (st == BLE_FILE_PENDING && piano_song) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && piano_song) {
+        const char *n = ble_file_name() + 3;
+        int l = strlen(n), len = ble_file_bytes_received();
+        bool ok = false;
+#if FEATURE_SD_CARD
+        if (sd_is_mounted() && !usb_msc_host_active() && sd_is_safe_filename(n) && n[0] != '.' && l > 4 &&
+            !strcasecmp(n + l - 4, ".txt") && len > 0 && len <= 16384) {
+            SD.mkdir("/piano");
+            String path = String("/piano/") + n;
+            SD.remove(path);
+            File f = SD.open(path, FILE_WRITE);
+            if (f) {
+                ok = f.write(ble_file_data(), len) == (size_t)len;
+                f.close();
+                if (!ok) SD.remove(path);
+            }
+        }
+#endif
+        ui_show_toast(ok ? "New song in Piano Tiles" : "Couldn't save the song", 2000);
+        ble_consume_file();
+        return;
+    }
+
     // Show modal when a new file transfer is pending
     if (st == BLE_FILE_PENDING && !s_file_modal_shown) {
         s_file_modal_shown = true;

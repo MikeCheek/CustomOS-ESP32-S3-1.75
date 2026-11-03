@@ -19,6 +19,7 @@ import 'scan_screen.dart';
 import 'weather_screen.dart';
 import 'watch_wifi_screen.dart';
 import 'memo_insights.dart';
+import 'piano_song_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -118,6 +119,13 @@ class HomeScreen extends ConsumerWidget {
                       title: 'Send files',
                       subtitle: 'Saved to the watch SD card',
                       onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
+                    ),
+                    NavRow(
+                      icon: Icons.piano,
+                      color: AppColors.accent,
+                      title: 'Piano Tiles songs',
+                      subtitle: 'Hum a tune or pick a MIDI file',
+                      onTap: () => _push(context, const PianoSongScreen()),
                     ),
                     NavRow(
                       icon: Icons.sports_esports_outlined,

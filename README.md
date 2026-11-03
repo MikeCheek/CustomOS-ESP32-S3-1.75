@@ -56,7 +56,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
   3D printer status (Bambu), sensor tests.
 - **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for
   accuracy-based stars, combos and hold bonuses, Easy / Normal / Hard on any song, more from the SD card or
-  your own MIDI files via `tools/midi_to_piano.py`), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
+  your own: hum a tune or pick a MIDI file in the app's Piano Tiles songs, or `tools/midi_to_piano.py`), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board).
 - **Power** - light sleep with the phone still connected, an always-on display, battery modes
