@@ -168,6 +168,8 @@ jobs:
           ./stroke_test
           g++ -std=c++17 -Wall -Ifirmware tools/motion_test.cpp firmware/motion_detect.cpp -o motion_test
           ./motion_test
+          g++ -std=c++17 -Wall -Ifirmware tools/silence_test.cpp -o silence_test
+          ./silence_test
 
       - name: Cache cores and libraries
         uses: actions/cache@v4

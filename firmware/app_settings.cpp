@@ -257,6 +257,9 @@ static void tap_wake_asleep() { g_app_settings.voice_wake_asleep = !g_app_settin
 static bool get_voice_clean() { return g_app_settings.voice_clean; }
 static void tap_voice_clean() { g_app_settings.voice_clean = !g_app_settings.voice_clean; nvs_save_settings(g_app_settings); }
 
+static bool get_skip_sil() { return g_app_settings.rec_skip_silence; }
+static void tap_skip_sil() { g_app_settings.rec_skip_silence = !g_app_settings.rec_skip_silence; nvs_save_settings(g_app_settings); }
+
 static SettingsRow ROWS_VOICE[] = {
     { "Wake word", "", ROW_TOGGLE, get_voice_wake, tap_voice_wake, nullptr, nullptr,
       voice_sr_built, "Not in this build", desc_voice_wake },
@@ -266,6 +269,7 @@ static SettingsRow ROWS_VOICE[] = {
       voice_sr_built, "Not in this build" },
     { "Voice cleanup", "Less noise in assistant questions and replies", ROW_TOGGLE, get_voice_clean, tap_voice_clean, nullptr, nullptr,
       voice_sr_built, "Not in this build" },
+    { "Skip silences", "The Recorder leaves out long pauses", ROW_TOGGLE, get_skip_sil, tap_skip_sil, nullptr, nullptr },
 };
 
 static SettingsRow ROWS_SOUND[] = {

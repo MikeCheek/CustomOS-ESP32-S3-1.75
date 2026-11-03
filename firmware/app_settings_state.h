@@ -96,6 +96,7 @@ struct AppSettings {
     bool voice_wake = false;                 // listen for the wake word (more battery)
     bool voice_wake_asleep = false;          // ...also with the screen off
     bool voice_clean = true;                 // noise suppression + auto gain on voice recordings
+    bool rec_skip_silence = false;           // the Recorder leaves out long pauses
     char wake_model[24] = "";                // folder in /srmodels, "" = the first one there
     bool fall_detect = false;                // app_fall.h: ask "Did you fall?", then alert the phone
     bool sleep_track = true;                 // app_sleep.h: movement-based sleep tracking at night

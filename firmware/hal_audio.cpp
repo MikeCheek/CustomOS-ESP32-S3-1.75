@@ -1204,6 +1204,12 @@ static bool s_rec_mono = false;   // voice replies: mic1+mic2 averaged, half the
 // suppression + auto gain). begin() runs before the recording task starts,
 // process() on every block inside it, end() when it finishes.
 static const AudioMonoFilter *s_mono_filter = nullptr;
+// "Skip silences" (Settings > Sound > Voice): the Recorder's stereo
+// recordings leave out long pauses (silence_gate.h).
+#include "silence_gate.h"
+#include "app_settings_state.h"
+static SilenceGate s_gate;
+static bool s_rec_gate = false;
 static bool s_rec_filtering = false;
 void audio_set_mono_filter(const AudioMonoFilter *f) { s_mono_filter = f; }
 
@@ -1285,6 +1291,9 @@ static void rec_task(void *param) {
                 s_scope_count = n;
             }
         }
+
+        // a long pause: not written (the level meters above still move)
+        if (s_rec_gate && !s_gate.keep(s_rec_mic_level, (int)(bytes_read / 4 / (SAMPLE_RATE / 1000)))) continue;
 
         int16_t *out = buf;
         if (s_rec_mono) {
@@ -1394,6 +1403,8 @@ static bool start_record(const char *filename) {
     i2s_ensure_running();
     s_recording = true;
     s_rec_filtering = s_rec_mono && s_mono_filter && s_mono_filter->begin();
+    s_rec_gate = !s_rec_mono && g_app_settings.rec_skip_silence;
+    s_gate.reset();
 
     // Create recording task on core 1 with a 16KB stack allocated
     // from PSRAM (see s_rec_task_stack's declaration above for why) -
