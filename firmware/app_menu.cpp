@@ -23,6 +23,7 @@ struct MenuEntry {
 extern Screen settings_screen;
 extern Screen assistant_screen;
 extern Screen sleep_screen;
+extern Screen draw_screen;
 extern Screen notifications_screen;
 extern Screen ble_status_screen;
 extern Screen battery_screen;
@@ -311,6 +312,16 @@ static void icon_sleep(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 14, cy + 10, 3, IC(COLOR_TEXT));
 }
 
+static void icon_draw(Arduino_GFX *g, int cx, int cy, float br) {
+    // a hand-drawn "A" stroke with the pen dot at its end
+    static const int8_t P[][2] = {{-16, 16}, {-8, -2}, {0, -16}, {8, -2}, {16, 16}};
+    for (int i = 0; i + 1 < 5; i++)
+        for (int k = 0; k <= 6; k++)
+            g->fillCircle(cx + P[i][0] + (P[i + 1][0] - P[i][0]) * k / 6, cy + P[i][1] + (P[i + 1][1] - P[i][1]) * k / 6, 3,
+                          IC(COLOR_ACCENT2));
+    g->fillCircle(cx + 16, cy + 16, 5, IC(COLOR_TEXT));
+}
+
 static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
@@ -409,6 +420,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
     {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
+    {"Draw",          CAT_TOOLS, icon_draw,          &draw_screen},
     {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"BLE Status",    CAT_TOOLS, icon_ble,           &ble_status_screen},

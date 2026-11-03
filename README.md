@@ -24,6 +24,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
 | ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | ![](docs/screenshots/fall_alert.png) | ![](docs/screenshots/sleep_app.png) |
 | Assistant listening | Assistant answer | Fall detection | Sleep and smart alarm |
+| ![](docs/screenshots/draw_open.png) | | | |
+| Draw to open | | | |
 
 ### In motion
 
@@ -63,6 +65,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board); fall detection (free fall, impact, lying still: "Did you fall?" for 30 s, then the phone rings
   and texts your emergency contact with the location).
+- **Draw to open** - write a letter with one stroke (A assistant, C calendar, M music, N notifications, P phone,
+  S settings, V recorder, Z sleep): the $1 unistroke recognizer, on the watch.
 - **Sleep** - tracked from wrist movement at night (the arm-angle method of van Hees et al.): time asleep, how
   much of it was still, minutes awake, the night as a chart; a smart alarm rings up to 30 minutes early when
   you stir, at the set time at the latest.
