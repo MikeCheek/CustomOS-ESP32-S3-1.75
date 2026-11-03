@@ -49,6 +49,11 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
 - **Smart replies** - for each message you can answer, the on-phone LLM writes three replies; the watch
   shows them first, before your quick replies and voice dictation.
+- **Catch me up and translate** - on the watch's Notifications (or the app's Messages): the on-phone LLM sums up
+  the last day's notifications, what needs an answer first, and translates a message into your language.
+- **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
+  voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
+  who-said-what and Piano Tiles songs.
 - **Assistant** - ask out loud (app menu, or press BOOT twice): timers on the watch, reminders and alarms into
   your calendar, music, weather, the agenda, Do Not Disturb, finding the phone, questions about your memos, or
   anything else for the on-phone language model. Whisper and the LLM run on the phone, nothing goes online.

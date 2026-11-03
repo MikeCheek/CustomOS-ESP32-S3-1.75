@@ -82,6 +82,8 @@ Watch → phone (`"e"` = event):
 | `{"e":"ntf","a":"dismiss","id":123}` | dismiss on the phone |
 | `{"e":"ntf","a":"reply","id":123,"tx":"On my way"}` | quick reply through the notification's reply action |
 | `{"e":"fall"}` / `{"e":"fall","ok":1}` | fall detection (fw 3.5+): nobody answered "Did you fall?" in 30 s - the phone rings and texts the emergency contact with its location; `ok` = the person answered afterwards (stop ringing) |
+| `{"e":"digest"}` | "Catch me up" on the watch: the phone's LLM sums up the last day's notifications, answers `{"t":"digest","tx":"..."}` (or `err`) |
+| `{"e":"tr","id":123}` | translate notification `id` into the phone's language: `{"t":"tr","id":123,"tx":"..."}` (or `err`) |
 
 Text is UTF-8. The watch keeps Latin-1 letters (its smooth fonts draw them) and folds everything else
 (`ble_fold_utf8`).
@@ -156,6 +158,7 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | watch → phone | `{"e":"dnd","on":0\|1}` | DND tile used on the watch; the app applies it with `setInterruptionFilter` if it has DND access |
 | phone → watch | `{"t":"qr","l":["OK","On my way",...]}` | quick replies (max 10, 38 chars each); `[]` = built-in presets. "Dictate" always stays first |
 | phone → watch | `{"t":"sr","id":123,"l":["Sure, see you at 8!","Can I tell you later?","What should I bring?"]}` | smart replies for notification `id` (app 3.5+): up to 3, 38 chars each, written by the phone's LLM; shown after "Dictate", before the quick replies. The watch keeps them for its last 6 messages |
+| phone → watch | `{"t":"tmr","s":600}` | a timer asked for on the phone's assistant (app 3.5+): set on the watch, `0` cancels |
 
 While DND (switch or bedtime) is on, the watch shows no notification popups and plays no reminder or navigation
 sounds; incoming calls still ring.

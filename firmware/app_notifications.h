@@ -39,6 +39,11 @@ void notifications_remove(uint32_t id);
 #define NOTIF_SMART_MAX 3
 void notifications_set_smart_replies(uint32_t id, const char *const *items, int n);
 
+// The phone's LLM, for the Notifications screen: a summary of the recent
+// ones ({"t":"digest"}) and one message translated ({"t":"tr"}).
+void notifications_on_digest(const char *text, const char *err);
+void notifications_on_translation(uint32_t id, const char *text, const char *err);
+
 int notifications_history_count(); // 0..NOTIF_HISTORY_SIZE
 // idx: 0 = most recent. Returns false if idx is out of range.
 bool notifications_get_history(int idx, NotifHistoryItem &out);

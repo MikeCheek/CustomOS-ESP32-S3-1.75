@@ -284,6 +284,32 @@ class GemmaService {
     return r.isEmpty ? null : r;
   }
 
+  /// A summary of notifications ([lines], oldest first) in [language]:
+  /// what needs an answer first, then the rest grouped. Null without a model.
+  Future<String?> digest(List<String> lines, String language) async {
+    if (!await hasModel()) return null;
+    var buf = lines.join('\n');
+    if (buf.length > 3000) buf = buf.substring(buf.length - 3000);
+    final out = await _generate(
+      'These are the user\'s phone notifications, oldest first:\n$buf\n\n'
+      'Summarize them for a smartwatch screen in $language, in at most 6 short lines. '
+      'First what needs a reply or action (who, what), then the rest grouped by app or person. '
+      'No greetings, no markdown. /no_think',
+      temperature: 0.3,
+    );
+    return out?.replaceAll(RegExp(r'[*#`]'), '').trim();
+  }
+
+  /// [text] translated into [language], or null without a model.
+  Future<String?> translate(String text, String language) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(
+      'Translate this message into $language. Reply with the translation only.\n\n$text /no_think',
+      temperature: 0.1,
+    );
+    return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
+  }
+
   /// A 1-4 word name for a group of memos about [keywords], or null.
   Future<String?> nameCollection(List<String> keywords, List<String> titles) async {
     if (!await hasModel()) return null;

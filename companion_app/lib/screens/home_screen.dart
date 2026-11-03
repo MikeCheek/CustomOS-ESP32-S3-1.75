@@ -20,6 +20,8 @@ import 'weather_screen.dart';
 import 'watch_wifi_screen.dart';
 import 'memo_insights.dart';
 import 'piano_song_screen.dart';
+import 'assistant_screen.dart';
+import 'messages_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -119,6 +121,20 @@ class HomeScreen extends ConsumerWidget {
                       title: 'Send files',
                       subtitle: 'Saved to the watch SD card',
                       onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
+                    ),
+                    NavRow(
+                      icon: Icons.mic_rounded,
+                      color: AppColors.accent,
+                      title: 'Assistant',
+                      subtitle: 'Ask out loud - the same as on the watch',
+                      onTap: () => _push(context, const AssistantScreen()),
+                    ),
+                    NavRow(
+                      icon: Icons.forum_outlined,
+                      color: AppColors.accent2,
+                      title: 'Messages',
+                      subtitle: 'Catch me up, translate, smart replies',
+                      onTap: () => _push(context, const MessagesScreen()),
                     ),
                     NavRow(
                       icon: Icons.piano,

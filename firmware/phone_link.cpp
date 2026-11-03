@@ -113,6 +113,13 @@ static void handle(const char *msg) {
             if (n < NOTIF_SMART_MAX && v.is<const char *>()) items[n++] = v.as<const char *>();
         }
         notifications_set_smart_replies(doc["id"] | 0u, items, n);
+    } else if (!strcmp(t, "tmr")) {
+        // a timer asked for on the phone's assistant
+        assistant_timer_set((uint32_t)(doc["s"] | 0));
+    } else if (!strcmp(t, "digest")) {
+        notifications_on_digest(doc["tx"] | "", doc["err"] | "");
+    } else if (!strcmp(t, "tr")) {
+        notifications_on_translation(doc["id"] | 0u, doc["tx"] | "", doc["err"] | "");
     } else if (!strcmp(t, "nrm")) {
         notifications_remove(doc["id"] | 0u);
     } else if (!strcmp(t, "call")) {
@@ -285,6 +292,18 @@ void phone_link_notif_dismiss(uint32_t id) {
 bool phone_link_notif_reply(uint32_t id, const char *text) {
     JsonDocument doc;
     doc["e"] = "ntf"; doc["a"] = "reply"; doc["id"] = id; doc["tx"] = text;
+    return send_doc(doc);
+}
+
+bool phone_link_notif_digest() {
+    JsonDocument doc;
+    doc["e"] = "digest";
+    return send_doc(doc);
+}
+
+bool phone_link_notif_translate(uint32_t id) {
+    JsonDocument doc;
+    doc["e"] = "tr"; doc["id"] = id;
     return send_doc(doc);
 }
 

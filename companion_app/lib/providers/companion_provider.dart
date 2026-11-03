@@ -21,6 +21,7 @@ import 'knowledge_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
+import '../services/notif_ai.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -435,6 +436,25 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         final id = (e['id'] as num?)?.toInt() ?? 0;
         await _native.notificationAction(id, e['a'] == 'answer' ? 'answer' : 'decline');
         break;
+      case 'digest':
+        unawaited(() async {
+          try {
+            await _ble.sendLink({'t': 'digest', 'tx': _clip(await NotifAi.instance.digest(), 700)});
+          } catch (err) {
+            await _ble.sendLink({'t': 'digest', 'err': _clip(err.toString().replaceFirst('Exception: ', ''), 120)});
+          }
+        }());
+        break;
+      case 'tr':
+        final trId = (e['id'] as num?)?.toInt() ?? 0;
+        unawaited(() async {
+          try {
+            await _ble.sendLink({'t': 'tr', 'id': trId, 'tx': _clip(await NotifAi.instance.translate(trId), 460)});
+          } catch (err) {
+            await _ble.sendLink({'t': 'tr', 'id': trId, 'err': _clip(err.toString().replaceFirst('Exception: ', ''), 120)});
+          }
+        }());
+        break;
       case 'fall':
         unawaited(_onFall(e['ok'] == 1));
         break;
@@ -823,6 +843,30 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     }
   }
 
+  /// The assistant from the phone (app: Assistant): [wavPath] was recorded
+  /// here. Same rules, LLM and actions as from the watch; a timer goes to
+  /// the watch when it's connected.
+  Future<({String heard, String answer})> askFromPhone(String wavPath) async {
+    final whisper = WhisperService.instance;
+    await whisper.loadPrefs();
+    if (!await whisper.isDownloaded()) throw Exception('Download the speech model first (Transcription & AI)');
+    final heard = (await whisper.transcribe(wavPath))
+        .replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (heard.isEmpty) throw Exception('Didn\'t catch that - try again');
+    final reply = await _assistantReply(heard, () async {});
+    var answer = reply.answer;
+    if (reply.timer != null) {
+      if (_ble.hasPhoneLink) {
+        await _ble.sendLink({'t': 'tmr', 's': reply.timer});
+      } else {
+        answer = '$answer (connect the watch: timers run on it)';
+      }
+    }
+    return (heard: heard, answer: answer);
+  }
+
   /// What to say back to [heard] (and a watch timer to set, in seconds;
   /// 0 cancels it). [thinking] is called before the LLM is asked.
   Future<({String answer, int? timer})> _assistantReply(String heard, Future<void> Function() thinking) async {
@@ -1031,8 +1075,15 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     }
 
     if (type == 'removed') {
+      NotifAi.instance.remove(id);
       if (_ble.hasPhoneLink) await _ble.sendLink({'t': 'nrm', 'id': id});
       return;
+    }
+    // The Messages screen and the LLM features see them even when they
+    // aren't forwarded to the watch.
+    if (type == 'posted' || type.isEmpty) {
+      NotifAi.instance.add(id, n['app'] as String? ?? '', n['title'] as String? ?? '', n['text'] as String? ?? '',
+          n['canReply'] == true);
     }
     if (!_settings.forwardNotifications) return;
     final app = n['app'] as String? ?? '';
@@ -1074,6 +1125,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     _srPending++;
     try {
       final replies = await GemmaService.instance.suggestReplies(app, sender, _clip(text, 400));
+      if (replies != null) NotifAi.instance.setReplies(id, replies);
       if (replies != null && _ble.hasPhoneLink) {
         await _ble.sendLink({'t': 'sr', 'id': id, 'l': replies});
       }

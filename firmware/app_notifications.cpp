@@ -206,7 +206,36 @@ static const char *reply_at(int i) {
 #define REPLY_COUNT reply_count()
 #define REPLIES_AT(i) reply_at(i)
 
-enum View { V_LIST, V_DETAIL, V_REPLY };
+enum View { V_LIST, V_DETAIL, V_REPLY, V_DIGEST };
+
+// The phone's LLM: a summary of the recent notifications ("Catch me up",
+// {"e":"digest"} -> {"t":"digest"}) and one message translated
+// ({"e":"tr"} -> {"t":"tr"}). PSRAM, on first use.
+static const int DIGEST_LEN = 720, TR_LEN = 480;
+static char *s_digest = nullptr, *s_tr = nullptr;
+static bool s_digest_wait = false, s_tr_wait = false;
+static uint32_t s_tr_id = 0, s_ask_ms = 0;
+static bool alloc_ai() {
+    if (!s_digest) s_digest = (char *)heap_caps_calloc(1, DIGEST_LEN, MALLOC_CAP_SPIRAM);
+    if (!s_tr) s_tr = (char *)heap_caps_calloc(1, TR_LEN, MALLOC_CAP_SPIRAM);
+    return s_digest && s_tr;
+}
+static void put_text(char *dst, int n, const char *src) {
+    strncpy(dst, src ? src : "", n - 1);
+    dst[n - 1] = 0;
+    ble_fold_utf8(dst);
+    ui_utf8_trim(dst);
+}
+void notifications_on_digest(const char *text, const char *err) {
+    if (!alloc_ai()) return;
+    put_text(s_digest, DIGEST_LEN, err && err[0] ? err : text);
+    s_digest_wait = false;
+}
+void notifications_on_translation(uint32_t id, const char *text, const char *err) {
+    if (!alloc_ai() || id != s_tr_id) return;
+    put_text(s_tr, TR_LEN, err && err[0] ? err : text);
+    s_tr_wait = false;
+}
 static View     s_view = V_LIST;
 static UiScroll s_scroll;
 static bool     s_prev = false, s_back = false;
@@ -222,6 +251,7 @@ static void enter(View v) {
     s_press = -1;
     if (v == V_LIST) ui_scroll_reset(&s_scroll, list_content_h() - LCD_HEIGHT, 0);
     else if (v == V_REPLY) ui_scroll_reset(&s_scroll, LIST_TOP + REPLY_COUNT * 66 + 110 - LCD_HEIGHT, 0);
+    else if (v == V_DIGEST) ui_scroll_reset(&s_scroll, 260, 0);
     else ui_scroll_reset(&s_scroll, 0, 0);
 }
 
@@ -330,7 +360,16 @@ static void draw_list(Arduino_GFX *g) {
     int off = -ui_scroll_offset(&s_scroll);
     char cnt[24];
     snprintf(cnt, sizeof(cnt), "%d notification%s", count, count == 1 ? "" : "s");
-    if (LIST_TOP - 22 + off > 0) ui_text_center(CX, LIST_TOP - 16 + off, COLOR_TEXT_DIM, cnt, 1);
+    if (count >= 2 && phone_link_active()) {
+        // "Catch me up": the phone's LLM sums them up
+        if (LIST_TOP - 40 + off > 0) {
+            g->fillRoundRect(CX - 110, LIST_TOP - 42 + off, 220, 32, 16, s_press == 200 ? COLOR_ACCENT2 : ui_dim(COLOR_ACCENT2, 0.35f));
+            snprintf(cnt, sizeof(cnt), "Catch me up (%d)", count);
+            ui_text_center(CX, LIST_TOP - 26 + off, COLOR_TEXT, cnt, 1);
+        }
+    } else if (LIST_TOP - 22 + off > 0) {
+        ui_text_center(CX, LIST_TOP - 16 + off, COLOR_TEXT_DIM, cnt, 1);
+    }
 
     char a[48], t[96], x[96], when[8];
     for (int i = 0; i < count; i++) {
@@ -377,9 +416,19 @@ static void draw_detail(Arduino_GFX *g) {
     int y = 104;
     if (it.title[0]) y = draw_wrapped(g, it.title, y, 300, 2, COLOR_TEXT, 2);
     y += 4;
-    y = draw_wrapped(g, it.text, y, 330, 2, ui_dim(COLOR_TEXT, 0.8f), 7);
+    bool translated = s_tr && s_tr_id == it.id && it.id && (s_tr_wait || s_tr[0]);
+    if (translated) {
+        y = draw_wrapped(g, s_tr_wait ? "Translating..." : s_tr, y, 330, 2, COLOR_ACCENT2, 7);
+    } else {
+        y = draw_wrapped(g, it.text, y, 330, 2, ui_dim(COLOR_TEXT, 0.8f), 7);
+    }
     s_btn_y = y + 14 < 330 ? 330 : y + 14;
     if (s_btn_y > LCD_HEIGHT - 70) s_btn_y = LCD_HEIGHT - 70;
+    // "Translate" (the phone's LLM), above the actions, when there's room
+    if (it.id && !translated && phone_link_active() && strlen(it.text) > 3 && y + 8 < s_btn_y - 40) {
+        g->fillRoundRect(CX - 70, s_btn_y - 44, 140, 32, 16, s_press == 102 ? COLOR_ACCENT2 : COLOR_PANEL);
+        ui_text_center(CX, s_btn_y - 28, COLOR_ACCENT2, "Translate", 1);
+    }
     if (it.id) {
         bool two = it.can_reply;
         int w = two ? 140 : 180, gap = 16;
@@ -394,6 +443,14 @@ static void draw_detail(Arduino_GFX *g) {
     } else {
         ui_text_center(CX, s_btn_y + 25, COLOR_TEXT_DIM, "Update the companion app for actions", 1);
     }
+}
+
+static void draw_digest(Arduino_GFX *g) {
+    int off = -ui_scroll_offset(&s_scroll);
+    ui_text_center(CX, 84 + off, COLOR_ACCENT2, "Catch me up", 2);
+    const char *t = s_digest_wait ? "Summarizing on your phone..." : (s_digest && s_digest[0] ? s_digest : "");
+    if (s_digest_wait && millis() - s_ask_ms > 90000) t = "No answer from the phone";
+    draw_wrapped(g, t, 120 + off, 330, 2, COLOR_TEXT, 14);
 }
 
 static void draw_reply(Arduino_GFX *g) {
@@ -431,12 +488,13 @@ static void notifications_draw() {
     if (!g) return;
     if (s_view == V_LIST) draw_list(g);
     else if (s_view == V_DETAIL) draw_detail(g);
+    else if (s_view == V_DIGEST) draw_digest(g);
     else draw_reply(g);
 }
 
 static void back() {
     if (s_view == V_REPLY) enter(V_DETAIL);
-    else if (s_view == V_DETAIL) enter(V_LIST);
+    else if (s_view == V_DETAIL || s_view == V_DIGEST) enter(V_LIST);
     else ui_pop_screen();
 }
 
@@ -457,11 +515,18 @@ static void notifications_touch(int x, int y, bool pressed) {
                 int xd = two ? x0 + w + gap : x0;
                 if (x >= xd && x <= xd + w) s_press = 101;
             }
+            if (s_open.id && abs(x - CX) <= 75 && y >= s_btn_y - 48 && y <= s_btn_y - 8) s_press = 102;
         }
         if (!pressed && s_press >= 0) {
             int p = s_press;
             s_press = -1;
-            if (p == 100) enter(V_REPLY);
+            if (p == 102) {
+                if (alloc_ai() && phone_link_notif_translate(s_open.id)) {
+                    s_tr_id = s_open.id;
+                    s_tr[0] = 0;
+                    s_tr_wait = true;
+                }
+            } else if (p == 100) enter(V_REPLY);
             else if (p == 101) {
                 phone_link_notif_dismiss(s_open.id);
                 notifications_remove(s_open.id);
@@ -474,11 +539,16 @@ static void notifications_touch(int x, int y, bool pressed) {
     int cy = y + ui_scroll_offset(&s_scroll);
     if (edge) {
         s_press = -1;
-        if (s_view == V_LIST) {
+        if (s_view == V_DIGEST) {
+            // just scrolling
+        } else if (s_view == V_LIST) {
             if (x >= ROW_X && x <= ROW_X + ROW_W && cy >= LIST_TOP) {
                 int i = (cy - LIST_TOP) / (ROW_H + GAP);
                 if (i < notifications_history_count() && (cy - LIST_TOP) % (ROW_H + GAP) < ROW_H) s_press = i;
             }
+            if (notifications_history_count() >= 2 && phone_link_active() && abs(x - CX) <= 115 &&
+                cy >= LIST_TOP - 46 && cy <= LIST_TOP - 6)
+                s_press = 200;
         } else if (abs(x - CX) <= 150 && cy >= LIST_TOP) {
             int i = (cy - LIST_TOP) / 66;
             if (i < REPLY_COUNT && (cy - LIST_TOP) % 66 < 56) s_press = i;
@@ -490,7 +560,16 @@ static void notifications_touch(int x, int y, bool pressed) {
         int p = s_press;
         s_press = -1;
         if (!tap || p < 0) return;
-        if (s_view == V_LIST) {
+        if (s_view == V_LIST && p == 200) {
+            if (alloc_ai() && phone_link_notif_digest()) {
+                s_digest[0] = 0;
+                s_digest_wait = true;
+                s_ask_ms = millis();
+                enter(V_DIGEST);
+            }
+        } else if (s_view == V_DIGEST) {
+            // nothing to tap
+        } else if (s_view == V_LIST) {
             if (notifications_get_history(p, s_open)) enter(V_DETAIL);
         } else if (p == 0) {
             enter(V_DETAIL);   // back here after the voice reply screen
