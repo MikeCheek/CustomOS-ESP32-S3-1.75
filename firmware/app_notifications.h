@@ -34,6 +34,11 @@ void notifications_add(uint32_t id, const char *app, const char *title, const ch
 // The phone dismissed it (or it was handled there).
 void notifications_remove(uint32_t id);
 
+// Smart replies the phone suggests for one message ({"t":"sr"}): shown
+// first in its reply list. The last few messages keep theirs.
+#define NOTIF_SMART_MAX 3
+void notifications_set_smart_replies(uint32_t id, const char *const *items, int n);
+
 int notifications_history_count(); // 0..NOTIF_HISTORY_SIZE
 // idx: 0 = most recent. Returns false if idx is out of range.
 bool notifications_get_history(int idx, NotifHistoryItem &out);

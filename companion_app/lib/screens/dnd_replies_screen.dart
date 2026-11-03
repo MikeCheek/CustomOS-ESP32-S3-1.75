@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/ble_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/smart_replies.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -18,12 +19,16 @@ class _DndRepliesScreenState extends ConsumerState<DndRepliesScreen> with Widget
   static const _defaults = ['OK', 'On my way', 'Call you later', 'Thanks!', 'Yes', 'No', "Can't talk now"];
   bool _access = true;
   bool _phoneDnd = false;
+  bool _smart = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _refresh();
+    SmartReplies.enabled().then((v) {
+      if (mounted) setState(() => _smart = v);
+    });
   }
 
   @override
@@ -137,6 +142,20 @@ class _DndRepliesScreenState extends ConsumerState<DndRepliesScreen> with Widget
                 },
               ),
             ],
+          ]),
+          const SectionLabel('Smart replies'),
+          RowGroup(children: [
+            ToggleRow(
+              icon: Icons.auto_awesome_rounded,
+              color: AppColors.accent2,
+              title: 'Write replies for each message',
+              subtitle: 'The on-phone AI model suggests 3 replies; the watch shows them first',
+              value: _smart,
+              onChanged: (v) async {
+                await SmartReplies.setEnabled(v);
+                setState(() => _smart = v);
+              },
+            ),
           ]),
           SectionLabel('Quick replies',
               trailing: s.quickReplies.isEmpty

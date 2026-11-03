@@ -4,6 +4,7 @@ import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'text_insights.dart';
+import 'smart_replies.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
 ///
@@ -271,6 +272,16 @@ class GemmaService {
     // Not JSON: treat what it said as the answer.
     final text = s.trim();
     return text.isEmpty ? null : {'tool': 'answer', 'text': text};
+  }
+
+  /// Replies the user could send to [message] (services/smart_replies.dart),
+  /// or null without a model.
+  Future<List<String>?> suggestReplies(String app, String sender, String message) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(SmartReplies.prompt(app, sender, message), temperature: 0.6);
+    if (out == null) return null;
+    final r = SmartReplies.parse(out);
+    return r.isEmpty ? null : r;
   }
 
   /// A 1-4 word name for a group of memos about [keywords], or null.

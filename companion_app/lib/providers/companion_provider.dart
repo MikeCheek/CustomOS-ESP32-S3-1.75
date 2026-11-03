@@ -18,6 +18,7 @@ import 'ble_provider.dart';
 import 'notes_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
+import '../services/smart_replies.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -1018,12 +1019,31 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'rp': n['canReply'] == true ? 1 : 0,
         if (icon != 0) 'ic': icon,
       });
+      if (n['canReply'] == true && text.isNotEmpty) unawaited(_suggestReplies(id, app, title, text));
     } else {
       // Older watch firmware: plain text only.
       final body = title.isNotEmpty && text.isNotEmpty ? '$title: $text' : (title.isNotEmpty ? title : text);
       await _ble.sendNotification(app.isNotEmpty ? '[$app] $body' : body);
     }
     if (mounted) state = state.copyWith(forwardedToday: state.forwardedToday + 1);
+  }
+
+  // Smart replies: the LLM writes a few replies for a message; at most a
+  // couple waiting, so a burst of messages doesn't queue minutes of work.
+  int _srPending = 0;
+  Future<void> _suggestReplies(int id, String app, String sender, String text) async {
+    if (_srPending >= 2 || !await SmartReplies.enabled()) return;
+    _srPending++;
+    try {
+      final replies = await GemmaService.instance.suggestReplies(app, sender, _clip(text, 400));
+      if (replies != null && _ble.hasPhoneLink) {
+        await _ble.sendLink({'t': 'sr', 'id': id, 'l': replies});
+      }
+    } catch (e) {
+      print('[Companion] smart replies failed: $e');
+    } finally {
+      _srPending--;
+    }
   }
 
   Future<void> _onPhoneMedia(Map<String, dynamic> m) async {

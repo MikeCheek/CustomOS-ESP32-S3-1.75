@@ -45,6 +45,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   spinning 3D bolt when charging starts.
 - **Phone link** - notifications with app icons and quick and voice replies, incoming calls (answer/decline), music remote with album art,
   Google Maps turn-by-turn, calendar with offline reminders, weather, Do Not Disturb synced both ways, find my phone.
+- **Smart replies** - for each message you can answer, the on-phone LLM writes three replies; the watch
+  shows them first, before your quick replies and voice dictation.
 - **Assistant** - ask out loud (app menu, or press BOOT twice): timers on the watch, reminders and alarms into
   your calendar, music, weather, the agenda, Do Not Disturb, finding the phone, questions about your memos, or
   anything else for the on-phone language model. Whisper and the LLM run on the phone, nothing goes online.

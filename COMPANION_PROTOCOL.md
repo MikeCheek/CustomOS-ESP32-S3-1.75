@@ -154,6 +154,7 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | phone → watch | `{"t":"dnd","bed":0\|1,"from":1380,"to":420}` | bedtime window (minutes after midnight; may cross midnight) |
 | watch → phone | `{"e":"dnd","on":0\|1}` | DND tile used on the watch; the app applies it with `setInterruptionFilter` if it has DND access |
 | phone → watch | `{"t":"qr","l":["OK","On my way",...]}` | quick replies (max 10, 38 chars each); `[]` = built-in presets. "Dictate" always stays first |
+| phone → watch | `{"t":"sr","id":123,"l":["Sure, see you at 8!","Can I tell you later?","What should I bring?"]}` | smart replies for notification `id` (app 3.5+): up to 3, 38 chars each, written by the phone's LLM; shown after "Dictate", before the quick replies. The watch keeps them for its last 6 messages |
 
 While DND (switch or bedtime) is on, the watch shows no notification popups and plays no reminder or navigation
 sounds; incoming calls still ring.

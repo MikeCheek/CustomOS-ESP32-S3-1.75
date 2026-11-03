@@ -105,6 +105,14 @@ static void handle(const char *msg) {
         s_active = true;
         notifications_add(doc["id"] | 0u, doc["ap"] | "Phone", doc["ti"] | "", doc["tx"] | "",
                           (doc["rp"] | 0) != 0, doc["ic"] | 0u);
+    } else if (!strcmp(t, "sr")) {
+        // Smart replies for one message: written by the phone's LLM.
+        const char *items[NOTIF_SMART_MAX];
+        int n = 0;
+        for (JsonVariant v : doc["l"].as<JsonArray>()) {
+            if (n < NOTIF_SMART_MAX && v.is<const char *>()) items[n++] = v.as<const char *>();
+        }
+        notifications_set_smart_replies(doc["id"] | 0u, items, n);
     } else if (!strcmp(t, "nrm")) {
         notifications_remove(doc["id"] | 0u);
     } else if (!strcmp(t, "call")) {

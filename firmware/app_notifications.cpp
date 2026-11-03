@@ -156,15 +156,61 @@ void dictate_open(uint32_t notif_id, const char *to);
 // Row 0 of the reply picker is "Dictate" (voice reply, app_dictate.cpp);
 // then the quick replies - edited in the app, built-in presets otherwise
 // (dnd.cpp).
-#define REPLY_COUNT quick_reply_count()
-#define REPLIES_AT(i) quick_reply(i)
+// Smart replies for the message come right after "Dictate".
+struct SmartReplies {
+    uint32_t id;
+    uint8_t n;
+    char r[NOTIF_SMART_MAX][40];
+};
+static const int SMART_SLOTS = 6;
+static SmartReplies *s_smart = nullptr;   // PSRAM, on first use
+static int s_smart_next = 0;
+
+void notifications_set_smart_replies(uint32_t id, const char *const *items, int n) {
+    if (!id) return;
+    if (!s_smart) s_smart = (SmartReplies *)heap_caps_calloc(SMART_SLOTS, sizeof(SmartReplies), MALLOC_CAP_SPIRAM);
+    if (!s_smart) return;
+    SmartReplies *slot = nullptr;
+    for (int i = 0; i < SMART_SLOTS; i++)
+        if (s_smart[i].id == id) slot = &s_smart[i];
+    if (!slot) { slot = &s_smart[s_smart_next]; s_smart_next = (s_smart_next + 1) % SMART_SLOTS; }
+    slot->id = id;
+    slot->n = 0;
+    for (int i = 0; i < n && slot->n < NOTIF_SMART_MAX; i++) {
+        if (!items[i] || !items[i][0]) continue;
+        char *d = slot->r[slot->n++];
+        strncpy(d, items[i], 39);
+        d[39] = 0;
+        ble_fold_utf8(d);
+        ui_utf8_trim(d);
+    }
+}
+
+static const SmartReplies *smart_for(uint32_t id) {
+    if (!s_smart || !id) return nullptr;
+    for (int i = 0; i < SMART_SLOTS; i++)
+        if (s_smart[i].id == id && s_smart[i].n) return &s_smart[i];
+    return nullptr;
+}
+
+static NotifHistoryItem s_open;     // the one being viewed (a copy - the ring may move)
+
+static int smart_count() { const SmartReplies *s = smart_for(s_open.id); return s ? s->n : 0; }
+static int reply_count() { return quick_reply_count() + smart_count(); }
+static bool reply_is_smart(int i) { return i >= 1 && i <= smart_count(); }
+static const char *reply_at(int i) {
+    int k = smart_count();
+    if (i >= 1 && i <= k) return smart_for(s_open.id)->r[i - 1];
+    return quick_reply(i > k ? i - k : i);
+}
+#define REPLY_COUNT reply_count()
+#define REPLIES_AT(i) reply_at(i)
 
 enum View { V_LIST, V_DETAIL, V_REPLY };
 static View     s_view = V_LIST;
 static UiScroll s_scroll;
 static bool     s_prev = false, s_back = false;
 static int      s_press = -1;
-static NotifHistoryItem s_open;     // the one being viewed (a copy - the ring may move)
 static uint32_t s_seen_rev = 0;
 
 static int list_content_h() {
@@ -366,6 +412,13 @@ static void draw_reply(Arduino_GFX *g) {
             g->fillRect(mx - 1, y + 34, 3, 6, COLOR_TEXT);
             g->fillRect(mx - 7, y + 40, 15, 3, COLOR_TEXT);
             ui_text_center(CX + 12, y + 28, COLOR_TEXT, REPLIES_AT(0), 2);
+            continue;
+        }
+        if (reply_is_smart(i)) {
+            // written for this message: outlined in the second accent
+            g->fillRoundRect(CX - 150, y, 300, 56, 28, pressed ? COLOR_ACCENT2 : ui_dim(COLOR_ACCENT2, 0.55f));
+            g->fillRoundRect(CX - 148, y + 2, 296, 52, 26, pressed ? COLOR_ACCENT2 : COLOR_PANEL);
+            ui_text_center(CX, y + 28, COLOR_TEXT, REPLIES_AT(i), 1);
             continue;
         }
         g->fillRoundRect(CX - 150, y, 300, 56, 28, pressed ? COLOR_ACCENT : COLOR_PANEL);
