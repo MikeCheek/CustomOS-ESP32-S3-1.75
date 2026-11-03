@@ -10,6 +10,11 @@
  *    Bluetooth as "wn:<name>/<file>". Off by default - it keeps the
  *    microphone and a CPU core busy all the time.
  *
+ *  - Offline commands: with MultiNet7 installed as well (~2.7 MB), the
+ *    wake word listens ~4 s for a command ("next song", "set a timer for
+ *    five minutes", "find my phone") and runs it on the watch; anything
+ *    else opens the assistant.
+ *
  *  - Voice cleanup: the mono recordings the assistant and voice replies
  *    make (mic1 + mic2 summed) go through ESP-SR's noise suppression and
  *    automatic gain before they're written. If that front end can't be
@@ -41,6 +46,12 @@ const char *voice_wake_word();        // "Alexa", "" with no model
 int  voice_wake_model_count();
 void voice_wake_next_model();         // Settings: switch to the next installed word
 bool voice_wake_keeps_awake();        // listening with the screen off: no light sleep
+
+// Offline commands after the wake word (MultiNet7 English in
+// /srmodels/mn7_en, "wn:mn7_en/<file>" from the app): music, timers,
+// find my phone, do not disturb, opening apps. Setting voice_commands.
+bool voice_commands_installed();
+const char *voice_commands_status();  // one line for Settings
 
 // A "wn:<model>/<file>" Bluetooth transfer (name without the "wn:").
 // Saves it in /srmodels; true when it's written.

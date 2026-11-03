@@ -75,6 +75,12 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Settings > Sound > Voice turns it on, picks the word and whether it also listens with the screen off. The same
   page has **Voice cleanup**: noise suppression and auto gain on assistant questions and voice replies, and
   **Skip silences**: the Recorder leaves out long pauses
+- **Offline voice commands** - with the command model installed too (MultiNet7 English, 2.7 MB, same app
+  page), the wake word listens a few seconds for a command and the watch runs it on its own, no phone or
+  network: "what time is it", "next song", "pause music", "volume up", "set a timer for five minutes",
+  "cancel the timer", "find my phone", "turn on do not disturb", "open settings", "show notifications",
+  "open the recorder", "go home"... Anything else opens the assistant. The phrases and their phonemes are in
+  `tools/voice_cmd_phrases.py` (Settings > Sound > Voice > Commands)
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for

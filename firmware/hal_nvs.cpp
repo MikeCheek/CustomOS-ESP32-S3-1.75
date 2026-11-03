@@ -64,6 +64,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
     s_prefs.putBool("v_clean", s.voice_clean);
     s_prefs.putBool("rec_skip", s.rec_skip_silence);
+    s_prefs.putBool("vw_cmd", s.voice_commands);
     s_prefs.putString("vw_model", s.wake_model);
     s_prefs.putBool("fall_on", s.fall_detect);
     s_prefs.putBool("sleep_on", s.sleep_track);
@@ -137,6 +138,7 @@ bool nvs_load_settings(AppSettings &s) {
     s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
     s.voice_clean = s_prefs.getBool("v_clean", true);
     s.rec_skip_silence = s_prefs.getBool("rec_skip", false);
+    s.voice_commands = s_prefs.getBool("vw_cmd", true);
     s_prefs.getString("vw_model", s.wake_model, sizeof(s.wake_model));
     s.fall_detect = s_prefs.getBool("fall_on", false);
     s.sleep_track = s_prefs.getBool("sleep_on", true);

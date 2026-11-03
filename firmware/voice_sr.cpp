@@ -15,6 +15,13 @@
  * engine reads <base>/<name>/wn9_data itself), so there is no model
  * partition and nothing in flash. ESP-SR keeps that list for the whole
  * run - a word installed later is added to it here.
+ *
+ * Offline commands: with MultiNet7 (English, /srmodels/mn7_en, ~2.7 MB)
+ * installed too, the wake word doesn't open the assistant straight away.
+ * The same front end's output goes to MultiNet for a few seconds ("next
+ * song", "set a timer for five minutes", "find my phone"...); a command
+ * runs here on the watch, with no phone and no network. Nothing it knows
+ * in that time opens the assistant as before.
  */
 #include "voice_sr.h"
 #include "config.h"
@@ -39,11 +46,29 @@
 #include "esp_afe_sr_models.h"
 #include "esp_afe_config.h"
 #include "esp_wn_iface.h"
+#include "esp_mn_iface.h"
+#include "esp_mn_speech_commands.h"
 #include "model_path.h"
+#include "apps.h"
+#include "app_recorder.h"
+#include "app_sleep.h"
+#include "phone_link.h"
+#include "dnd.h"
+#include "hal_rtc.h"
+#include "hal_vibrate.h"
 
 // Both in libespressif__esp-sr.a, not in its headers.
 extern "C" srmodel_list_t *srmodel_sdcard_init(const char *base_path);
 extern "C" char *get_model_info(char *data, int size);
+// MultiNet7 itself: esp_mn_handle_from_name() would link every MultiNet
+// version (~700 KB of code), more than the app partition has left.
+extern "C" const esp_mn_iface_t esp_sr_multinet7_quantized;
+
+// esp_mn_commands_add() turns text into phonemes on the watch with flite,
+// ~620 KB of code. The phonemes come precomputed instead
+// (voice_cmd_phrases.h, esp_mn_commands_phoneme_add()), and this keeps
+// flite out of the build: nothing here calls esp_mn_commands_add().
+extern "C" char *flite_g2p(const char *, int) { return nullptr; }
 
 static const char *SD_DIR = "/srmodels";              // as the SD library sees it
 static const char *VFS_DIR = "/sd/srmodels";          // as fopen() sees it (ESP-SR keeps this pointer)
@@ -54,10 +79,11 @@ struct WakeModel { char dir[24]; char word[20]; };
 static WakeModel s_models[MAX_MODELS];
 static int s_model_n = 0;
 static bool s_scanned = false;
+static char s_mn_dir[24] = "";              // the command model's folder, "" = none
 
 static bool model_dir_name_ok(const char *n) {
     int l = strlen(n);
-    if (l < 5 || l >= (int)sizeof(WakeModel::dir) || strncmp(n, "wn9", 3)) return false;
+    if (l < 5 || l >= (int)sizeof(WakeModel::dir) || (strncmp(n, "wn9", 3) && strncmp(n, "mn7", 3))) return false;
     for (const char *p = n; *p; p++)
         if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_')) return false;
     return true;
@@ -93,6 +119,7 @@ static bool read_info(const char *dir, char *buf, int n) {
 static void scan_models() {
     s_scanned = true;
     s_model_n = 0;
+    s_mn_dir[0] = 0;
     if (!sd_is_mounted() || usb_msc_host_active()) return;
     File d = SD.open(SD_DIR);
     if (!d || !d.isDirectory()) return;
@@ -103,6 +130,14 @@ static void scan_models() {
         int slash = name.lastIndexOf('/');
         if (slash >= 0) name = name.substring(slash + 1);
         if (!is_dir || !model_dir_name_ok(name.c_str())) continue;
+        if (!strncmp(name.c_str(), "mn7", 3)) {
+            // English only: the commands below are English phrases.
+            if (!strstr(name.c_str(), "_en")) continue;
+            if (SD.exists(model_path(name.c_str(), "mn7_data")) && SD.exists(model_path(name.c_str(), "mn7_index")) &&
+                SD.exists(model_path(name.c_str(), "_MODEL_INFO_")))
+                strlcpy(s_mn_dir, name.c_str(), sizeof(s_mn_dir));
+            continue;
+        }
         if (!SD.exists(model_path(name.c_str(), "wn9_data")) || !SD.exists(model_path(name.c_str(), "wn9_index"))) continue;
         char info[256];
         if (!read_info(name.c_str(), info, sizeof(info))) continue;
@@ -124,29 +159,46 @@ static int chosen_model() {
 // ---- ESP-SR's model list ---------------------------------------------------------
 static srmodel_list_t *s_list = nullptr;
 
+// A model installed since the list was read (ESP-SR never re-reads it).
+static bool list_add(const char *dir) {
+    if (esp_srmodel_exists(s_list, (char *)dir) >= 0) return true;
+    char raw[256];
+    if (!read_info(dir, raw, sizeof(raw))) return true;
+    int n = s_list->num;
+    char **names = (char **)realloc(s_list->model_name, (n + 1) * sizeof(char *));
+    if (!names) return false;
+    s_list->model_name = names;
+    char **infos = (char **)realloc(s_list->model_info, (n + 1) * sizeof(char *));
+    if (!infos) return false;
+    s_list->model_info = infos;
+    names[n] = (char *)calloc(MODEL_NAME_MAX_LENGTH, 1);
+    if (!names[n]) return false;
+    strlcpy(names[n], dir, MODEL_NAME_MAX_LENGTH);
+    infos[n] = get_model_info(raw, strlen(raw));
+    s_list->num = n + 1;
+    return true;
+}
+
 static srmodel_list_t *model_list() {
     if (!s_list) s_list = srmodel_sdcard_init(VFS_DIR);
     if (!s_list) return nullptr;
-    // Words installed since the list was read (ESP-SR never re-reads it).
-    for (int i = 0; i < s_model_n; i++) {
-        if (esp_srmodel_exists(s_list, s_models[i].dir) >= 0) continue;
-        char raw[256];
-        if (!read_info(s_models[i].dir, raw, sizeof(raw))) continue;
-        int n = s_list->num;
-        char **names = (char **)realloc(s_list->model_name, (n + 1) * sizeof(char *));
-        if (!names) break;
-        s_list->model_name = names;
-        char **infos = (char **)realloc(s_list->model_info, (n + 1) * sizeof(char *));
-        if (!infos) break;
-        s_list->model_info = infos;
-        names[n] = (char *)calloc(MODEL_NAME_MAX_LENGTH, 1);
-        if (!names[n]) break;
-        strlcpy(names[n], s_models[i].dir, MODEL_NAME_MAX_LENGTH);
-        infos[n] = get_model_info(raw, strlen(raw));
-        s_list->num = n + 1;
-    }
+    for (int i = 0; i < s_model_n; i++)
+        if (!list_add(s_models[i].dir)) return s_list;
+    if (s_mn_dir[0]) list_add(s_mn_dir);
     return s_list;
 }
+
+// ---- the commands ----------------------------------------------------------------
+enum VoiceCmd {
+    CMD_NONE = 0,
+    CMD_TIME, CMD_NEXT, CMD_PREV, CMD_PAUSE, CMD_PLAY, CMD_VOL_UP, CMD_VOL_DOWN,
+    CMD_TIMER_CANCEL, CMD_FIND_PHONE, CMD_DND_ON, CMD_DND_OFF,
+    CMD_HOME, CMD_SETTINGS, CMD_NOTIFICATIONS, CMD_RECORDER, CMD_SLEEP, CMD_MUSIC, CMD_ASSISTANT,
+    CMD_TIMER = 100,                // + minutes
+};
+struct CmdPhrase { int id; const char *text; const char *phonemes; };
+#include "voice_cmd_phrases.h"      // tools/voice_cmd_phrases.py
+static const int CMD_LISTEN_MS = 4000;      // after the wake word
 
 // ---- the wake engine ---------------------------------------------------------------
 static volatile bool s_want = false;        // main loop: should be loaded
@@ -163,12 +215,63 @@ static esp_afe_sr_data_t *s_afe = nullptr;
 static int16_t *s_feed_buf = nullptr;
 static int s_feed_n = 0, s_feed_ch = 0;
 static TaskHandle_t s_ctl_task = nullptr, s_feed_task = nullptr;
+// MultiNet, loaded with the wake word when its model is installed
+static volatile bool s_want_cmds = false;   // main loop: commands on and installed
+static bool s_cmds_loaded = false;          // the engine was loaded with them (or tried)
+static volatile bool s_cmds_failed = false;
+static const esp_mn_iface_t *s_mn = nullptr;
+static model_iface_data_t *s_mnd = nullptr;
+static volatile bool s_cmd_listen = false;  // wake_ctl: feeding MultiNet after the word
+static volatile int s_cmd_result = CMD_NONE;    // wake_ctl -> main loop, -1 = nothing understood
 // Core 0, priority 1: loop() and all drawing are on core 1 and must not
 // wait for WakeNet; on core 0 the radios and the display sender (priority
 // 2) still go first. It only needs to keep up with the microphone - the
 // I2S DMA buffers hold the rest.
 static const int WAKE_CORE = 0;
 static const int WAKE_PRIO = 1;
+
+static void mn_unload() {
+    s_cmd_listen = false;
+    if (s_mnd) {
+        esp_mn_commands_free();
+        s_mn->destroy(s_mnd);
+    }
+    s_mnd = nullptr;
+    s_mn = nullptr;
+}
+
+// After the front end: MultiNet on its output, the commands above.
+static bool mn_load(srmodel_list_t *models) {
+    if (!s_mn_dir[0]) return false;
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1536 * 1024 || heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < 48 * 1024) {
+        DEBUG_PRINTF("[voice] not enough memory for the commands\n");
+        return false;
+    }
+    int idx = esp_srmodel_exists(models, s_mn_dir);
+    if (idx < 0) return false;
+    char *name = models->model_name[idx];
+    const char *info = models->model_info ? models->model_info[idx] : nullptr;
+    if (info && !strstr(info, "MN7") && !strstr(info, "mn7")) {   // "MN7_v2_english_8_0.9_0.90"
+        DEBUG_PRINTF("[voice] %s isn't a MultiNet7 model\n", s_mn_dir);
+        return false;
+    }
+    s_mn = &esp_sr_multinet7_quantized;
+    s_mnd = s_mn->create(name, CMD_LISTEN_MS);
+    if (!s_mnd) { s_mn = nullptr; return false; }
+    if (s_mn->get_samp_chunksize(s_mnd) != s_ifc->get_fetch_chunksize(s_afe)) {
+        DEBUG_PRINTF("[voice] command model doesn't fit the front end\n");
+        s_mn->destroy(s_mnd);
+        s_mnd = nullptr;
+        s_mn = nullptr;
+        return false;
+    }
+    esp_mn_commands_alloc(s_mn, s_mnd);
+    for (const CmdPhrase &p : CMD_PHRASES) esp_mn_commands_phoneme_add(p.id, p.text, p.phonemes);
+    esp_mn_error_t *err = esp_mn_commands_update();
+    if (err && err->num > 0) DEBUG_PRINTF("[voice] %d command phrases not accepted\n", err->num);
+    DEBUG_PRINTF("[voice] commands ready (%s)\n", s_mn_dir);
+    return true;
+}
 
 static bool engine_load() {
     // The engine's own allocations are mostly PSRAM, but some must be
@@ -210,6 +313,8 @@ static bool engine_load() {
         return false;
     }
     strlcpy(s_loaded_model, s_want_model, sizeof(s_loaded_model));
+    s_cmds_loaded = s_want_cmds;
+    s_cmds_failed = s_cmds_loaded && !mn_load(models);
     DEBUG_PRINTF("[voice] wake word '%s' loaded: %d samples x %d ch per feed\n", s_loaded_model, s_feed_n, s_feed_ch);
     return true;
 }
@@ -217,6 +322,7 @@ static bool engine_load() {
 static void engine_unload() {
     s_feed_on = false;
     while (s_feed_busy) vTaskDelay(pdMS_TO_TICKS(5));
+    mn_unload();
     if (s_afe) s_ifc->destroy(s_afe);
     s_afe = nullptr;
     free(s_feed_buf);
@@ -228,7 +334,7 @@ static void engine_unload() {
 static void wake_ctl(void *) {
     for (;;) {
         bool want = s_want;
-        if (s_afe && (!want || strcmp(s_loaded_model, s_want_model))) engine_unload();
+        if (s_afe && (!want || strcmp(s_loaded_model, s_want_model) || s_cmds_loaded != s_want_cmds)) engine_unload();
         if (!s_afe && want && strcmp(s_failed_model, s_want_model)) {
             s_state = VW_LOADING;
             if (engine_load()) {
@@ -245,9 +351,33 @@ static void wake_ctl(void *) {
             continue;
         }
         s_state = s_pause ? VW_PAUSED : VW_LISTENING;
+        if (s_cmd_listen && s_pause) {
+            // Something else took the microphone: no command this time.
+            s_cmd_listen = false;
+            s_ifc->enable_wakenet(s_afe);
+        }
         afe_fetch_result_t *r = s_ifc->fetch_with_delay(s_afe, pdMS_TO_TICKS(100));
-        if (r && r->ret_value != ESP_FAIL && r->wakeup_state == WAKENET_DETECTED) {
+        if (!r || r->ret_value == ESP_FAIL) continue;
+        if (s_cmd_listen) {
+            if (!r->data || r->data_size <= 0) continue;
+            esp_mn_state_t st = s_mn->detect(s_mnd, r->data);
+            if (st == ESP_MN_STATE_DETECTING) continue;
+            int cmd = -1;
+            if (st == ESP_MN_STATE_DETECTED) {
+                esp_mn_results_t *res = s_mn->get_results(s_mnd);
+                if (res && res->num > 0) cmd = res->command_id[0];
+                DEBUG_PRINTF("[voice] command %d (%s)\n", cmd, res ? res->string : "");
+            }
+            s_cmd_listen = false;
+            s_ifc->enable_wakenet(s_afe);
+            s_cmd_result = cmd;
+        } else if (r->wakeup_state == WAKENET_DETECTED) {
             DEBUG_PRINTF("[voice] wake word heard\n");
+            if (s_mnd) {
+                s_mn->clean(s_mnd);
+                s_ifc->disable_wakenet(s_afe);
+                s_cmd_listen = true;
+            }
             s_detected = true;
         }
     }
@@ -387,6 +517,75 @@ static void vc_end() {}
 
 static const AudioMonoFilter s_vc_filter = { vc_begin, vc_process, vc_end };
 
+// ---- running a command (main loop) -----------------------------------------------
+static bool need_phone() {
+    if (phone_link_active()) return true;
+    ui_show_toast("Phone not connected", 2000);
+    return false;
+}
+
+static void open_screen(Screen *s) {
+    if (ui_top_panel_is_open()) ui_top_panel_close();
+    if (!ui_screen_on_top(s)) ui_push(s);
+}
+
+static void run_command(int cmd) {
+    char buf[48];
+    vibrate_ms(25);
+    if (cmd >= CMD_TIMER && cmd <= CMD_TIMER + 180) {
+        int min = cmd - CMD_TIMER;
+        assistant_timer_set((uint32_t)min * 60);
+        if (min % 60 == 0) snprintf(buf, sizeof(buf), "Timer: %d h", min / 60);
+        else if (min > 60) snprintf(buf, sizeof(buf), "Timer: %d h %d min", min / 60, min % 60);
+        else snprintf(buf, sizeof(buf), "Timer: %d min", min);
+        ui_show_toast(buf, 2500);
+        return;
+    }
+    const PhoneMedia &m = phone_link_media();
+    switch (cmd) {
+    case CMD_TIME: {
+        WatchTime t = rtc_now();
+        ui_go_home();
+        snprintf(buf, sizeof(buf), "It's %02d:%02d", t.hour, t.minute);
+        ui_show_toast(buf, 3000);
+        break;
+    }
+    case CMD_NEXT: if (need_phone()) { phone_link_media_cmd("next"); ui_show_toast("Next song", 1500); } break;
+    case CMD_PREV: if (need_phone()) { phone_link_media_cmd("prev"); ui_show_toast("Previous song", 1500); } break;
+    case CMD_PAUSE:
+        if (need_phone()) {
+            if (m.playing) phone_link_media_cmd("toggle");
+            ui_show_toast("Paused", 1500);
+        }
+        break;
+    case CMD_PLAY:
+        if (need_phone()) {
+            if (!m.playing) phone_link_media_cmd("toggle");
+            ui_show_toast("Playing", 1500);
+        }
+        break;
+    case CMD_VOL_UP: if (need_phone()) { phone_link_media_cmd("volUp"); ui_show_toast("Volume up", 1200); } break;
+    case CMD_VOL_DOWN: if (need_phone()) { phone_link_media_cmd("volDown"); ui_show_toast("Volume down", 1200); } break;
+    case CMD_TIMER_CANCEL:
+        if (assistant_timer_active()) { assistant_timer_set(0); ui_show_toast("Timer cancelled", 2000); }
+        else ui_show_toast("No timer running", 2000);
+        break;
+    case CMD_FIND_PHONE: if (need_phone()) { phone_link_find_phone(true); ui_show_toast("Ringing your phone", 2000); } break;
+    case CMD_DND_ON: dnd_set(true, false); ui_show_toast("Do not disturb on", 2000); break;
+    case CMD_DND_OFF: dnd_set(false, false); ui_show_toast("Do not disturb off", 2000); break;
+    case CMD_HOME: if (ui_top_panel_is_open()) ui_top_panel_close(); ui_go_home(); break;
+    case CMD_SETTINGS: open_screen(&settings_screen); break;
+    case CMD_NOTIFICATIONS: open_screen(&notifications_screen); break;
+    case CMD_RECORDER: open_screen(&recorder_screen); break;
+    case CMD_SLEEP: open_screen(&sleep_screen); break;
+    case CMD_MUSIC: open_screen(&media_screen); break;
+    case CMD_ASSISTANT:
+    default:
+        open_screen(&assistant_screen);   // not a command: ask the assistant
+        break;
+    }
+}
+
 // ---- public ------------------------------------------------------------------------
 void voice_init() {
     audio_set_mono_filter(&s_vc_filter);
@@ -403,6 +602,7 @@ void voice_update() {
     int m = chosen_model();
     bool card_ok = sd_is_mounted() && !usb_msc_host_active();
     bool want = on && m >= 0 && card_ok;
+    s_want_cmds = want && g_app_settings.voice_commands && s_mn_dir[0];
     if (want) {
         strlcpy(s_want_model, s_models[m].dir, sizeof(s_want_model));
         if (!start_tasks()) want = false;
@@ -419,7 +619,21 @@ void voice_update() {
         s_detected = false;
         if (!pause) {
             sleep_register_activity();      // wakes the screen
-            ui_push(&assistant_screen);     // starts listening for the question
+            if (s_cmd_listen) {
+                vibrate_ms(20);
+                ui_show_toast("Listening for a command...", CMD_LISTEN_MS);
+            } else {
+                ui_push(&assistant_screen); // starts listening for the question
+            }
+        }
+    }
+    int cmd = s_cmd_result;
+    if (cmd != CMD_NONE) {
+        s_cmd_result = CMD_NONE;
+        if (!pause) {
+            sleep_register_activity();
+            if (cmd < 0) ui_push(&assistant_screen);   // nothing it knows: the assistant listens instead
+            else run_command(cmd);
         }
     }
 }
@@ -473,8 +687,21 @@ const char *voice_wake_status() {
     }
 }
 
+bool voice_commands_installed() {
+    if (!s_scanned) scan_models();
+    return s_mn_dir[0] != 0;
+}
+
+const char *voice_commands_status() {
+    if (!voice_commands_installed()) return "Install them from the companion app (2.7 MB)";
+    if (!g_app_settings.voice_commands) return "After the wake word: next song, timers...";
+    if (!g_app_settings.voice_wake) return "Turn on the wake word to use them";
+    if (s_cmds_failed && s_afe) return "Couldn't start: not enough memory";
+    return "Say the word, then e.g. \"next song\"";
+}
+
 bool voice_model_file(const char *name, const uint8_t *data, int len) {
-    // "<model>/<file>", only the three files a WakeNet model has.
+    // "<model>/<file>", only the three files a WakeNet or MultiNet model has.
     const char *slash = strchr(name, '/');
     if (!slash || slash - name >= (int)sizeof(WakeModel::dir)) return false;
     char dir[sizeof(WakeModel::dir)];
@@ -482,7 +709,9 @@ bool voice_model_file(const char *name, const uint8_t *data, int len) {
     dir[slash - name] = 0;
     const char *file = slash + 1;
     if (!model_dir_name_ok(dir)) return false;
-    if (strcmp(file, "_MODEL_INFO_") && strcmp(file, "wn9_data") && strcmp(file, "wn9_index")) return false;
+    bool mn = !strncmp(dir, "mn7", 3);
+    if (strcmp(file, "_MODEL_INFO_") && strcmp(file, mn ? "mn7_data" : "wn9_data") && strcmp(file, mn ? "mn7_index" : "wn9_index"))
+        return false;
     if (!sd_is_mounted() || usb_msc_host_active() || len <= 0) return false;
     SD.mkdir(SD_DIR);
     SD.mkdir(String(SD_DIR) + "/" + dir);
@@ -509,5 +738,7 @@ int voice_wake_model_count() { return 0; }
 void voice_wake_next_model() {}
 bool voice_wake_keeps_awake() { return false; }
 bool voice_model_file(const char *, const uint8_t *, int) { return false; }
+bool voice_commands_installed() { return false; }
+const char *voice_commands_status() { return "Not in this build"; }
 
 #endif

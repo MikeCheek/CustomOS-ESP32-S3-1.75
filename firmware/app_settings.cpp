@@ -254,6 +254,16 @@ static const char *desc_wake_word() {
 }
 static bool get_wake_asleep() { return g_app_settings.voice_wake_asleep; }
 static void tap_wake_asleep() { g_app_settings.voice_wake_asleep = !g_app_settings.voice_wake_asleep; nvs_save_settings(g_app_settings); }
+static bool get_voice_cmds() { return g_app_settings.voice_commands; }
+static void tap_voice_cmds() {
+    if (!voice_commands_installed()) {
+        ui_show_toast("Install the commands from the companion app first (Wake word)", 3000);
+        return;
+    }
+    g_app_settings.voice_commands = !g_app_settings.voice_commands;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_voice_cmds() { return voice_commands_status(); }
 static bool get_voice_clean() { return g_app_settings.voice_clean; }
 static void tap_voice_clean() { g_app_settings.voice_clean = !g_app_settings.voice_clean; nvs_save_settings(g_app_settings); }
 
@@ -267,6 +277,8 @@ static SettingsRow ROWS_VOICE[] = {
       voice_sr_built, "Not in this build", desc_wake_word },
     { "Screen off too", "Listen while asleep (much more battery)", ROW_TOGGLE, get_wake_asleep, tap_wake_asleep, nullptr, nullptr,
       voice_sr_built, "Not in this build" },
+    { "Commands", "", ROW_TOGGLE, get_voice_cmds, tap_voice_cmds, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_voice_cmds },
     { "Voice cleanup", "Less noise in assistant questions and replies", ROW_TOGGLE, get_voice_clean, tap_voice_clean, nullptr, nullptr,
       voice_sr_built, "Not in this build" },
     { "Skip silences", "The Recorder leaves out long pauses", ROW_TOGGLE, get_skip_sil, tap_skip_sil, nullptr, nullptr },
@@ -274,7 +286,7 @@ static SettingsRow ROWS_VOICE[] = {
 
 static SettingsRow ROWS_SOUND[] = {
     { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
-    { "Voice", "Wake word, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
+    { "Voice", "Wake word, commands, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
     { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
     { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
     { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },

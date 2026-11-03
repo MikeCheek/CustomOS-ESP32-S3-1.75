@@ -103,8 +103,10 @@ static void check_file_transfer() {
     if (st == BLE_FILE_COMPLETE && wake_model) {
         const char *n = ble_file_name() + 3;
         bool ok = voice_model_file(n, ble_file_data(), ble_file_bytes_received());
-        if (!ok) ui_show_toast("Couldn't save the wake word", 2000);
-        else if (strstr(n, "/_MODEL_INFO_")) ui_show_toast("Wake word installed", 2000);   // the app sends it last
+        bool cmds = !strncmp(n, "mn7", 3);
+        if (!ok) ui_show_toast(cmds ? "Couldn't save the voice commands" : "Couldn't save the wake word", 2000);
+        else if (strstr(n, "/_MODEL_INFO_"))   // the app sends it last
+            ui_show_toast(cmds ? "Voice commands installed" : "Wake word installed", 2000);
         ble_consume_file();
         return;
     }
