@@ -92,6 +92,12 @@ struct AppSettings {
     uint16_t dnd_to_min = 7 * 60;            // bedtime end
     bool smooth_fonts = true;                // ui_font.h - smooth fonts with accents
 
+    // ---- Voice (voice_sr.cpp) --------------------------------------------------
+    bool voice_wake = false;                 // listen for the wake word (more battery)
+    bool voice_wake_asleep = false;          // ...also with the screen off
+    bool voice_clean = true;                 // noise suppression + auto gain on voice recordings
+    char wake_model[24] = "";                // folder in /srmodels, "" = the first one there
+
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced
     // What Saver/Ultra switched off, restored when going back to a normal mode.

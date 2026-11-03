@@ -62,6 +62,7 @@ static volatile bool s_pa_on = true;
 // as the speaker amp, and starts again before the next sound or recording.
 // The prebuilt Arduino core can't light-sleep anyway: there it keeps running.
 static volatile bool s_i2s_running = true;
+static volatile bool s_mic_hold = false;   // audio_mic_hold(): someone listens in the background
 
 static inline void i2s_ensure_running() {
 #if CONFIG_PM_ENABLE
@@ -1199,6 +1200,12 @@ static const int REC_SD_BUF_SIZE = 4096; // 4KB SD write buffer for performance
 
 // Write a minimal 44-byte RIFF/WAV header (updated on stop)
 static bool s_rec_mono = false;   // voice replies: mic1+mic2 averaged, half the size
+// Optional clean-up of those mono recordings (voice_sr.cpp: noise
+// suppression + auto gain). begin() runs before the recording task starts,
+// process() on every block inside it, end() when it finishes.
+static const AudioMonoFilter *s_mono_filter = nullptr;
+static bool s_rec_filtering = false;
+void audio_set_mono_filter(const AudioMonoFilter *f) { s_mono_filter = f; }
 
 static void wav_write_header(File &f, uint32_t data_size) {
     uint32_t file_size = data_size + 36;
@@ -1237,6 +1244,7 @@ static void wav_write_header(File &f, uint32_t data_size) {
 
 static void rec_task(void *param) {
     int16_t buf[REC_BUF_SAMPLES];
+    int16_t fbuf[REC_BUF_SAMPLES * 2];   // the mono filter's output (it can release more than one block at once)
     uint8_t sd_buf[REC_SD_BUF_SIZE];
     int sd_buf_pos = 0;
 
@@ -1278,15 +1286,21 @@ static void rec_task(void *param) {
             }
         }
 
+        int16_t *out = buf;
         if (s_rec_mono) {
             int frames = (int)bytes_read / 4;
             for (int i = 0; i < frames; i++) buf[i] = (int16_t)(((int32_t)buf[2 * i] + buf[2 * i + 1]) / 2);
             bytes_read = frames * 2;
+            if (s_rec_filtering) {
+                int n = s_mono_filter->process(buf, frames, fbuf, REC_BUF_SAMPLES * 2);
+                out = fbuf;
+                bytes_read = n > 0 ? n * 2 : 0;
+            }
         }
 
         // Copy to SD write buffer
         int remaining = (int)bytes_read;
-        uint8_t *src = (uint8_t *)buf;
+        uint8_t *src = (uint8_t *)out;
         while (remaining > 0 && s_recording) {
             int space = REC_SD_BUF_SIZE - sd_buf_pos;
             int to_copy = remaining < space ? remaining : space;
@@ -1317,6 +1331,7 @@ static void rec_task(void *param) {
     s_rec_file.close();
 
     DEBUG_PRINTF("[audio] recording stopped: %lu bytes written\n", (unsigned long)data_size);
+    if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
     s_rec_mic_level = 0;
     s_scope_count = 0;
     s_recording = false;
@@ -1378,6 +1393,7 @@ static bool start_record(const char *filename) {
     s_last_out_ms = millis();
     i2s_ensure_running();
     s_recording = true;
+    s_rec_filtering = s_rec_mono && s_mono_filter && s_mono_filter->begin();
 
     // Create recording task on core 1 with a 16KB stack allocated
     // from PSRAM (see s_rec_task_stack's declaration above for why) -
@@ -1386,6 +1402,7 @@ static bool start_record(const char *filename) {
     if (!s_rec_task_stack) s_rec_task_stack = (uint8_t *)ps_malloc(16384);
     if (!s_rec_task_stack) {
         DEBUG_PRINTF("[audio] rec_task stack alloc from PSRAM FAILED - aborting record\n");
+        if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
         s_recording = false;
         s_rec_file.close();
         SD.remove(path);
@@ -1395,6 +1412,7 @@ static bool start_record(const char *filename) {
         rec_task, "rec_task", 16384, NULL, 5, s_rec_task_stack, &s_rec_task_tcb, 1);
     if (!s_rec_task_handle) {
         DEBUG_PRINTF("[audio] rec_task creation FAILED - aborting record\n");
+        if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
         s_recording = false;
         s_rec_file.close();
         SD.remove(path);
@@ -1850,6 +1868,27 @@ bool audio_get_stream_info(AudioStreamInfo *out) {
     return false;
 }
 
+// ---- Background listening (voice_sr.cpp's wake word) ------------------------------------
+int audio_mic_read(int16_t *stereo, int max_frames, uint32_t timeout_ms) {
+    if (!s_ok || !s_mic_ok || max_frames <= 0) return 0;
+    // The recorder owns the microphone while it runs; media playback can
+    // be at another rate and would only be heard back (there's no echo
+    // cancelling reference).
+    if (s_recording || s_wav_playing || s_mp3_playing || s_pcm_src_rate) return 0;
+    if (!s_i2s_running) {
+        if (!s_i2s_mutex || xSemaphoreTake(s_i2s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return 0;
+        i2s_ensure_running();
+        xSemaphoreGive(s_i2s_mutex);
+    }
+    size_t bytes_read = 0;
+    if (i2s_read(I2S_PORT, stereo, (size_t)max_frames * 4, &bytes_read, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) return 0;
+    int frames = (int)(bytes_read / 4);
+    if (frames > 0) mic_apply_gain(stereo, frames * 2);
+    return frames;
+}
+
+void audio_mic_hold(bool on) { s_mic_hold = on; }
+
 void audio_idle_power() {
     if (!s_pa_on || millis() - s_last_out_ms <= 4000 || audio_is_playing()) return;
     // Same mutex as the writers; if one holds it, audio is in flight anyway.
@@ -1858,7 +1897,7 @@ void audio_idle_power() {
         s_pa_on = false;
         digitalWrite(PIN_AUDIO_PA, AUDIO_PA_ACTIVE_HIGH ? LOW : HIGH);
 #if CONFIG_PM_ENABLE
-        if (s_i2s_running && !s_recording) {
+        if (s_i2s_running && !s_recording && !s_mic_hold) {
             i2s_zero_dma_buffer(I2S_PORT);
             i2s_stop(I2S_PORT);
             s_i2s_running = false;
@@ -1967,5 +2006,8 @@ int audio_get_mic_waveform(int16_t *, int16_t *, int) { return 0; }
 bool audio_pcm_configure(uint32_t, uint8_t) { return false; }
 void audio_pcm_write(const int16_t *, size_t) {}
 void audio_pcm_restore_default() {}
+void audio_set_mono_filter(const AudioMonoFilter *) {}
+int audio_mic_read(int16_t *, int, uint32_t) { return 0; }
+void audio_mic_hold(bool) {}
 
 #endif

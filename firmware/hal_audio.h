@@ -112,6 +112,25 @@ uint32_t audio_record_duration_s();
 // Safe to call at UI refresh rate.
 int audio_get_mic_waveform(int16_t *out_l, int16_t *out_r, int max_points);
 
+// Clean-up for the mono recordings (audio_start_record_mono()): process()
+// gets each block of mic1+mic2 averaged and returns how many samples it
+// put in out (it may hold some back, or release more than it got).
+// voice_sr.cpp installs one; without it the average is written as is.
+struct AudioMonoFilter {
+    bool (*begin)();                                              // false = record unfiltered
+    int  (*process)(const int16_t *in, int n, int16_t *out, int out_cap);
+    void (*end)();
+};
+void audio_set_mono_filter(const AudioMonoFilter *f);
+
+// Background listening (the wake word, voice_sr.cpp). Reads up to
+// max_frames stereo frames (mic1, mic2) with the sensitivity applied;
+// 0 while recording or playing a file, which own the microphone.
+// audio_mic_hold(true) keeps the I2S port from stopping after 4 s of
+// quiet (PlatformIO build) while someone listens.
+int audio_mic_read(int16_t *stereo, int max_frames, uint32_t timeout_ms);
+void audio_mic_hold(bool on);
+
 // ---- Raw PCM playback (for callers with their own decoded/uncoded
 // samples, e.g. app_media.cpp's video player feeding an AVI's PCM
 // audio track — no MP3/WAV file machinery needed since there's

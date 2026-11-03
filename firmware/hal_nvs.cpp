@@ -60,6 +60,10 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUShort("dnd_from", s.dnd_from_min);
     s_prefs.putUShort("dnd_to", s.dnd_to_min);
     s_prefs.putBool("smooth_font", s.smooth_fonts);
+    s_prefs.putBool("vw_on", s.voice_wake);
+    s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
+    s_prefs.putBool("v_clean", s.voice_clean);
+    s_prefs.putString("vw_model", s.wake_model);
     s_prefs.putUChar("batt_mode", s.battery_mode);
     s_prefs.putBool("sv_wifi", s.saver_prev_wifi);
     s_prefs.putBool("sv_gps", s.saver_prev_gps);
@@ -122,6 +126,10 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.dnd_from_min >= 1440) s.dnd_from_min = 23 * 60;
     if (s.dnd_to_min >= 1440) s.dnd_to_min = 7 * 60;
     s.smooth_fonts = s_prefs.getBool("smooth_font", true);
+    s.voice_wake = s_prefs.getBool("vw_on", false);
+    s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
+    s.voice_clean = s_prefs.getBool("v_clean", true);
+    s_prefs.getString("vw_model", s.wake_model, sizeof(s.wake_model));
     s.battery_mode = s_prefs.getUChar("batt_mode", 1);
     s.saver_prev_wifi = s_prefs.getBool("sv_wifi", false);
     s.saver_prev_gps = s_prefs.getBool("sv_gps", false);

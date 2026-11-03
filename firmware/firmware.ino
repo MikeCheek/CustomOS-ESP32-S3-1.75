@@ -6,6 +6,7 @@
  */
 
 #include "app_assistant.h"
+#include "voice_sr.h"
 #include <Wire.h>
 #include "complications.h"
 #include "dnd.h"
@@ -88,6 +89,22 @@ static void on_file_confirm(bool accepted) {
 
 static void check_file_transfer() {
     BleFileState st = ble_file_state();
+
+    // A wake word model the app is installing (Settings > Sound > Voice):
+    // three files into /srmodels, no question each time.
+    bool wake_model = !strncmp(ble_file_name(), "wn:", 3);
+    if (st == BLE_FILE_PENDING && wake_model) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && wake_model) {
+        const char *n = ble_file_name() + 3;
+        bool ok = voice_model_file(n, ble_file_data(), ble_file_bytes_received());
+        if (!ok) ui_show_toast("Couldn't save the wake word", 2000);
+        else if (strstr(n, "/_MODEL_INFO_")) ui_show_toast("Wake word installed", 2000);   // the app sends it last
+        ble_consume_file();
+        return;
+    }
 
     // Show modal when a new file transfer is pending
     if (st == BLE_FILE_PENDING && !s_file_modal_shown) {
@@ -515,6 +532,7 @@ void setup() {
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
+    voice_init();                                          // voice cleanup on the assistant's recordings
 #endif
 #if FEATURE_GPS
     // Probe for the module (only fitted on the -G board) - non-blocking,
@@ -622,7 +640,8 @@ void loop() {
     }
     imu_steps_poll();            // hardware pedometer + midnight rollover
     calendar_update();           // event reminders (works without the phone)
-    assistant_timer_update();    // the assistant's timer rings, awake or asleep
+    assistant_timer_update();
+    voice_update();              // the wake word, awake or asleep    // the assistant's timer rings, awake or asleep
 #if FEATURE_AUDIO
     power_set_screen_off(asleep && !audio_is_playing());   // MP3 decode needs the clock
 #else
@@ -724,7 +743,7 @@ void loop() {
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
         bool keep_awake = ota_active() || fwup_busy() || aod_sending();
 #if FEATURE_AUDIO
-        keep_awake = keep_awake || audio_is_playing() || audio_is_recording();
+        keep_awake = keep_awake || audio_is_playing() || audio_is_recording() || voice_wake_keeps_awake();
 #endif
 #if FEATURE_GPS
         keep_awake = keep_awake || gps_is_enabled();

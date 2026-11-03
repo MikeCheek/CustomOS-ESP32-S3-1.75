@@ -4,6 +4,7 @@ import '../services/gemma_service.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'wake_word_screen.dart';
 
 /// Download/select the on-device models used for voice memos.
 class AiSettingsScreen extends StatefulWidget {
@@ -172,6 +173,28 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                           setState(() {});
                         },
                       ),
+                    ],
+                  ),
+                ),
+                const SectionLabel('On the watch'),
+                Panel(
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WakeWordScreen())),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.record_voice_over_rounded, color: AppColors.textDim),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Wake word', style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                            SizedBox(height: 2),
+                            Text('Say "Alexa", "Jarvis"... to open the assistant',
+                                style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.3)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
                     ],
                   ),
                 ),

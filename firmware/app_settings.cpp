@@ -20,6 +20,7 @@
 #include "battery_mode.h"
 #include "complications.h"
 #include "hal_power.h"
+#include "voice_sr.h"
 #include <Arduino_GFX_Library.h>
 #include <string.h>
 
@@ -182,7 +183,7 @@ extern Screen settings_battery_screen;
 extern Screen diagnostics_screen;
 extern Screen fwup_screen;
 
-enum RowKind { ROW_TOGGLE, ROW_SUBSCREEN };
+enum RowKind { ROW_TOGGLE, ROW_SUBSCREEN, ROW_ACTION };   // ROW_ACTION: on_tap, drawn with a chevron
 struct SettingsRow {
     const char *label;
     const char *desc;
@@ -195,6 +196,7 @@ struct SettingsRow {
     // tap explains instead of toggling). nullptr = always available.
     bool (*available)() = nullptr;
     const char *unavailable_desc = nullptr;
+    const char *(*live_desc)() = nullptr;   // optional: desc read each frame
 };
 
 static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
@@ -222,8 +224,53 @@ static SettingsRow ROWS_DISPLAY[] = {
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
 };
 
+// ---- Voice (voice_sr.h) ----
+extern Screen settings_voice_screen;
+static bool get_voice_wake() { return g_app_settings.voice_wake; }
+static void tap_voice_wake() {
+    if (!g_app_settings.voice_wake && voice_wake_model_count() == 0) {
+        ui_show_toast("Install a wake word from the companion app first (Assistant)", 3000);
+        return;
+    }
+    g_app_settings.voice_wake = !g_app_settings.voice_wake;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_voice_wake() { return voice_wake_status(); }
+static bool voice_sr_built() { return voice_wake_state() != VW_UNSUPPORTED; }
+static void tap_wake_word() {
+    int n = voice_wake_model_count();
+    if (n == 0) ui_show_toast("No wake words on the SD card yet", 2000);
+    else if (n == 1) ui_show_toast("Only one installed - add more from the app", 2000);
+    else voice_wake_next_model();
+}
+static const char *desc_wake_word() {
+    static char b[48];
+    const char *w = voice_wake_word();
+    int n = voice_wake_model_count();
+    if (!w[0]) return "None installed";
+    if (n > 1) snprintf(b, sizeof(b), "%s - tap for the next (%d)", w, n);
+    else snprintf(b, sizeof(b), "%s", w);
+    return b;
+}
+static bool get_wake_asleep() { return g_app_settings.voice_wake_asleep; }
+static void tap_wake_asleep() { g_app_settings.voice_wake_asleep = !g_app_settings.voice_wake_asleep; nvs_save_settings(g_app_settings); }
+static bool get_voice_clean() { return g_app_settings.voice_clean; }
+static void tap_voice_clean() { g_app_settings.voice_clean = !g_app_settings.voice_clean; nvs_save_settings(g_app_settings); }
+
+static SettingsRow ROWS_VOICE[] = {
+    { "Wake word", "", ROW_TOGGLE, get_voice_wake, tap_voice_wake, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_voice_wake },
+    { "Word", "", ROW_ACTION, nullptr, tap_wake_word, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_wake_word },
+    { "Screen off too", "Listen while asleep (much more battery)", ROW_TOGGLE, get_wake_asleep, tap_wake_asleep, nullptr, nullptr,
+      voice_sr_built, "Not in this build" },
+    { "Voice cleanup", "Less noise in assistant questions and replies", ROW_TOGGLE, get_voice_clean, tap_voice_clean, nullptr, nullptr,
+      voice_sr_built, "Not in this build" },
+};
+
 static SettingsRow ROWS_SOUND[] = {
     { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
+    { "Voice", "Wake word, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
     { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
     { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
     { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
@@ -356,6 +403,7 @@ static void page_draw(SettingsPage &p) {
         if (row.subscreen == &settings_battery_screen || row.subscreen == &settings_power_screen) {
             row.desc = battery_mode_adjusted() ? "Adjusted by hand" : battery_profile(battery_mode_current()).name;
         }
+        if (row.live_desc) row.desc = row.live_desc();
         if (row.subscreen == &usb_mode_screen) {
             row.desc = usb_mode_restart_pending() ? "Restart pending - tap to finish" : usb_mode_name(usb_mode_saved());
         }
@@ -384,7 +432,7 @@ static void page_touch(SettingsPage &p, int x, int y, bool pressed) {
         if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x && x <= row_x + S_ROW_W) {
             const SettingsRow &row = p.rows[i];
             if (row.available && !row.available()) { ui_show_toast(row.unavailable_desc ? row.unavailable_desc : "Not available", 1800); break; }
-            if (row.kind == ROW_TOGGLE && row.on_tap) row.on_tap();
+            if ((row.kind == ROW_TOGGLE || row.kind == ROW_ACTION) && row.on_tap) row.on_tap();
             else if (row.kind == ROW_SUBSCREEN && row.subscreen) ui_push(row.subscreen);
             break;
         }
@@ -416,6 +464,7 @@ SETTINGS_PAGE(settings_connect_screen, "Connections", ROWS_CONNECT)
 SETTINGS_PAGE(settings_power_screen, "Battery", ROWS_BATTERY)
 SETTINGS_PAGE(settings_wake_screen, "Wake & quiet", ROWS_WAKE)
 SETTINGS_PAGE(settings_system_screen, "System", ROWS_SYSTEM)
+SETTINGS_PAGE(settings_voice_screen, "Voice", ROWS_VOICE)
 
 // =========================================================================
 //  Brightness sub-screen
