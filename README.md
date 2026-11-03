@@ -61,6 +61,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   watch connects.
 - **Look** - a photo, and the on-phone vision model (FastVLM or Gemma 3n) says what it is, reads its text or
   translates it; the answer also shows on the watch and can be read aloud.
+- **Sound alerts** - the phone listens and the watch shows what it heard: doorbell or knocking, smoke alarm,
+  baby crying, alarm clock, phone, siren, dog, glass breaking (sherpa-onnx audio tagging with CED, on the phone).
 - **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
   voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
   who-said-what and Piano Tiles songs.

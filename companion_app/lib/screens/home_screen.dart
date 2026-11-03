@@ -24,6 +24,7 @@ import 'assistant_screen.dart';
 import 'messages_screen.dart';
 import 'emulator_screen.dart';
 import 'look_screen.dart';
+import 'sound_alerts_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -137,6 +138,13 @@ class HomeScreen extends ConsumerWidget {
                       title: 'Look',
                       subtitle: 'What is it? Read or translate text from a photo',
                       onTap: () => _push(context, const LookScreen()),
+                    ),
+                    NavRow(
+                      icon: Icons.hearing_rounded,
+                      color: AppColors.warning,
+                      title: 'Sound alerts',
+                      subtitle: 'Doorbell, smoke alarm, baby crying - on your watch',
+                      onTap: () => _push(context, const SoundAlertsScreen()),
                     ),
                     NavRow(
                       icon: Icons.forum_outlined,
