@@ -19,6 +19,7 @@
  * volume are the two edge arcs - drag along them; the value is saved when
  * the finger lifts. Closes with a swipe up, a tap on the handle, or BOOT.
  */
+#include "clock_fmt.h"
 #include "ui.h"
 #include "dnd.h"
 #include "config.h"
@@ -501,7 +502,7 @@ void ui_top_panel_draw() {
         static const char *const DAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
         static const char *const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        snprintf(buf, sizeof(buf), "%02d:%02d", s_time.hour, s_time.minute);
+        clock_hm_text(buf, sizeof(buf), s_time.hour, s_time.minute);
         ui_text_center(CX, 80 + oy, COLOR_TEXT, buf, 4);
         int wd = s_time.weekday >= 0 && s_time.weekday < 7 ? s_time.weekday : 0;
         int mo = s_time.month >= 1 && s_time.month <= 12 ? s_time.month - 1 : 0;

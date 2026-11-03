@@ -91,6 +91,7 @@ struct AppSettings {
     uint16_t dnd_from_min = 23 * 60;         // bedtime start, minutes after midnight
     uint16_t dnd_to_min = 7 * 60;            // bedtime end
     bool smooth_fonts = true;                // ui_font.h - smooth fonts with accents
+    bool clock_24h = true;                   // clock_fmt.h - off: 9:05 PM
 
     // ---- Voice (voice_sr.cpp) --------------------------------------------------
     bool voice_wake = false;                 // listen for the wake word (more battery)

@@ -56,6 +56,7 @@
 #include "dnd.h"
 #include "hal_rtc.h"
 #include "hal_vibrate.h"
+#include "clock_fmt.h"
 
 // Both in libespressif__esp-sr.a, not in its headers.
 extern "C" srmodel_list_t *srmodel_sdcard_init(const char *base_path);
@@ -546,7 +547,9 @@ static void run_command(int cmd) {
     case CMD_TIME: {
         WatchTime t = rtc_now();
         ui_go_home();
-        snprintf(buf, sizeof(buf), "It's %02d:%02d", t.hour, t.minute);
+        char hm[16];
+        clock_hm_text(hm, sizeof(hm), t.hour, t.minute);
+        snprintf(buf, sizeof(buf), "It's %s", hm);
         ui_show_toast(buf, 3000);
         break;
     }

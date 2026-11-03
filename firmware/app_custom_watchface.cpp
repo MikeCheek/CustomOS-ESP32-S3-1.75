@@ -9,6 +9,7 @@
 #include "app_menu.h"
 #include "watchface_registry.h"
 #include "hal_rtc.h"
+#include "clock_fmt.h"
 #include "hal_power.h"
 #include "hal_imu.h"
 #include "hal_ble.h"
@@ -166,8 +167,8 @@ static void draw_widget(Arduino_GFX *g, const CachedWidget &w, const WatchTime &
         comp_draw(g, comp_from_key(w.dataSrc), w.x, w.y, w.radius > 10 ? w.radius : 40, w.color);
     }
     else if (strcmp(w.type, "digital_time") == 0) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+        char buf[12];
+        clock_hm_text(buf, sizeof(buf), t.hour, t.minute);
         draw_text_centered(g, w.x, w.y, buf, w.fs, w.color);
     }
     else if (strcmp(w.type, "date") == 0) {

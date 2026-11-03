@@ -2,6 +2,7 @@
  * aod.cpp
  * Always-on display - see aod.h.
  */
+#include "clock_fmt.h"
 #include "aod.h"
 #include "config.h"
 #include "board_pins.h"
@@ -46,8 +47,10 @@ static void draw(Arduino_GFX *g) {
     int cx = LCD_WIDTH / 2 + ox, cy = LCD_HEIGHT / 2 + oy;
 
     char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
-    ui_print(cx - ui_text_width(buf, 6) / 2, cy - 40, 6, COLOR_TEXT, buf);
+    clock_hm(buf, sizeof(buf), t.hour, t.minute);
+    int tw = ui_text_width(buf, 6);
+    ui_print(cx - tw / 2, cy - 40, 6, COLOR_TEXT, buf);
+    if (!clock_24h()) ui_print(cx + tw / 2 + 5, cy - 38, 1, COLOR_TEXT_DIM, clock_ampm(t.hour));
 
     static const char *DAYS[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
     snprintf(buf, sizeof(buf), "%s %d", DAYS[(t.weekday % 7 + 7) % 7], t.day);

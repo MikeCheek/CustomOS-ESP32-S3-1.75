@@ -1,3 +1,4 @@
+#include "clock_fmt.h"
 #include "app_watchface.h"
 #include "weather_fx.h"
 #include "complications.h"
@@ -141,12 +142,13 @@ static void draw_time(Arduino_GFX *g) {
 
     // Time - large centered text
     char time_buf[8];
-    snprintf(time_buf, sizeof(time_buf), "%02d:%02d", t.hour, t.minute);
+    clock_hm(time_buf, sizeof(time_buf), t.hour, t.minute);
 
     g->setTextSize(6);
     g->setTextColor(COLOR_TEXT);
     int tw = ui_text_width(time_buf, 6);
     ui_print((LCD_WIDTH - tw) / 2, LCD_HEIGHT / 2 - 30, 6, COLOR_TEXT, time_buf);
+    if (!clock_24h()) ui_print((LCD_WIDTH + tw) / 2 + 6, LCD_HEIGHT / 2 - 28, 2, COLOR_TEXT_DIM, clock_ampm(t.hour));
 
     // Date - small centered below time
     char date_buf[32];

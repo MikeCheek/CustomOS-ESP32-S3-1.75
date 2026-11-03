@@ -34,12 +34,13 @@ def main(out):
         font = ImageFont.load_default()
     chars = "0123456789:"
     boxes = [font.getbbox(c) for c in chars]
-    glyph_h = max(b[3] for b in boxes) + 4
+    top = min(b[1] for b in boxes)           # cropped to the ink, like the app does
+    glyph_h = max(b[3] for b in boxes) - top + 1
     glyphs, widths = bytearray(), []
     for c, b in zip(chars, boxes):
         w = max(1, b[2] + 6)
         im = Image.new("L", (w, glyph_h), 0)
-        ImageDraw.Draw(im).text((3, 2), c, fill=255, font=font)
+        ImageDraw.Draw(im).text((3, -top), c, fill=255, font=font)
         glyphs += im.tobytes()
         widths.append(w)
 

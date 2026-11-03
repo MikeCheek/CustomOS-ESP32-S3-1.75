@@ -60,6 +60,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUShort("dnd_from", s.dnd_from_min);
     s_prefs.putUShort("dnd_to", s.dnd_to_min);
     s_prefs.putBool("smooth_font", s.smooth_fonts);
+    s_prefs.putBool("clk24", s.clock_24h);
     s_prefs.putBool("vw_on", s.voice_wake);
     s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
     s_prefs.putBool("v_clean", s.voice_clean);
@@ -134,6 +135,7 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.dnd_from_min >= 1440) s.dnd_from_min = 23 * 60;
     if (s.dnd_to_min >= 1440) s.dnd_to_min = 7 * 60;
     s.smooth_fonts = s_prefs.getBool("smooth_font", true);
+    s.clock_24h = s_prefs.getBool("clk24", true);
     s.voice_wake = s_prefs.getBool("vw_on", false);
     s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
     s.voice_clean = s_prefs.getBool("v_clean", true);

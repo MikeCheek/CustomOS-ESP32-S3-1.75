@@ -214,12 +214,16 @@ static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
 static bool get_wx_fx() { return g_app_settings.weather_fx; }
 static void tap_wx_fx() { g_app_settings.weather_fx = !g_app_settings.weather_fx; nvs_save_settings(g_app_settings); }
 
+static bool get_clock24() { return g_app_settings.clock_24h; }
+static void tap_clock24() { g_app_settings.clock_24h = !g_app_settings.clock_24h; nvs_save_settings(g_app_settings); }
+
 static SettingsRow ROWS_DISPLAY[] = {
     { "Brightness", "Screen brightness level", ROW_SUBSCREEN, nullptr, nullptr, &settings_brightness_screen, ICON_BRIGHTNESS },
     { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
     { "Watchface slots", "Steps, events, weather... on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_comp_screen, ICON_BRIGHTNESS },
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
+    { "24-hour clock", "Off: 9:05 PM", ROW_TOGGLE, get_clock24, tap_clock24, nullptr, nullptr },
     { "Smooth fonts", "Sharper text with accented letters", ROW_TOGGLE, get_smooth_fonts, tap_smooth_fonts, nullptr, nullptr },
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
 };

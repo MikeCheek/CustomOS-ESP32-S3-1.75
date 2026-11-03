@@ -128,5 +128,10 @@ int main(int argc, char **argv) {
         printf("photo face: subject in front %d, time pixels %d\n", subject_front, white);
         if (!subject_front || white < 300) { printf("FAIL: photo face\n"); return 1; }
     }
+    // 12-hour clock: "9:05" and AM/PM beside it
+    emu_set_option("clock24", 0);
+    run(1200);
+    snprintf(p, sizeof(p), "%s/emu_photo_12h.ppm", out); save(p);
+    emu_set_option("clock24", 1);
     return emu_frame_seq() > 0 ? 0 : 1;
 }

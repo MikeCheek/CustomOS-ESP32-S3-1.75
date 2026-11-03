@@ -9,6 +9,7 @@
 #include "hal_rtc.h"
 #include "hal_sd.h"
 #include "watchface_registry.h"
+#include "clock_fmt.h"
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -144,7 +145,8 @@ static inline uint16_t blend565(uint16_t b, uint16_t f, uint8_t a) {
 
 static int glyph_index(char c) { return c == ':' ? 10 : (c >= '0' && c <= '9') ? c - '0' : -1; }
 
-static void draw_time(uint16_t *fb, const char *text) {
+// Returns where the time ends on the right.
+static int draw_time(uint16_t *fb, const char *text) {
     const PhotoFace &f = s_face;
     int total = 0;
     for (const char *p = text; *p; p++) {
@@ -172,6 +174,7 @@ static void draw_time(uint16_t *fb, const char *text) {
         }
         x0 += gw;
     }
+    return x0;
 }
 
 // The subject's pixels back over the time.
@@ -195,7 +198,7 @@ static void photo_draw() {
     if (!g) return;
     WatchTime t = rtc_now();
     char hm[8];
-    snprintf(hm, sizeof(hm), "%02d:%02d", t.valid ? t.hour : 0, t.valid ? t.minute : 0);
+    clock_hm(hm, sizeof(hm), t.valid ? t.hour : 0, t.valid ? t.minute : 0);
     uint16_t *fb = ui_framebuffer();
 
     if (!photo_face_available() || !fb) {
@@ -207,8 +210,11 @@ static void photo_draw() {
     }
     const PhotoFace &f = s_face;
     memcpy(fb, f.photo, (size_t)f.w * f.h * 2);
-    draw_time(fb, hm);
+    int right = draw_time(fb, hm);
     if (f.depth) draw_subject(fb);
+    if (!clock_24h() && t.valid)
+        ui_font_draw(right + 6, f.time_y - f.glyph_h / 2 + ui_font_cap_height(FONT_M_B), FONT_M_B, f.time_color,
+                     clock_ampm(t.hour));
 
     if (t.valid) {
         static const char *const DAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
@@ -218,7 +224,7 @@ static void photo_draw() {
         snprintf(date, sizeof(date), "%s %d %s", DAYS[t.weekday % 7], t.day,
                  MONTHS[(t.month >= 1 && t.month <= 12) ? t.month - 1 : 0]);
         // Under the time, or over it when the time is low on the screen.
-        int dy = f.time_y > f.h / 2 ? f.time_y - f.glyph_h / 2 - 16 : f.time_y + f.glyph_h / 2 + 18;
+        int dy = f.time_y > f.h / 2 ? f.time_y - f.glyph_h / 2 - 20 : f.time_y + f.glyph_h / 2 + 24;
         ui_font_center(LCD_WIDTH / 2, dy, FONT_M_B, f.date_color, date);
     }
 }

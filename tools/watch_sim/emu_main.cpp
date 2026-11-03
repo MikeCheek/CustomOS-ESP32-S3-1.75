@@ -258,11 +258,12 @@ __attribute__((visibility("default"))) void emu_set_playing(int on) { sim_set_pl
 __attribute__((visibility("default"))) void emu_set_mic_level(int pct) { sim_set_mic_level(pct); }
 
 // A few settings by name, for tests and tools ("fall", "sleep"): 1 on, 0 off.
-// "photoface": a new photo face file is on the SD card.
+// "photoface": a new photo face file is on the SD card. "clock24": 0 = 12-hour clock.
 __attribute__((visibility("default"))) void emu_set_option(const char *name, int on) {
     if (!name) return;
     if (!strcmp(name, "fall")) g_app_settings.fall_detect = on != 0;
     else if (!strcmp(name, "sleep")) g_app_settings.sleep_track = on != 0;
+    else if (!strcmp(name, "clock24")) g_app_settings.clock_24h = on != 0;
     else if (!strcmp(name, "photoface")) {
         // The app wrote <sd>/faces/photo.pwf ("pf:photo.pwf"): show it, like the watch does.
         photo_face_reload();
