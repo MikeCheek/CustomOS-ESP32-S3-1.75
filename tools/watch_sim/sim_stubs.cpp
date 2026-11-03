@@ -1,3 +1,5 @@
+#include <sys/stat.h>
+#include <SD.h>
 #include <time.h>
 #include "board_pins.h"
 #include "app_settings_state.h"
@@ -261,21 +263,67 @@ uint8_t audio_get_volume() { return g_sim.live ? s_volume : 70; }
 void audio_set_volume(uint8_t v) { s_volume = v > 100 ? 100 : v; }
 void audio_beep(uint16_t f, uint16_t ms) { sim_tone(f, ms, 0); }
 void audio_play_sfx(uint16_t f, uint16_t ms) { sim_tone(f, ms, 0); }
-bool audio_play_mp3(const char *) { return false; }
-bool audio_play_wav(const char *) { return false; }
-bool audio_is_playing() { return false; }
+// Playback and recording: in the emulator they're events for the app
+// (sim_take_event: the phone plays the file, the phone's microphone records
+// into the SD folder); the screenshots fake a recording.
+static std::deque<std::string> s_events;
+static bool s_playing = false;
+static uint32_t s_rec_ms = 0;
+static int s_mic_level = 0;
+static void sim_emit(const std::string &json) { if (s_events.size() < 32) s_events.push_back(json); }
+static std::string json_str(const std::string &v) {
+    std::string o = "\"";
+    for (char c : v) { if (c == '"' || c == '\\') o += '\\'; o += c; }
+    return o + "\"";
+}
+bool sim_take_event(std::string &out) {
+    if (s_events.empty()) return false;
+    out.swap(s_events.front());
+    s_events.pop_front();
+    return true;
+}
+void sim_set_playing(bool on) { s_playing = on; }
+void sim_set_mic_level(int pct) { s_mic_level = pct; }
+static bool sim_play(const char *path) {
+    if (!g_sim.live || !SD.exists(path)) return false;
+    s_playing = true;
+    sim_emit("{\"ev\":\"play\",\"path\":" + json_str(sim_sd_path(path)) + "}");
+    return true;
+}
+bool audio_play_mp3(const char *p) { return sim_play(p); }
+bool audio_play_wav(const char *p) { return sim_play(p); }
+bool audio_is_playing() { return s_playing; }
 bool audio_is_paused() { return false; }
 void audio_set_paused(bool) {}
-void audio_stop_playback() {}
+void audio_stop_playback() {
+    if (s_playing) sim_emit("{\"ev\":\"stop\"}");
+    s_playing = false;
+}
 void audio_seek(float) {}
 bool audio_get_stream_info(AudioStreamInfo *) { return false; }
 bool audio_is_recording() { return g_sim.recording; }
-bool audio_start_record(const char *) { g_sim.recording = true; return true; }
-bool audio_start_record_mono(const char *) { g_sim.recording = true; return true; }
-void audio_stop_record() { g_sim.recording = false; }
-uint32_t audio_record_duration_s() { return g_sim.recording ? 83 : 0; }
+static bool sim_record(const char *file, bool mono) {
+    g_sim.recording = true;
+    if (!g_sim.live) return true;
+    if (!file || strchr(file, '/')) { g_sim.recording = false; return false; }
+    SD.mkdir("/Recordings");
+    s_rec_ms = millis();
+    sim_emit(std::string("{\"ev\":\"rec\",\"on\":1,\"mono\":") + (mono ? "1" : "0") + ",\"path\":" +
+             json_str(sim_sd_path((std::string("/Recordings/") + file).c_str())) + "}");
+    return true;
+}
+bool audio_start_record(const char *f) { return sim_record(f, false); }
+bool audio_start_record_mono(const char *f) { return sim_record(f, true); }
+void audio_stop_record() {
+    if (g_sim.live && g_sim.recording) sim_emit("{\"ev\":\"rec\",\"on\":0}");
+    g_sim.recording = false;
+}
+uint32_t audio_record_duration_s() {
+    if (!g_sim.recording) return 0;
+    return g_sim.live ? (millis() - s_rec_ms) / 1000 : 83;
+}
 bool audio_mic_ok() { return true; }
-int audio_mic_level_percent() { return 40; }
+int audio_mic_level_percent() { return g_sim.live ? s_mic_level : 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
 void audio_play_note(uint16_t f, uint16_t ms) { sim_tone(f, ms, 1); }
 // Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
@@ -299,6 +347,14 @@ int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
 
 // ---- storage / usb / media ------------------------------------------------------------
 bool sd_is_mounted() { return true; }
+// The SD card (shim/FS.h): a folder in the emulator, nothing for the screenshots.
+SDFS SD;
+std::string &sim_sd_root() { static std::string r; return r; }
+void sim_sd_enable(const char *dir) {
+    sim_sd_root() = dir;
+    mkdir(dir, 0755);
+    SD.mkdir("/Recordings");
+}
 bool usb_cable_present() { return false; }
 bool usb_host_connected() { return false; }
 UsbMode usb_mode_active() { return USB_MODE_FIRMWARE; }

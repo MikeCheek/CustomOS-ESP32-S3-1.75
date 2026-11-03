@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <vector>
 
@@ -21,6 +22,8 @@ void emu_set_data(int, const char *);
 void emu_set_accel(float, float, float);
 int emu_take_sounds(int32_t *, int);
 void emu_set_option(const char *, int);
+int emu_take_event(char *, int);
+void emu_set_mic_level(int);
 }
 
 static void wait_ms(int ms) {
@@ -83,5 +86,24 @@ int main(int argc, char **argv) {
     int ns = emu_take_sounds(snd, 64);
     printf("sounds after the fall: %d%s\n", ns, ns ? "" : " (none)");
     snprintf(p, sizeof(p), "%s/emu_fall.ppm", out); save(p);
+    emu_button(1, 2);   // PWR double: back from the alert
+    emu_button(0, 3);   // BOOT hold: home
+    run(400);
+
+    // phase 4: BOOT twice -> the assistant records (the app's microphone), the
+    // voice stops, and the watch asks the app about the recording
+    emu_button(0, 2);
+    run(300);
+    char ev[1024];
+    bool rec = false;
+    while (emu_take_event(ev, sizeof(ev)) > 0) { printf("event: %s\n", ev); rec |= strstr(ev, "\"rec\",\"on\":1") != nullptr; }
+    emu_set_mic_level(5); run(400);     // the noise floor
+    emu_set_mic_level(60); run(1200);   // speech
+    emu_set_mic_level(5); run(1800);    // a pause: done
+    bool asked = false;
+    while (emu_take_event(ev, sizeof(ev)) > 0) printf("event: %s\n", ev);
+    while ((n = emu_link_pop(buf, sizeof(buf))) > 0) { printf("watch -> app: %s\n", buf); asked |= strstr(buf, "\"ask\"") != nullptr; }
+    snprintf(p, sizeof(p), "%s/emu_ask.ppm", out); save(p);
+    if (!rec || !asked) { printf("FAIL: no recording (%d) or no ask (%d)\n", rec, asked); return 1; }
     return emu_frame_seq() > 0 ? 0 : 1;
 }

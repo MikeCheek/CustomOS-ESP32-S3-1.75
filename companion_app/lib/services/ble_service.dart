@@ -71,6 +71,9 @@ class BleService {
     if (was) _connectionController.add(false);
   }
 
+  /// The emulated watch while it's the one the app talks to.
+  VirtualWatch? get virtualWatch => isVirtual ? _virtual : null;
+
   /// A message from the emulated watch, as if it came over Bluetooth.
   void virtualIncoming(Map<String, dynamic> msg) => _linkController.add(msg);
   /// The watch firmware supports updates over Bluetooth.
@@ -718,6 +721,7 @@ class BleService {
   int get maxFileSize => wifiFiles ? 4 * 1024 * 1024 : 1024 * 1024;
 
   Future<void> sendFile(String name, Uint8List data) async {
+    if (isVirtual) return _virtual!.receiveFile(name, data);
     if (_fileChar == null) return;
     final chunkSize = (_maxWrite - 8).clamp(12, 400);
     final nameBytes = BleProtocol.utf8Truncate(name, (_maxWrite - 8).clamp(1, 63));
@@ -742,6 +746,11 @@ class BleService {
   /// [onProgress] gets the number of bytes sent so far.
   Future<void> sendFileWithProgress(String name, Uint8List data,
       {void Function(int)? onProgress}) async {
+    if (isVirtual) {
+      await _virtual!.receiveFile(name, data);
+      onProgress?.call(data.length);
+      return;
+    }
     if (_fileChar == null) return;
     if (data.length > maxFileSize) {
       throw Exception('Too big for Bluetooth (max ${maxFileSize ~/ (1024 * 1024)} MB) - needs Wi-Fi');
@@ -781,6 +790,11 @@ class BleService {
   /// Adds an audio file to the watch's recordings over Bluetooth (the watch
   /// asks for confirmation). [name] = plain file name, .wav or .mp3.
   Future<void> sendRecording(String name, Uint8List data, {void Function(int)? onProgress}) async {
+    if (isVirtual) {
+      await _virtual!.receiveFile('rec:$name', data);
+      onProgress?.call(data.length);
+      return;
+    }
     if (_fileChar == null) throw Exception('Watch not connected');
     if (data.length > maxRecordingSize) throw Exception('Too big for Bluetooth (max 4 MB) - use Wi-Fi');
     final chunkSize = (_maxWrite - 8).clamp(12, 500);
@@ -957,6 +971,14 @@ class BleService {
 /// Something that stands in for the watch on the phone link (the in-app
 /// emulator): gets what would go over Bluetooth.
 abstract class VirtualWatch {
-  void deliver(String json);              // a phone-link message
+  void deliver(String json); // a phone-link message
   void deliverData(int kind, String json); // 2 weather, 3 fitness
+
+  /// A file the app sends ("rec:<name>", "pt:<name>", "say:<x>.wav", or a
+  /// plain name for the card's root), saved on its SD card.
+  Future<void> receiveFile(String name, Uint8List data);
+
+  /// /Recordings/<name> from its SD card (what the app would download over
+  /// Bluetooth), once a recording into it has finished.
+  Future<Uint8List> readRecording(String name);
 }

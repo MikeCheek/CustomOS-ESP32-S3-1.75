@@ -44,6 +44,10 @@ bool sim_link_pop(std::string &out);
 void sim_set_weather(const char *json);
 void sim_set_fitness(const char *json);
 void sim_prefs_enable(const char *path);
+void sim_sd_enable(const char *dir);
+bool sim_take_event(std::string &out);
+void sim_set_playing(bool on);
+void sim_set_mic_level(int pct);
 void sim_set_accel(float x, float y, float z);
 int sim_take_tones(int32_t *out, int max);
 void audio_set_volume(uint8_t v);
@@ -101,6 +105,7 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     if (dir && dir[0]) {
         mkdir(dir, 0755);
         sim_prefs_enable((std::string(dir) + "/nvs.bin").c_str());
+        sim_sd_enable((std::string(dir) + "/sd").c_str());   // the SD card
     }
     nvs_load_settings(g_app_settings);
     quick_replies_load();
@@ -222,6 +227,32 @@ __attribute__((visibility("default"))) void emu_set_accel(float x, float y, floa
 // kind | volume << 8) per tone, kind 0 = beep / effect, 1 = piano note.
 // Returns how many.
 __attribute__((visibility("default"))) int emu_take_sounds(int32_t *out, int max) { return sim_take_tones(out, max); }
+
+// ---- SD card, microphone, playback (phase 4) -----------------------------------------
+// Events for the app, JSON, like emu_link_pop:
+//   {"ev":"rec","on":1,"mono":1,"path":"<file>"}  record the phone's microphone into <file>
+//   {"ev":"rec","on":0}                          stop it
+//   {"ev":"play","path":"<file>"}  /  {"ev":"stop"}   play a WAV/MP3 / stop
+static std::string s_ev;
+static bool s_has_ev = false;
+__attribute__((visibility("default"))) int emu_take_event(char *buf, int cap) {
+    if (!s_has_ev) {
+        if (!sim_take_event(s_ev)) return 0;
+        s_has_ev = true;
+    }
+    int n = (int)s_ev.size();
+    if (n + 1 > cap) return -(n + 1);
+    memcpy(buf, s_ev.data(), n);
+    buf[n] = 0;
+    s_has_ev = false;
+    return n;
+}
+
+// The phone finished (0) playing what "play" asked for.
+__attribute__((visibility("default"))) void emu_set_playing(int on) { sim_set_playing(on != 0); }
+
+// The phone microphone's level while recording, 0..100 (the watch's meters).
+__attribute__((visibility("default"))) void emu_set_mic_level(int pct) { sim_set_mic_level(pct); }
 
 // A few settings by name, for tests and tools ("fall", "sleep"): 1 on, 0 off.
 __attribute__((visibility("default"))) void emu_set_option(const char *name, int on) {

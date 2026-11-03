@@ -24,6 +24,10 @@ class WatchEmulator implements VirtualWatch {
             'emu_set_accel'),
         _sounds = _lib.lookupFunction<Int32 Function(Pointer<Int32>, Int32), int Function(Pointer<Int32>, int)>(
             'emu_take_sounds'),
+        _event = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>(
+            'emu_take_event'),
+        _playing = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_playing'),
+        _micLevel = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_mic_level'),
         width = _lib.lookupFunction<Int32 Function(), int Function()>('emu_width')(),
         height = _lib.lookupFunction<Int32 Function(), int Function()>('emu_height')();
 
@@ -54,6 +58,16 @@ class WatchEmulator implements VirtualWatch {
   final void Function(double, double, double) _accel;
   final int Function(Pointer<Int32>, int) _sounds;
   Pointer<Int32>? _soundBuf;
+  final int Function(Pointer<Utf8>, int) _event;
+  final void Function(int) _playing;
+  final void Function(int) _micLevel;
+
+  /// Its SD card: a folder in the app's storage (set by start()).
+  String sdRoot = '';
+  Future<void> _recordingDone = Future.value();
+
+  /// Plays a file the app sent for it to say (the assistant's spoken answer).
+  void Function(String path)? onSay;
   Pointer<Utf8>? _popBuf;
   int _popCap = 0;
   final int width, height;
@@ -63,6 +77,7 @@ class WatchEmulator implements VirtualWatch {
   void start(String dir) {
     if (_started) return;
     _started = true;
+    sdRoot = '$dir/sd';
     final p = dir.toNativeUtf8();
     _init(p);
     malloc.free(p);
@@ -120,18 +135,63 @@ class WatchEmulator implements VirtualWatch {
     return n <= 0 ? const [] : _soundBuf!.asTypedList(n * 3).toList();
   }
 
-  /// What the watch sent to its phone since the last call.
-  List<Map<String, dynamic>> takeMessages() {
+  // ---- SD card, microphone, playback (phase 4) -----------------------------------------
+  /// Record / play events from the watch (see emu_main.cpp's emu_take_event).
+  List<Map<String, dynamic>> takeEvents() => _drain(_event);
+
+  /// The phone finished playing what the watch asked for.
+  void setPlaying(bool on) => _playing(on ? 1 : 0);
+
+  void setMicLevel(int pct) => _micLevel(pct.clamp(0, 100));
+
+  /// While the phone records for the watch: readRecording() waits for it.
+  set recordingDone(Future<void> f) => _recordingDone = f;
+
+  @override
+  Future<Uint8List> readRecording(String name) async {
+    await _recordingDone;
+    final f = File('$sdRoot/Recordings/${name.split('/').last}');
+    if (!await f.exists()) throw Exception('$name is not on the emulated watch');
+    return f.readAsBytes();
+  }
+
+  @override
+  Future<void> receiveFile(String name, Uint8List data) async {
+    String rel;
+    if (name.startsWith('rec:')) {
+      // never overwrites, like the watch: name.wav, name_2.wav...
+      final n = name.substring(4).split('/').last;
+      final dot = n.lastIndexOf('.');
+      final base = dot > 0 ? n.substring(0, dot) : n, ext = dot > 0 ? n.substring(dot) : '';
+      rel = 'Recordings/$n';
+      for (var i = 2; await File('$sdRoot/$rel').exists() && i < 100; i++) {
+        rel = 'Recordings/${base}_$i$ext';
+      }
+    } else if (name.startsWith('pt:')) {
+      rel = 'piano/${name.substring(3).split('/').last}';
+    } else if (name.startsWith('say:')) {
+      rel = 'Recordings/_say.wav';
+    } else if (name.startsWith('wn:')) {
+      return; // wake word models: ESP-SR isn't in the emulator
+    } else {
+      rel = name.split('/').last;
+    }
+    final f = File('$sdRoot/$rel');
+    await f.parent.create(recursive: true);
+    await f.writeAsBytes(data);
+    if (name.startsWith('say:')) onSay?.call(f.path);
+  }
+
+  List<Map<String, dynamic>> _drain(int Function(Pointer<Utf8>, int) take) {
     final out = <Map<String, dynamic>>[];
     for (;;) {
       if (_popBuf == null) {
         _popCap = 4096;
         _popBuf = malloc<Uint8>(_popCap).cast<Utf8>();
       }
-      final n = _pop(_popBuf!, _popCap);
+      final n = take(_popBuf!, _popCap);
       if (n == 0) break;
       if (n < 0) {
-        // bigger than the buffer: grow it, the message stays queued
         malloc.free(_popBuf!);
         _popCap = -n;
         _popBuf = malloc<Uint8>(_popCap).cast<Utf8>();
@@ -144,4 +204,8 @@ class WatchEmulator implements VirtualWatch {
     }
     return out;
   }
+
+  /// What the watch sent to its phone since the last call.
+  List<Map<String, dynamic>> takeMessages() => _drain(_pop);
+
 }

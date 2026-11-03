@@ -802,6 +802,9 @@ class NotesNotifier extends StateNotifier<NotesState> {
   /// adding it to the memo list (used for voice replies). Waits for a
   /// memo download that is already running.
   Future<Uint8List> fetchTemp(String filename, {Duration timeout = const Duration(seconds: 90)}) async {
+    // The in-app emulator: straight from its SD card folder.
+    final v = _ble.virtualWatch;
+    if (v != null) return v.readRecording(filename).timeout(timeout);
     if (!_ble.isConnected) throw Exception('Watch not connected');
     final until = DateTime.now().add(const Duration(seconds: 15));
     while (_downloadFilename.isNotEmpty || _tempName != null) {

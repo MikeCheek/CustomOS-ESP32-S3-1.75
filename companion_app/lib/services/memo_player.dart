@@ -69,9 +69,9 @@ class MemoPlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   /// Plays any audio file (the assistant's spoken answer on the phone).
-  Future<void> playPath(String path) async {
+  Future<void> playPath(String path, {String name = '__say'}) async {
     try {
-      _apply(await _ch.invokeMethod('play', {'path': path, 'from': 0}), name: '__say');
+      _apply(await _ch.invokeMethod('play', {'path': path, 'from': 0}), name: name);
     } on PlatformException catch (e) {
       if (mounted) state = PlayerState(error: 'Can\'t play it: ${e.message ?? e.code}');
     }

@@ -242,8 +242,13 @@ static bool     s_prev = false, s_back = false;
 static int      s_press = -1;
 static uint32_t s_seen_rev = 0;
 
+// The list starts lower when "Catch me up" sits above it, clear of the title.
+static int list_top() {
+    return LIST_TOP + (notifications_history_count() >= 2 && phone_link_active() ? 28 : 0);
+}
+
 static int list_content_h() {
-    return LIST_TOP + notifications_history_count() * (ROW_H + GAP) + 120;
+    return list_top() + notifications_history_count() * (ROW_H + GAP) + 120;
 }
 
 static void enter(View v) {
@@ -362,10 +367,10 @@ static void draw_list(Arduino_GFX *g) {
     snprintf(cnt, sizeof(cnt), "%d notification%s", count, count == 1 ? "" : "s");
     if (count >= 2 && phone_link_active()) {
         // "Catch me up": the phone's LLM sums them up
-        if (LIST_TOP - 40 + off > 0) {
-            g->fillRoundRect(CX - 110, LIST_TOP - 42 + off, 220, 32, 16, s_press == 200 ? COLOR_ACCENT2 : ui_dim(COLOR_ACCENT2, 0.35f));
+        if (list_top() - 48 + off > 0) {
+            g->fillRoundRect(CX - 110, list_top() - 50 + off, 220, 32, 16, s_press == 200 ? COLOR_ACCENT2 : ui_dim(COLOR_ACCENT2, 0.35f));
             snprintf(cnt, sizeof(cnt), "Catch me up (%d)", count);
-            ui_text_center(CX, LIST_TOP - 26 + off, COLOR_TEXT, cnt, 1);
+            ui_text_center(CX, list_top() - 34 + off, COLOR_TEXT, cnt, 1);
         }
     } else if (LIST_TOP - 22 + off > 0) {
         ui_text_center(CX, LIST_TOP - 16 + off, COLOR_TEXT_DIM, cnt, 1);
@@ -373,7 +378,7 @@ static void draw_list(Arduino_GFX *g) {
 
     char a[48], t[96], x[96], when[8];
     for (int i = 0; i < count; i++) {
-        int y = LIST_TOP + i * (ROW_H + GAP) + off;
+        int y = list_top() + i * (ROW_H + GAP) + off;
         if (y + ROW_H < 0) continue;
         if (y > LCD_HEIGHT) break;
         NotifHistoryItem it;
@@ -542,12 +547,12 @@ static void notifications_touch(int x, int y, bool pressed) {
         if (s_view == V_DIGEST) {
             // just scrolling
         } else if (s_view == V_LIST) {
-            if (x >= ROW_X && x <= ROW_X + ROW_W && cy >= LIST_TOP) {
-                int i = (cy - LIST_TOP) / (ROW_H + GAP);
-                if (i < notifications_history_count() && (cy - LIST_TOP) % (ROW_H + GAP) < ROW_H) s_press = i;
+            if (x >= ROW_X && x <= ROW_X + ROW_W && cy >= list_top()) {
+                int i = (cy - list_top()) / (ROW_H + GAP);
+                if (i < notifications_history_count() && (cy - list_top()) % (ROW_H + GAP) < ROW_H) s_press = i;
             }
             if (notifications_history_count() >= 2 && phone_link_active() && abs(x - CX) <= 115 &&
-                cy >= LIST_TOP - 46 && cy <= LIST_TOP - 6)
+                cy >= list_top() - 54 && cy <= list_top() - 14)
                 s_press = 200;
         } else if (abs(x - CX) <= 150 && cy >= LIST_TOP) {
             int i = (cy - LIST_TOP) / 66;
