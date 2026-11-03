@@ -10,6 +10,6 @@
 #pragma once
 #include "ui.h"
 
-void fall_update();                 // loop(), awake or asleep
+void fall_feed(float ax, float ay, float az);   // each FIFO sample (motion_update, app_activity.h)
 bool fall_alert_active();           // keeps the loop awake while asking
 extern Screen fall_alert_screen;

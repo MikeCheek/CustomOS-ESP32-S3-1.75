@@ -158,7 +158,7 @@ jobs:
 
       - uses: arduino/setup-arduino-cli@v2
 
-      - name: Fall, sleep and handwriting tests (PC)
+      - name: Fall, sleep, handwriting and motion tests (PC)
         run: |
           g++ -std=c++17 -Wall -Ifirmware tools/fall_test.cpp firmware/fall_detect.cpp -o fall_test
           ./fall_test
@@ -166,6 +166,8 @@ jobs:
           ./sleep_test
           g++ -std=c++17 -Wall -Ifirmware tools/stroke_test.cpp firmware/stroke_recog.cpp -o stroke_test
           ./stroke_test
+          g++ -std=c++17 -Wall -Ifirmware tools/motion_test.cpp firmware/motion_detect.cpp -o motion_test
+          ./motion_test
 
       - name: Cache cores and libraries
         uses: actions/cache@v4

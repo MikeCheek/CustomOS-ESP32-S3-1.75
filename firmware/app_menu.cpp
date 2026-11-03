@@ -24,6 +24,7 @@ extern Screen settings_screen;
 extern Screen assistant_screen;
 extern Screen sleep_screen;
 extern Screen draw_screen;
+extern Screen activity_screen;
 extern Screen notifications_screen;
 extern Screen ble_status_screen;
 extern Screen battery_screen;
@@ -322,6 +323,14 @@ static void icon_draw(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 16, cy + 16, 5, IC(COLOR_TEXT));
 }
 
+static void icon_activity(Arduino_GFX *g, int cx, int cy, float br) {
+    // a running figure: head, body, arms and legs as dots
+    uint16_t c = IC(COLOR_ACCENT3);
+    g->fillCircle(cx + 4, cy - 16, 5, c);
+    static const int8_t P[][2] = {{2, -9}, {0, -3}, {-2, 3}, {-8, 10}, {-14, 16}, {4, 8}, {10, 16}, {-8, -6}, {10, -4}};
+    for (auto &p : P) g->fillCircle(cx + p[0], cy + p[1], 3, c);
+}
+
 static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
@@ -420,6 +429,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
     {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
+    {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
     {"Draw",          CAT_TOOLS, icon_draw,          &draw_screen},
     {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},

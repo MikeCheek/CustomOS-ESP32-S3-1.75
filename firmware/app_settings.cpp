@@ -294,6 +294,10 @@ static SettingsRow ROWS_BATTERY[] = {
     { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
 };
 
+static bool get_act() { return g_app_settings.activity_track; }
+static void tap_act() { g_app_settings.activity_track = !g_app_settings.activity_track; nvs_save_settings(g_app_settings); }
+static bool get_flick() { return g_app_settings.flick_back; }
+static void tap_flick() { g_app_settings.flick_back = !g_app_settings.flick_back; nvs_save_settings(g_app_settings); }
 static bool get_sleep_trk() { return g_app_settings.sleep_track; }
 static void tap_sleep_trk() { g_app_settings.sleep_track = !g_app_settings.sleep_track; nvs_save_settings(g_app_settings); }
 static bool get_fall() { return g_app_settings.fall_detect; }
@@ -309,6 +313,8 @@ static SettingsRow ROWS_WAKE[] = {
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
     { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
     { "Sleep tracking", "From wrist movement, 20:00-12:00 (Sleep app)", ROW_TOGGLE, get_sleep_trk, tap_sleep_trk, nullptr, nullptr },
+    { "Activity tracking", "Walking, running, moving all day (Activity app)", ROW_TOGGLE, get_act, tap_act, nullptr, nullptr },
+    { "Flick to go back", "Two quick wrist flicks go back a screen", ROW_TOGGLE, get_flick, tap_flick, nullptr, nullptr },
 };
 
 static SettingsRow ROWS_SYSTEM[] = {

@@ -20,7 +20,7 @@ void sim_link(const char *json);
 
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
     flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
-    fall_alert_screen, sleep_screen, draw_screen;
+    fall_alert_screen, sleep_screen, draw_screen, activity_screen;
 void sleep_load_demo();
 void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
 
@@ -117,6 +117,7 @@ void sim_scenarios() {
     shot(&sleep_screen, "sleep_app");
     g_app_settings.alarm_on = false;
     shot(&draw_screen, "draw_open");
+    shot(&activity_screen, "activity");
 
     // Piano Tiles: song list, a song's card, a song under way, the result
     shot(&piano_screen, "piano_menu");

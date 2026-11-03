@@ -101,6 +101,8 @@ struct AppSettings {
     bool sleep_track = true;                 // app_sleep.h: movement-based sleep tracking at night
     bool alarm_on = false;                   // the smart alarm
     uint16_t alarm_min = 7 * 60;             // its time, minutes after midnight
+    bool activity_track = false;             // app_activity.h: still / walking / running all day
+    bool flick_back = false;                 // two quick wrist flicks = back
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced

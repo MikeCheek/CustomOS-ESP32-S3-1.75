@@ -26,6 +26,7 @@
 #include "app_assistant.h"
 #include "app_calendar.h"
 #include "app_fall.h"
+#include "app_activity.h"
 #include "app_sleep.h"
 #include "sim_state.h"
 #include "hal_nvs.h"
@@ -125,7 +126,7 @@ __attribute__((visibility("default"))) void emu_step() {
     notifications_update();
     assistant_timer_update();
     calendar_update();      // event reminders the app sent
-    fall_update();          // with the phone's accelerometer (phase 3)
+    motion_update();        // fall detection, activity, reps, flicks - the phone's accelerometer
     sleeptrack_update();
     ui_update();
     ui_poll_gestures();

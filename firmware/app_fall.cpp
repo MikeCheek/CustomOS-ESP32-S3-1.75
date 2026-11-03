@@ -18,22 +18,12 @@ static bool s_alert = false;
 static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 static const uint32_t ASK_MS = 30000;
 
-void fall_update() {
-    static uint32_t last_ms = 0;
-    bool on = g_app_settings.fall_detect;
-    imu_fifo_enable(on);
-    if (!on) return;
-    uint32_t now = millis();
-    if (now - last_ms < 400) return;   // the FIFO holds 2 s
-    last_ms = now;
-    static float xyz[128 * 3];
-    int n = imu_fifo_read(xyz, 128);
-    for (int i = 0; i < n; i++) {
-        if (s_det.feed(xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]) && !s_alert) {
-            DEBUG_PRINTF("[fall] fall detected\n");
-            sleep_register_activity();       // wakes the screen
-            ui_push(&fall_alert_screen);
-        }
+// One accelerometer sample (motion_update(), app_activity.cpp, reads the FIFO).
+void fall_feed(float ax, float ay, float az) {
+    if (s_det.feed(ax, ay, az) && !s_alert) {
+        DEBUG_PRINTF("[fall] fall detected\n");
+        sleep_register_activity();       // wakes the screen
+        ui_push(&fall_alert_screen);
     }
 }
 

@@ -8,6 +8,7 @@
 #include "app_assistant.h"
 #include "voice_sr.h"
 #include "app_fall.h"
+#include "app_activity.h"
 #include "app_sleep.h"
 #include <Wire.h>
 #include "complications.h"
@@ -705,7 +706,7 @@ void loop() {
     calendar_update();           // event reminders (works without the phone)
     assistant_timer_update();    // the assistant's timer rings, awake or asleep
     voice_update();              // the wake word, awake or asleep
-    fall_update();               // fall detection, awake or asleep
+    motion_update();             // fall detection, activity, reps, flicks - awake or asleep
     sleeptrack_update();         // sleep tracking and the smart alarm
 #if FEATURE_AUDIO
     power_set_screen_off(asleep && !audio_is_playing());   // MP3 decode needs the clock
