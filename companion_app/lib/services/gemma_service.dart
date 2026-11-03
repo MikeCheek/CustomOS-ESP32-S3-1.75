@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_gemma/flutter_gemma.dart';
@@ -150,6 +151,87 @@ class GemmaService {
     final p = await SharedPreferences.getInstance();
     await p.setString('llm_model', m.key);
     await _closeModel();
+  }
+
+  // ---- vision: "Look" (screens/look_screen.dart) -------------------------------------
+  /// Models that see images. Kept apart from the summary model: Look loads
+  /// one for a question, then the summary model comes back on its own.
+  static const List<GemmaModelInfo> visionModels = [
+    GemmaModelInfo(
+      key: 'fastvlm-0.5b',
+      name: 'FastVLM 0.5B',
+      sizeBytes: 520 * 1024 * 1024,
+      url: 'https://huggingface.co/litert-community/FastVLM-0.5B/resolve/main/FastVLM-0.5B.litertlm',
+      description: 'Small and quick: describes what the camera sees',
+      type: ModelType.general,
+    ),
+    GemmaModelInfo(
+      key: 'gemma-3n-e2b',
+      name: 'Gemma 3n E2B',
+      sizeBytes: 3100 * 1024 * 1024,
+      url: 'https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm',
+      description: 'Sharper eyes: reads signs, labels and menus, translates them',
+      type: ModelType.gemmaIt,
+      gated: true,
+    ),
+  ];
+
+  Future<GemmaModelInfo?> visionModel() async {
+    final key = (await SharedPreferences.getInstance()).getString('vision_model');
+    for (final m in visionModels) {
+      if (m.key == key && await isInstalled(m)) return m;
+    }
+    for (final m in visionModels.reversed) {
+      if (await isInstalled(m)) return m;
+    }
+    return null;
+  }
+
+  /// Downloads [m] for Look (doesn't change the summary model).
+  Future<void> installVision(GemmaModelInfo m, {void Function(double)? onProgress}) async {
+    await initializeEngine();
+    final token = await hfToken();
+    if (m.gated && token.isEmpty && !await isInstalled(m)) {
+      throw Exception('${m.name} is gated: add your Hugging Face token first');
+    }
+    try {
+      await FlutterGemma.installModel(modelType: m.type, fileType: ModelFileType.litertlm)
+          .fromNetwork(m.url, token: token.isEmpty ? null : token)
+          .withProgress((p) => onProgress?.call(p / 100.0))
+          .install();
+    } on DownloadException catch (e) {
+      throw Exception(e.error.toUserMessage());
+    }
+    await (await SharedPreferences.getInstance()).setString('vision_model', m.key);
+    await _closeModel(); // installing made it the active one
+  }
+
+  Future<void> uninstallVision(GemmaModelInfo m) async {
+    await initializeEngine();
+    await _closeModel();
+    await FlutterGemma.uninstallModel(m.fileName);
+  }
+
+  /// [prompt] about the photo [jpeg], or null without a vision model.
+  Future<String?> look(Uint8List jpeg, String prompt) async {
+    final m = await visionModel();
+    if (m == null) return null;
+    return _serial(() async {
+      await _closeModel();
+      await FlutterGemma.installModel(modelType: m.type, fileType: ModelFileType.litertlm).fromNetwork(m.url).install();
+      final model = await FlutterGemma.getActiveModel(maxTokens: 2048, supportImage: true, maxNumImages: 1);
+      try {
+        final chat = await model.createChat(temperature: 0.2, topK: 20, supportImage: true, modelType: m.type);
+        await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
+        final r = await chat.generateChatResponse();
+        final raw = r is TextResponse ? r.token : r.toString();
+        return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').replaceAll(RegExp(r'[*#`]'), '').trim();
+      } finally {
+        try {
+          await model.close();
+        } catch (_) {}
+      }
+    });
   }
 
   Future<void> uninstall(GemmaModelInfo m) async {

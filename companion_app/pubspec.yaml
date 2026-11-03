@@ -30,6 +30,8 @@ dependencies:
   archive: ^4.0.7
   # The watch emulator's native library (dart:ffi)
   ffi: ^2.1.0
+  # Look: a photo from the camera or the gallery
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

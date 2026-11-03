@@ -36,6 +36,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   bool _diarInstalled = false, _diarOn = true, _diarBusy = false;
   double _diarProgress = 0;
 
+  final Map<String, bool> _visInstalled = {};
+  String? _visBusy;
+  double _visProgress = 0;
+
   final _emb = MemoEmbeddings.instance;
   bool _embInstalled = false, _embBusy = false;
   double _embProgress = 0;
@@ -75,6 +79,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     }
     _ttsOn = await _tts.enabled();
     _embInstalled = await _emb.isInstalled();
+    for (final m in GemmaService.visionModels) {
+      _visInstalled[m.key] = await _llm.isInstalled(m);
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -116,6 +123,25 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _diarBusy = false);
+    }
+  }
+
+  Future<void> _installVision(GemmaModelInfo m) async {
+    if (m.gated) await _llm.setHfToken(_tokenCtrl.text);
+    setState(() {
+      _visBusy = m.key;
+      _visProgress = 0;
+    });
+    try {
+      await _llm.installVision(m, onProgress: (p) {
+        if (mounted) setState(() => _visProgress = p);
+      });
+      _visInstalled[m.key] = true;
+      if (mounted) showSnack(context, '${m.name} ready for Look');
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _visBusy = null);
     }
   }
 
@@ -308,6 +334,24 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                       setState(() => _diarOn = v);
                     },
                   ),
+                const SectionLabel('Look (vision)'),
+                for (final m in GemmaService.visionModels) ...[
+                  _ModelCard(
+                    title: m.name,
+                    subtitle: '${m.description}${m.gated ? ' · gated: needs the token below' : ''} · ${_size(m.sizeBytes)}',
+                    selected: true,
+                    installed: _visInstalled[m.key] == true,
+                    busy: _visBusy == m.key,
+                    progress: _visProgress,
+                    onInstall: _visBusy == null ? () => _installVision(m) : null,
+                    onSelect: () {},
+                    onDelete: () async {
+                      await _llm.uninstallVision(m);
+                      setState(() => _visInstalled[m.key] = false);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 const SectionLabel('Search by meaning'),
                 _ModelCard(
                   title: 'EmbeddingGemma (4-bit)',

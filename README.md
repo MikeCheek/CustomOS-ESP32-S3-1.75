@@ -59,6 +59,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   Its SD card is a folder in the app; it records with the phone's microphone (recorder, assistant, voice replies).
   "Keep it as my watch" keeps it running and linked in the background and after a restart, until a real
   watch connects.
+- **Look** - a photo, and the on-phone vision model (FastVLM or Gemma 3n) says what it is, reads its text or
+  translates it; the answer also shows on the watch and can be read aloud.
 - **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
   voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
   who-said-what and Piano Tiles songs.

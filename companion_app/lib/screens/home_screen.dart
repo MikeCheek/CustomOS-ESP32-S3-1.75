@@ -23,6 +23,7 @@ import 'piano_song_screen.dart';
 import 'assistant_screen.dart';
 import 'messages_screen.dart';
 import 'emulator_screen.dart';
+import 'look_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -129,6 +130,13 @@ class HomeScreen extends ConsumerWidget {
                       title: 'Assistant',
                       subtitle: 'Ask out loud - the same as on the watch',
                       onTap: () => _push(context, const AssistantScreen()),
+                    ),
+                    NavRow(
+                      icon: Icons.visibility_outlined,
+                      color: AppColors.success,
+                      title: 'Look',
+                      subtitle: 'What is it? Read or translate text from a photo',
+                      onTap: () => _push(context, const LookScreen()),
                     ),
                     NavRow(
                       icon: Icons.forum_outlined,
