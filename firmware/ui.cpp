@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "app_face_nav.h"
 #include "phone_images.h"
 #include "ui_font.h"
 #include "board_pins.h"
@@ -425,6 +426,7 @@ static Screen *active_screen() {
     if (s_top < 0) return nullptr;
     return s_stack[s_top].screen;
 }
+Screen *ui_active_screen() { return active_screen(); }
 
 // ---- Keep awake (quick panel "coffee" tile) ---------------------------------
 // Runtime only - a reboot always goes back to normal sleep behaviour.
@@ -574,6 +576,13 @@ static bool drag_back_eligible(Screen *scr) {
 }
 
 // ---- Screen stack ---------------------------------------------------------
+void ui_push_instant(Screen *screen) {
+    bool was = s_suppress_tr;
+    s_suppress_tr = true;
+    ui_push(screen);
+    s_suppress_tr = was;
+}
+
 void ui_push(Screen *screen) {
     if (!screen) return;
 
@@ -682,6 +691,8 @@ static void transform_touch(int px, int py, int &lx, int &ly) {
 // Routes one touch event to the active screen (the normal path).
 static void dispatch_touch(int tx, int ty, bool pressed) {
     Screen *scr = active_screen();
+    // touch and hold on a face opens the face switcher (app_face_nav.cpp)
+    if (!pressed || face_nav_is_face(scr)) face_nav_touch(scr, tx, ty, pressed);
     // If the previous dispatch (still part of this same physical
     // touch - the finger hasn't lifted) caused a screen change,
     // routing this event to the new screen would deliver a fresh
@@ -904,6 +915,7 @@ static void ui_draw_battery_indicator();
 
 void ui_update() {
     uint32_t now = millis();
+    face_nav_poll();
 
     // Per-screen frame rate - screens that opted into idle_frame_ms
     // (see ui.h) get paced at that slower rate once genuinely idle,
@@ -1214,21 +1226,27 @@ static void ui_draw_battery_indicator() {
     bool charging = power_is_charging();
     uint16_t color = charging ? COLOR_ACCENT2 : (pct > 20 ? COLOR_GOOD : COLOR_BAD);
 
-    int icon_x = 348, icon_y = 64, icon_w = 20, icon_h = 12;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", pct);
+    // Placed from the circle itself: at the row's top edge (the narrowest
+    // part, y = icon_y) the screen's right edge is cx + sqrt(R^2 - dy^2);
+    // the readout's measured width ends 12 px inside it. (It used to start
+    // at a fixed x and the "%" ran off the round edge.)
+    const int icon_w = 20, icon_h = 12, icon_y = 70, gap = 5;
+    int dy = LCD_HEIGHT / 2 - icon_y;
+    int edge = LCD_WIDTH / 2 + (int)sqrtf((float)(LCD_WIDTH / 2) * (LCD_WIDTH / 2) - (float)dy * dy);
+    int text_w = text_width(buf, 1);
+    int icon_x = edge - 12 - text_w - gap - icon_w - 2;
     s_gfx->drawRoundRect(icon_x, icon_y, icon_w, icon_h, 2, color);
     s_gfx->fillRect(icon_x + icon_w, icon_y + 3, 2, icon_h - 6, color); // nub
     int fill_w = (int)((icon_w - 4) * (pct / 100.0f));
     if (fill_w > 0) s_gfx->fillRect(icon_x + 2, icon_y + 2, fill_w, icon_h - 4, color);
 
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%d%%", pct);
     s_gfx->setTextSize(1);
     s_gfx->setTextColor(color);
-    ui_print(icon_x + icon_w + 8, icon_y + 2, 1, color, buf);
+    ui_print(icon_x + icon_w + 2 + gap, icon_y + 2, 1, color, buf);
 
-    // WiFi indicator, to the left of the battery icon. Checked against
-    // the round display's safe radius at this y (icon_y=64, worst-case
-    // corner) - stays well inside it with icon_x=348 as the right edge.
+    // WiFi indicator, to the left of the battery icon (further from the edge).
     if (wifi_is_connected()) {
         int wx = icon_x - 34, wy_base = icon_y + icon_h;
         for (int i = 0; i < 3; i++) {

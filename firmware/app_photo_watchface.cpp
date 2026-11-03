@@ -3,6 +3,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
+#include "app_face_nav.h"
 #include "ui_font.h"
 #include "apps.h"
 #include "app_menu.h"
@@ -400,7 +401,7 @@ static void photo_gesture(Gesture g) {
     switch (g) {
     case GESTURE_SWIPE_LEFT: ui_push(&menu_screen); break;
     case GESTURE_SWIPE_RIGHT: ui_push(&notifications_screen); break;
-    case GESTURE_SWIPE_UP: watchface_cycle_next(); break;
+    case GESTURE_SWIPE_UP: ui_push(&smart_stack_screen); break;
     default: break;
     }
 }

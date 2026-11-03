@@ -24,8 +24,22 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
 | ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | ![](docs/screenshots/fall_alert.png) | ![](docs/screenshots/sleep_app.png) |
 | Assistant listening | Assistant answer | Fall detection | Sleep and smart alarm |
-| ![](docs/screenshots/draw_open.png) | ![](docs/screenshots/activity.png) | | |
-| Draw to open | Activity | | |
+| ![](docs/screenshots/draw_open.png) | ![](docs/screenshots/activity.png) | ![](docs/screenshots/smart_stack.png) | ![](docs/screenshots/face_switcher.png) |
+| Draw to open | Activity | Smart Stack | Face switcher |
+| ![](docs/screenshots/menu_list.png) | | | |
+| Apps as a list | | | |
+
+### Getting around
+
+| On the watch face | |
+|---|---|
+| Swipe left | Apps: one honeycomb, bigger in the middle; tap to zoom an app open (Settings > Display > Apps as a list for A-Z) |
+| Swipe up | Smart Stack: a timer running, music playing, the next event, weather, activity, messages, battery |
+| Touch and hold | Face switcher: swipe through the faces, tap to wear one, Edit for its complications |
+| Swipe down, or BOOT | Control Center (the quick panel) |
+| Swipe right | Notifications |
+
+Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
 
 ### In motion
 

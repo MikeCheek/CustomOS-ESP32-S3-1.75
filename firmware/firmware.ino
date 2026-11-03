@@ -27,6 +27,7 @@
 #include "hal_sd.h"
 #include "hal_audio.h"
 #include "hal_buttons.h"
+#include "app_face_nav.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
 #include "hal_vibrate.h"
@@ -756,8 +757,10 @@ void loop() {
 
     if (!was_asleep && !asleep) {
         if (boot_evt == BTN_EVENT_SHORT_PRESS) {
-            // BOOT = back: closes the top panel first if it's down.
+            // BOOT = back: closes the top panel first if it's down. On a
+            // face (nothing to go back to) it opens Control Center.
             if (ui_top_panel_is_open()) ui_top_panel_close();
+            else if (face_nav_is_face(ui_active_screen())) ui_top_panel_open();
             else ui_pop_screen();
         } else if (boot_evt == BTN_EVENT_LONG_PRESS) {
             if (ui_top_panel_is_open()) ui_top_panel_close();

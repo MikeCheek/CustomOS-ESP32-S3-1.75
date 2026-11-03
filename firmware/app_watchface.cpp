@@ -1,3 +1,4 @@
+#include "app_face_nav.h"
 #include "clock_fmt.h"
 #include "app_watchface.h"
 #include "weather_fx.h"
@@ -163,25 +164,6 @@ static void draw_time(Arduino_GFX *g) {
     draw_seconds_arc(g, t.second);
 }
 
-static void draw_battery(Arduino_GFX *g) {
-    int pct = power_get_battery_percent();
-    char buf[32];
-    if (pct >= 0) {
-        snprintf(buf, sizeof(buf), "BAT %d%%", pct);
-    } else {
-        snprintf(buf, sizeof(buf), "BAT --");
-    }
-#if FEATURE_BLE
-    if (ble_is_connected()) {
-        strncat(buf, "  BLE", sizeof(buf) - strlen(buf) - 1);
-    }
-#endif
-    g->setTextSize(2);
-    g->setTextColor(COLOR_TEXT_DIM);
-    int bw = ui_text_width(buf, 2);
-    ui_print((LCD_WIDTH - bw) / 2, LCD_HEIGHT - 55, 2, COLOR_TEXT_DIM, buf);
-}
-
 static void draw_steps(Arduino_GFX *g) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%u steps", imu_get_step_count());
@@ -209,7 +191,7 @@ static void watchface_draw() {
     draw_seconds_arc(g, rtc_now().second);
     draw_eyes(g);
     draw_time(g);
-    draw_battery(g);
+    // (no "BAT 82%  BLE" line: battery lives in the status readout and the slots)
     bool steps_in_slot = false;
     for (int i = 0; i < COMP_SLOTS; i++) steps_in_slot |= comp_slot(i) == COMP_STEPS;
     if (!steps_in_slot) draw_steps(g);
@@ -291,16 +273,7 @@ static void watchface_gesture(Gesture g) {
             ui_push(&menu_screen);
             break;
         case GESTURE_SWIPE_UP:
-            // Cycle to next watchface
-            {
-                int next = watchface_current() + 1;
-                if (watchface_get(next)) {
-                    watchface_set_current(next);
-                    ui_go_home();
-                    const WatchfaceEntry *wf = watchface_get(watchface_current());
-                    if (wf && wf->screen) ui_push(wf->screen);
-                }
-            }
+            ui_push(&smart_stack_screen);   // touch and hold changes the face
             break;
         default:
             break;

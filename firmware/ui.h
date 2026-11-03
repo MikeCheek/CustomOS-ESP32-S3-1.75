@@ -114,6 +114,9 @@ struct Screen {
 
 void ui_init(Arduino_GFX *display);
 void ui_push(Screen *screen);
+// The same without the slide-in (the caller animated it itself, e.g. the
+// app menu's zoom from the icon).
+void ui_push_instant(Screen *screen);
 void ui_pop_screen();
 void ui_go_home();
 void ui_update();
@@ -125,6 +128,7 @@ bool ui_current_screen_suppresses_idle();
 // create/destroy can't tell: being covered also calls on_destroy.)
 bool ui_screen_in_stack(const Screen *screen);
 bool ui_screen_on_top(const Screen *screen);
+Screen *ui_active_screen();   // the screen on top (nullptr: none)
 void ui_handle_touch(int x, int y, bool pressed);
 void ui_tick();
 void ui_poll_gestures();

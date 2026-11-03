@@ -225,6 +225,8 @@ static const char *desc_photo_rotate() {
 static bool get_clock24() { return g_app_settings.clock_24h; }
 static void tap_clock24() { g_app_settings.clock_24h = !g_app_settings.clock_24h; nvs_save_settings(g_app_settings); }
 
+static bool get_menu_list() { return g_app_settings.menu_list; }
+static void tap_menu_list() { g_app_settings.menu_list = !g_app_settings.menu_list; nvs_save_settings(g_app_settings); }
 static SettingsRow ROWS_DISPLAY[] = {
     { "Brightness", "Screen brightness level", ROW_SUBSCREEN, nullptr, nullptr, &settings_brightness_screen, ICON_BRIGHTNESS },
     { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
@@ -232,6 +234,7 @@ static SettingsRow ROWS_DISPLAY[] = {
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
     { "24-hour clock", "Off: 9:05 PM", ROW_TOGGLE, get_clock24, tap_clock24, nullptr, nullptr },
+    { "Apps as a list", "The app menu A-Z instead of the honeycomb", ROW_TOGGLE, get_menu_list, tap_menu_list, nullptr, nullptr },
     { "Photo face", "", ROW_ACTION, nullptr, tap_photo_rotate, nullptr, nullptr, nullptr, nullptr, desc_photo_rotate },
     { "Smooth fonts", "Sharper text with accented letters", ROW_TOGGLE, get_smooth_fonts, tap_smooth_fonts, nullptr, nullptr },
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
@@ -346,10 +349,14 @@ static SettingsRow ROWS_WAKE[] = {
     { "Flick to go back", "Two quick wrist flicks go back a screen", ROW_TOGGLE, get_flick, tap_flick, nullptr, nullptr },
 };
 
+static bool get_dev() { return g_app_settings.developer_mode; }
+static void tap_dev() { g_app_settings.developer_mode = !g_app_settings.developer_mode; nvs_save_settings(g_app_settings); }
+
 static SettingsRow ROWS_SYSTEM[] = {
     { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
     { "Software update", "Check GitHub for new firmware", ROW_SUBSCREEN, nullptr, nullptr, &fwup_screen, nullptr },
     { "Diagnostics", "Version, memory, last crash report", ROW_SUBSCREEN, nullptr, nullptr, &diagnostics_screen, nullptr },
+    { "Developer mode", "Tests and diagnostics in the app menu", ROW_TOGGLE, get_dev, tap_dev, nullptr, nullptr },
 };
 
 extern Screen settings_display_screen, settings_sound_screen, settings_connect_screen, settings_power_screen,

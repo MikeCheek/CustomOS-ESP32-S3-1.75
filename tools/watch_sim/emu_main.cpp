@@ -31,6 +31,7 @@
 #include "app_photo_watchface.h"
 #include "watchface_registry.h"
 #include "sim_state.h"
+#include "app_face_nav.h"
 #include "hal_nvs.h"
 #include "hal_sleep.h"
 #include "dnd.h"
@@ -183,6 +184,7 @@ __attribute__((visibility("default"))) void emu_button(int which, int event) {
     if (s_screen_off) { s_screen_off = false; s_frame_seq++; return; }
     if (event == 1) {
         if (ui_top_panel_is_open()) ui_top_panel_close();
+        else if (face_nav_is_face(ui_active_screen())) ui_top_panel_open();   // as on the watch
         else ui_pop_screen();
     } else if (event == 3) {
         if (ui_top_panel_is_open()) ui_top_panel_close();

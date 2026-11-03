@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "ui.h"
+#include "app_face_nav.h"
 #include "apps.h"
 #include "watchface_registry.h"
 #include "hal_fwupdate.h"
@@ -86,6 +87,20 @@ void sim_scenarios() {
     sleep_register_activity();
     g_app_settings.aod_on = false;
     shot(&menu_screen, "menu");
+    sim_tap(233, 233);                      // the middle app: zooms open
+    sim_run(90);
+    sim_save("menu_launch");
+    g_app_settings.menu_list = true;
+    shot(&menu_screen, "menu_list");
+    g_app_settings.menu_list = false;
+    shot(&smart_stack_screen, "smart_stack");
+    home();
+    ui_handle_touch(233, 300, true);        // touch and hold the face
+    sim_run(900);
+    ui_handle_touch(233, 300, false);
+    sim_run(400);
+    sim_save("face_switcher");
+    home();
     shot(&notifications_screen, "notifications");
     shot(&nowplaying_screen, "music");
     shot(&calendar_screen, "calendar");

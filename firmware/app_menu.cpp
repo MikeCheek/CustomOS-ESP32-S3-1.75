@@ -8,16 +8,19 @@
 #include "hal_touch.h"
 #include <Arduino_GFX_Library.h>
 #include <math.h>
+#include "ui_font.h"
+#include <string.h>
+#include <esp_heap_caps.h>
+#include "app_settings_state.h"
 
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
-static const uint16_t CATEGORY_COLOR[CAT_COUNT] = { COLOR_GOOD, COLOR_ACCENT, COLOR_ACCENT2 };
-static const char *CATEGORY_NAME[CAT_COUNT] = { "Games", "Tools", "Tests" };
 
 struct MenuEntry {
     const char *label;
     MenuCategory category;
     void (*icon_fn)(Arduino_GFX *g, int cx, int cy, float br);
     Screen *screen;
+    bool dev = false;   // only with Settings > System > Developer mode
 };
 
 extern Screen settings_screen;
@@ -423,108 +426,180 @@ static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx - 3, cy - 6, 6, 3, IC(COLOR_TEXT));
 }
 
+// In honeycomb order: the first one sits in the middle, the next six
+// around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
     {"Assistant",     CAT_TOOLS, icon_assistant,     &assistant_screen},
-    {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
-    {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
-    {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
-    {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
-    {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
-    {"Draw",          CAT_TOOLS, icon_draw,          &draw_screen},
-    {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
-    {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
-    {"BLE Status",    CAT_TOOLS, icon_ble,           &ble_status_screen},
-    {"Battery",       CAT_TOOLS, icon_battery,       &battery_screen},
-    {"Joystick Link",  CAT_TOOLS, icon_espnow,        &espnow_status_screen},
-    {"3D Printer",     CAT_TOOLS, icon_bambu,         &bambu_printer_screen},
-    {"Gallery",       CAT_TOOLS, icon_gallery,       &gallery_screen},
     {"Music",         CAT_TOOLS, icon_music,         &music_screen},
-    {"Media",         CAT_TOOLS, icon_media,         &media_screen},
-    {"Contacts",      CAT_TOOLS, icon_contacts,      &contacts_screen},
-    {"Files",         CAT_TOOLS, icon_files,         &files_screen},
+    {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
+    {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
+    {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
-    {"Calibrate",     CAT_TOOLS, icon_calibration,   &calibration_screen},
+    {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
+    {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
+    {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
+    {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
+    {"Gallery",       CAT_TOOLS, icon_gallery,       &gallery_screen},
+    {"Files",         CAT_TOOLS, icon_media,         &media_screen},   // plays, shows and opens what's on the card
+    {"Contacts",      CAT_TOOLS, icon_contacts,      &contacts_screen},
+    {"Draw",          CAT_TOOLS, icon_draw,          &draw_screen},
+    {"Battery",       CAT_TOOLS, icon_battery,       &battery_screen},
     {"Pet",           CAT_TOOLS, icon_pet,           &pet_screen},
-    {"Tests",         CAT_TESTS, icon_tests,         &test_menu_screen},
-    {"Sprite Test",   CAT_TESTS, icon_sprite_test,   &sprite_test_screen},
-    {"Snake",         CAT_GAMES, icon_snake,         &snake_screen},
-    {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
-    {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
-    {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
+    {"3D Printer",    CAT_TOOLS, icon_bambu,         &bambu_printer_screen},
     {"Piano Tiles",   CAT_GAMES, icon_piano,         &piano_screen},
-    {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
-    {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
-    {"Blackjack",     CAT_GAMES, icon_blackjack,     &blackjack_screen},
-    {"Crystal Cavern",CAT_GAMES, icon_cavern,        &cavern_screen},
     {"Flappy",        CAT_GAMES, icon_flappy,        &flappy_screen},
     {"Fruit Slice",   CAT_GAMES, icon_fruitninja,    &fruitninja_screen},
+    {"Snake",         CAT_GAMES, icon_snake,         &snake_screen},
+    {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
     {"Runner",        CAT_GAMES, icon_runner,        &runner_screen},
+    {"Blackjack",     CAT_GAMES, icon_blackjack,     &blackjack_screen},
+    {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
+    {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
+    {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
+    {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
+    {"Crystal Cavern",CAT_GAMES, icon_cavern,        &cavern_screen},
     {"Maze Raider",   CAT_GAMES, icon_maze,          &maze_screen},
     {"Ninja Dungeon", CAT_GAMES, icon_ninjadungeon,  &ninjadungeon_screen},
+    // developer mode
+    {"Tests",         CAT_TESTS, icon_tests,         &test_menu_screen,      true},
+    {"Calibrate",     CAT_TESTS, icon_calibration,   &calibration_screen,    true},
+    {"BLE Status",    CAT_TESTS, icon_ble,           &ble_status_screen,     true},
+    {"Joystick Link", CAT_TESTS, icon_espnow,        &espnow_status_screen,  true},
+    {"SD browser",    CAT_TESTS, icon_files,         &files_screen,          true},
+    {"Sprite Test",   CAT_TESTS, icon_sprite_test,   &sprite_test_screen,    true},
 };
 static const int MENU_COUNT = sizeof(MENU_ENTRIES) / sizeof(MENU_ENTRIES[0]);
 
-// ---- Hex-packed "world" layout, Apple Watch style ------------------------
+// =========================================================================
+//  Icons: drawn once into a small image each, in one style
+// =========================================================================
 //
-// Icons sit at fixed positions in an infinite 2D world; the screen just
-// shows whatever's under a pannable window (s_pan_x/y = world coordinate
-// currently at screen center). Positions are laid out in concentric hex
-// rings around the origin (icon 0 at the center, the next 6 forming a
-// ring around it, the next 12 forming a ring around that, and so on) -
-// the same ring-spiral construction used for hex-grid tile maps, applied
-// here to precisely circle-pack a cluster the way watchOS's app grid
-// does, rather than left to a physics simulation this hardware has no
-// business running for a menu screen.
-#define ICON_RADIUS    62
-#define ICON_SPACING   144 // center-to-center; > 2*ICON_RADIUS leaves a gap
+// Every icon is drawn by its function above into a 128x128 image, then
+// restyled the same way: a disc in the icon's own colour (lighter at the
+// top) with the drawing in white on it - the look of watchOS's app icons,
+// whatever colours each drawing used. The images can then be drawn at any
+// size: smaller toward the edge of the honeycomb, growing when an app
+// opens, small in the list.
+static const int SPR = 128, SPR_R = 62;
+static const uint16_t KEY = 0x0821;              // "nothing here" (outside the disc)
+static uint16_t *s_spr[MENU_COUNT];
 
-// Each category gets its own hex-spiral cluster centered at a
-// distinct offset, rather than one continuous spiral with categories
-// just consecutive within it - genuinely separate "sections" you pan
-// between, not a single blended field. Order matches the MenuCategory
-// enum (CAT_GAMES, CAT_TOOLS, CAT_TESTS). Tools sits at the shared
-// origin (most-used, and where the very first icon naturally lands);
-// Games and Tests are offset far enough apart that even the largest
-// cluster's footprint (currently Games, up to 2 hex rings) doesn't
-// overlap its neighbors.
-// Each category gets its own hex-spiral cluster centered at a
-// distinct offset, rather than one continuous spiral with categories
-// just consecutive within it - genuinely separate "sections" you pan
-// between, not a single blended field. Computed at runtime in
-// menu_create() from each category's ACTUAL item count (not a guessed
-// constant), so the clusters sit exactly as close as they safely can
-// without overlapping, and stay correct if a category grows. Order
-// matches the MenuCategory enum (CAT_GAMES, CAT_TOOLS, CAT_TESTS).
-static float CAT_OFFSET_X[CAT_COUNT];
-static float CAT_OFFSET_Y[CAT_COUNT];
+static void rgb(uint16_t c, int &r, int &g, int &b) { r = (c >> 11) << 3; g = ((c >> 5) & 0x3F) << 2; b = (c & 0x1F) << 3; }
 
-// How many hex rings are needed to hold `count` items - ring 0 holds
-// 1 (the center), each ring k>0 adds 6k more. Used to size each
-// category's actual footprint instead of assuming a worst case.
-static int rings_needed(int count) {
-    if (count <= 1) return 0;
-    int held = 1, ring = 0;
-    while (held < count) {
-        ring++;
-        held += 6 * ring;
+static void make_sprite(int i) {
+    static Arduino_Canvas *canvas = nullptr;
+    if (!canvas) {
+        canvas = new Arduino_Canvas(SPR, SPR, nullptr);
+        if (!canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) { delete canvas; canvas = nullptr; return; }
     }
-    return ring;
+    uint16_t *px = canvas->getFramebuffer();
+    canvas->fillScreen(KEY);
+    canvas->fillCircle(SPR / 2, SPR / 2, SPR_R, COLOR_PANEL);
+    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(canvas, SPR / 2, SPR / 2, 1.0f);
+
+    // The drawing's own colour (its most saturated pixels) becomes the disc's.
+    long sr = 0, sg = 0, sb = 0, sw = 0;
+    for (int k = 0; k < SPR * SPR; k++) {
+        uint16_t c = px[k];
+        if (c == KEY || c == COLOR_PANEL) continue;
+        int r, g, b;
+        rgb(c, r, g, b);
+        int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        int sat = mx - mn;
+        if (sat < 40) continue;   // white / grey parts don't say what colour it is
+        sr += r * sat; sg += g * sat; sb += b * sat; sw += sat;
+    }
+    int tr = 0x6E, tg = 0x5C, tb = 0xE6;   // no colour of its own: the accent violet
+    if (sw > 0) { tr = sr / sw; tg = sg / sw; tb = sb / sw; }
+    // a bit richer and never too dark, so white reads on it
+    int mx = tr > tg ? (tr > tb ? tr : tb) : (tg > tb ? tg : tb);
+    if (mx < 150 && mx > 0) { tr = tr * 150 / mx; tg = tg * 150 / mx; tb = tb * 150 / mx; }
+
+    uint16_t *out = (uint16_t *)heap_caps_malloc(SPR * SPR * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!out) return;
+    for (int y = 0; y < SPR; y++) {
+        // disc: lighter at the top, deeper at the bottom
+        float k = 1.08f - 0.38f * y / SPR;
+        int br = (int)(tr * k), bg = (int)(tg * k), bb = (int)(tb * k);
+        if (br > 255) br = 255;
+        if (bg > 255) bg = 255;
+        if (bb > 255) bb = 255;
+        uint16_t disc = COLOR565(br, bg, bb);
+        for (int x = 0; x < SPR; x++) {
+            uint16_t c = px[y * SPR + x];
+            if (c == KEY) { out[y * SPR + x] = KEY; continue; }
+            if (c == COLOR_PANEL) { out[y * SPR + x] = disc; continue; }
+            int r, g, b;
+            rgb(c, r, g, b);
+            int luma = (r * 3 + g * 6 + b) / 10;
+            // the drawing in white, its darker parts a shade of the disc (keeps detail)
+            float a = luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
+            out[y * SPR + x] = COLOR565((int)(255 * a + br * (1 - a)), (int)(255 * a + bg * (1 - a)),
+                                        (int)(255 * a + bb * (1 - a)));
+        }
+    }
+    s_spr[i] = out;
 }
+
+// Draws icon i with its centre at (cx, cy), r pixels across the middle
+// (nearest-neighbour scaling, straight into the frame).
+static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
+    if (r < 3) return;
+    if (!s_spr[i]) make_sprite(i);
+    const uint16_t *sp = s_spr[i];
+    if (!sp || !fb) return;
+    int d = 2 * r;
+    int x0 = cx - r, y0 = cy - r;
+    // the sprite's disc is SPR_R of SPR/2: map r -> SPR_R
+    float step = (float)SPR_R / r;
+    for (int y = 0; y < d; y++) {
+        int sy = y0 + y;
+        if (sy < 0 || sy >= LCD_HEIGHT) continue;
+        int v = (int)(SPR / 2 + (y - r) * step);
+        if (v < 0 || v >= SPR) continue;
+        const uint16_t *srow = sp + v * SPR;
+        uint16_t *drow = fb + sy * LCD_WIDTH;
+        for (int x = 0; x < d; x++) {
+            int sx = x0 + x;
+            if (sx < 0 || sx >= LCD_WIDTH) continue;
+            int u = (int)(SPR / 2 + (x - r) * step);
+            if (u < 0 || u >= SPR) continue;
+            uint16_t c = srow[u];
+            if (c != KEY) drow[sx] = c;
+        }
+    }
+}
+
+void menu_draw_app_icon(const Screen *screen, int cx, int cy, int r) {
+    for (int i = 0; i < MENU_COUNT; i++)
+        if (MENU_ENTRIES[i].screen == screen) { blit_icon(ui_framebuffer(), i, cx, cy, r); return; }
+}
+
+// =========================================================================
+//  The honeycomb (watchOS style) - and the list
+// =========================================================================
+//
+// One cluster of all the apps (developer ones only in developer mode),
+// packed in hex rings from the middle. Icons are full size near the
+// middle and shrink toward the edge (a fisheye), so a glance shows ~20
+// of them; panning moves the whole field, with momentum and a rubber
+// band at the edge of the cluster. Tapping one zooms it up to fill the
+// screen as the app opens.
+#define ICON_RADIUS    50
+#define ICON_SPACING   112   // centre to centre; > 2*ICON_RADIUS leaves a gap
+static const float FISH_R0 = 105.0f;   // full size inside this
+static const float FISH_FALL = 230.0f; // then this far to shrink to nothing
 
 struct HexCoord { int q, r; };
 
 static void gen_hex_positions(HexCoord *out, int count) {
-    // Standard axial hex neighbor directions, walked in order to trace
-    // each ring (see redblobgames' hex-grid guide for the reference
-    // algorithm this follows).
+    // axial hex directions, walked ring by ring (redblobgames' hex guide)
     static const int dq[6] = { 1, 1, 0, -1, -1, 0 };
     static const int dr[6] = { 0, -1, -1, 0, 1, 1 };
-
     int n = 0;
     if (n < count) { out[n].q = 0; out[n].r = 0; n++; }
-
     for (int radius = 1; n < count; radius++) {
-        int q = -radius, r = radius; // start of this ring: direction[4] * radius
+        int q = -radius, r = radius;
         for (int side = 0; side < 6 && n < count; side++) {
             for (int step = 0; step < radius && n < count; step++) {
                 out[n].q = q;
@@ -537,267 +612,273 @@ static void gen_hex_positions(HexCoord *out, int count) {
     }
 }
 
-static float s_icon_wx[MENU_COUNT];
-static float s_icon_wy[MENU_COUNT];
+static int   s_vis[MENU_COUNT];          // the entries shown, in order
+static int   s_vis_n = 0;
+static float s_icon_wx[MENU_COUNT], s_icon_wy[MENU_COUNT];   // by position in s_vis
+static float s_bound = 0;                // the cluster's radius: the rubber band starts there
 
 static float s_pan_x = 0, s_pan_y = 0;
-static float s_vel_x = 0, s_vel_y = 0; // momentum coast after a flick, decays in menu_tick()
-
+static float s_vel_x = 0, s_vel_y = 0;
 static bool  s_dragging = false;
 static int   s_drag_start_x = 0, s_drag_start_y = 0;
 static float s_drag_start_pan_x = 0, s_drag_start_pan_y = 0;
 static int   s_last_x = 0, s_last_y = 0;
 static bool  s_moved_significantly = false;
-static int   s_nearest_idx = -1; // whichever icon is currently focused - read by controller button-select
-static bool  s_ctrl_btn_prev = false; // edge detection for controller select button, same pattern as touch
+static int   s_nearest_idx = -1;         // position in s_vis
+static bool  s_ctrl_btn_prev = false;
+
+// opening an app: the icon grows from where it was to fill the screen
+static int      s_launch = -1;           // position in s_vis
+static uint32_t s_launch_ms = 0;
+static int      s_launch_x = 0, s_launch_y = 0, s_launch_r = 0;
+static const uint32_t LAUNCH_MS = 200;
+
+// the list (Settings > Display > Apps as a list)
+static int   s_order[MENU_COUNT];        // s_vis positions, A-Z
+static float s_list_y = 0, s_list_vel = 0;
+static const int LIST_ROW = 72, LIST_TOP = 96;
+
+static bool listing() { return g_app_settings.menu_list; }
 
 static void menu_create() {
-    int cat_count[CAT_COUNT] = { 0, 0, 0 };
-    for (int i = 0; i < MENU_COUNT; i++) cat_count[MENU_ENTRIES[i].category]++;
-
-    float cat_radius[CAT_COUNT];
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        cat_radius[cat] = rings_needed(cat_count[cat]) * ICON_SPACING;
-    }
-
-    // Tools anchors the shared origin; Games and Tests sit at two
-    // genuine hex-neighbor directions from it, 120 degrees apart - the
-    // same step geometry gen_hex_positions() uses for icons, just
-    // applied one level up so the GROUPS themselves relate to each
-    // other in a hexagonal pattern too, not just each group's own
-    // internal packing. Each placed exactly as close as its own
-    // footprint plus Tools' footprint safely allows (computed from the
-    // real item counts above, not a guessed distance), with a small
-    // fixed gap on top so the boundary reads as a deliberate seam
-    // rather than icons touching edge-to-edge.
-    const float GAP = ICON_SPACING * 0.15f;
-    CAT_OFFSET_X[CAT_TOOLS] = 0.0f;
-    CAT_OFFSET_Y[CAT_TOOLS] = 0.0f;
-
-    float games_dist = cat_radius[CAT_TOOLS] + cat_radius[CAT_GAMES] + GAP;
-    CAT_OFFSET_X[CAT_GAMES] = games_dist;         // hex direction (1, 0)
-    CAT_OFFSET_Y[CAT_GAMES] = 0.0f;
-
-    float tests_dist = cat_radius[CAT_TOOLS] + cat_radius[CAT_TESTS] + GAP;
-    CAT_OFFSET_X[CAT_TESTS] = tests_dist * -0.5f;       // hex direction (0, -1),
-    CAT_OFFSET_Y[CAT_TESTS] = tests_dist * -0.8660254f; // 120 degrees from Games'
-
-    // Each category gets its own hex-spiral (starting fresh at its own
-    // ring 0), then shifted by that category's offset computed above -
-    // this is what actually makes them separate visual "sections"
-    // rather than just consecutive positions within one shared spiral.
+    s_vis_n = 0;
+    for (int i = 0; i < MENU_COUNT; i++)
+        if (!MENU_ENTRIES[i].dev || g_app_settings.developer_mode) s_vis[s_vis_n++] = i;
     HexCoord coords[MENU_COUNT];
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        int cat_indices[MENU_COUNT];
-        int n = 0;
-        for (int i = 0; i < MENU_COUNT; i++) {
-            if (MENU_ENTRIES[i].category == cat) cat_indices[n++] = i;
-        }
-        if (n == 0) continue;
-
-        gen_hex_positions(coords, n);
-        for (int k = 0; k < n; k++) {
-            int entry_i = cat_indices[k];
-            // Standard axial->pixel conversion for a pointy-top hex
-            // layout - moving along q shifts a full ICON_SPACING;
-            // moving along r shifts half that horizontally and
-            // sqrt(3)/2 of it vertically, which is what makes adjacent
-            // circles touch evenly.
-            s_icon_wx[entry_i] = CAT_OFFSET_X[cat] + ICON_SPACING * ((float)coords[k].q + (float)coords[k].r / 2.0f);
-            s_icon_wy[entry_i] = CAT_OFFSET_Y[cat] + ICON_SPACING * ((float)coords[k].r * 0.8660254f);
-        }
+    gen_hex_positions(coords, s_vis_n);
+    s_bound = 0;
+    for (int k = 0; k < s_vis_n; k++) {
+        // axial -> pixel, pointy-top hexes
+        s_icon_wx[k] = ICON_SPACING * ((float)coords[k].q + (float)coords[k].r / 2.0f);
+        s_icon_wy[k] = ICON_SPACING * ((float)coords[k].r * 0.8660254f);
+        float d = sqrtf(s_icon_wx[k] * s_icon_wx[k] + s_icon_wy[k] * s_icon_wy[k]);
+        if (d > s_bound) s_bound = d;
     }
-
-    s_pan_x = 0;
-    s_pan_y = 0;
-    s_vel_x = 0;
-    s_vel_y = 0;
+    s_bound = s_bound > ICON_SPACING ? s_bound - ICON_SPACING * 0.6f : 0;   // the outer ring may reach the middle
+    // A-Z for the list
+    for (int k = 0; k < s_vis_n; k++) s_order[k] = k;
+    for (int a = 1; a < s_vis_n; a++)
+        for (int b = a; b > 0 && strcasecmp(MENU_ENTRIES[s_vis[s_order[b - 1]]].label, MENU_ENTRIES[s_vis[s_order[b]]].label) > 0; b--) {
+            int t = s_order[b]; s_order[b] = s_order[b - 1]; s_order[b - 1] = t;
+        }
+    s_pan_x = s_pan_y = s_vel_x = s_vel_y = 0;
+    s_list_y = s_list_vel = 0;
     s_dragging = false;
+    s_launch = -1;
+}
+
+// Where position k is drawn: fisheye from the middle. False when off screen.
+static bool place(int k, int &sx, int &sy, int &r) {
+    float ox = s_icon_wx[k] - s_pan_x, oy = s_icon_wy[k] - s_pan_y;
+    float d = sqrtf(ox * ox + oy * oy);
+    float scale = 1.0f, dd = d;
+    if (d > FISH_R0) {
+        scale = 1.0f - (d - FISH_R0) / FISH_FALL;
+        dd = FISH_R0 + (d - FISH_R0) * 0.78f;   // pulled in a little, like watchOS
+    }
+    if (scale < 0.18f) return false;
+    float f = d > 0.5f ? dd / d : 1.0f;
+    sx = LCD_WIDTH / 2 + (int)(ox * f);
+    sy = LCD_HEIGHT / 2 + (int)(oy * f);
+    r = (int)(ICON_RADIUS * scale);
+    int ex = sx - LCD_WIDTH / 2, ey = sy - LCD_HEIGHT / 2;
+    float out = sqrtf((float)ex * ex + (float)ey * ey) - r;
+    return out < LCD_WIDTH / 2;
 }
 
 static int hit_test(int x, int y) {
-    int cx0 = LCD_WIDTH / 2, cy0 = LCD_HEIGHT / 2;
-    for (int i = 0; i < MENU_COUNT; i++) {
-        int sx = cx0 + (int)(s_icon_wx[i] - s_pan_x);
-        int sy = cy0 + (int)(s_icon_wy[i] - s_pan_y);
-        int dx = x - sx, dy = y - sy;
-        if (dx * dx + dy * dy <= ICON_RADIUS * ICON_RADIUS) return i;
+    if (listing()) {
+        int row = (int)((y - LIST_TOP + s_list_y) / LIST_ROW);
+        return row >= 0 && row < s_vis_n ? s_order[row] : -1;
     }
-    return -1;
+    int best = -1, best_d = 1 << 30;
+    for (int k = 0; k < s_vis_n; k++) {
+        int sx, sy, r;
+        if (!place(k, sx, sy, r)) continue;
+        int dx = x - sx, dy = y - sy, d2 = dx * dx + dy * dy;
+        if (d2 <= r * r && d2 < best_d) { best = k; best_d = d2; }
+    }
+    return best;
+}
+
+static void launch(int k, int sx, int sy, int r) {
+    if (k < 0 || !MENU_ENTRIES[s_vis[k]].screen) return;
+    sleep_register_activity();
+    s_launch = k;
+    s_launch_ms = millis();
+    s_launch_x = sx; s_launch_y = sy; s_launch_r = r;
+}
+
+static void draw_list(Arduino_GFX *g, uint16_t *fb) {
+    const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2, R = LCD_WIDTH / 2;
+    for (int n = 0; n < s_vis_n; n++) {
+        int y = LIST_TOP + n * LIST_ROW - (int)s_list_y + LIST_ROW / 2;   // row centre
+        if (y < -LIST_ROW || y > LCD_HEIGHT + LIST_ROW) continue;
+        int dy = y - CY;
+        if (abs(dy) >= R - 20) continue;
+        // follow the round edge, like watchOS's list
+        int half = (int)sqrtf((float)R * R - (float)dy * dy);
+        int ix = CX - half + 58;
+        if (ix < 70) ix = 70;
+        int k = s_order[n];
+        blit_icon(fb, s_vis[k], ix, y, 26);
+        ui_print(ix + 40, y - 9, 2, COLOR_TEXT, MENU_ENTRIES[s_vis[k]].label);
+    }
+}
+
+static void draw_honeycomb(uint16_t *fb) {
+    s_nearest_idx = -1;
+    float nearest = 1e9f;
+    for (int k = 0; k < s_vis_n; k++) {
+        float ox = s_icon_wx[k] - s_pan_x, oy = s_icon_wy[k] - s_pan_y;
+        float d2 = ox * ox + oy * oy;
+        if (d2 < nearest) { nearest = d2; s_nearest_idx = k; }
+        int sx, sy, r;
+        if (!place(k, sx, sy, r)) continue;
+        if (k == s_launch) continue;   // drawn on top, growing
+        blit_icon(fb, s_vis[k], sx, sy, r);
+    }
 }
 
 static void menu_draw() {
     Arduino_GFX *g = ui_gfx();
-    if (!g) return;
+    uint16_t *fb = ui_framebuffer();
+    if (!g || !fb) return;
+    g->fillScreen(COLOR_BG);
+    if (listing()) draw_list(g, fb);
+    else draw_honeycomb(fb);
 
-    int cx0 = LCD_WIDTH / 2, cy0 = LCD_HEIGHT / 2;
-
-    // Find whichever icon is nearest screen center first, so its focus
-    // highlight can be drawn correctly in the same pass as everything
-    // else below (Apple Watch subtly magnifies the centered icon as
-    // you pan - this is that, minus the physics). Stored in the
-    // persistent s_nearest_idx (not just a local) so the controller's
-    // button-select in menu_tick() can act on "whichever icon is
-    // currently focused" without recomputing this same search.
-    s_nearest_idx = -1;
-    float nearest_d2 = 1e9f;
-    for (int i = 0; i < MENU_COUNT; i++) {
-        float sx = s_icon_wx[i] - s_pan_x;
-        float sy = s_icon_wy[i] - s_pan_y;
-        float d2 = sx * sx + sy * sy;
-        if (d2 < nearest_d2) { nearest_d2 = d2; s_nearest_idx = i; }
+    if (s_launch >= 0) {
+        // ease out: fast first, settling
+        float t = (millis() - s_launch_ms) / (float)LAUNCH_MS;
+        if (t > 1) t = 1;
+        float e = 1 - (1 - t) * (1 - t);
+        int cx = s_launch_x + (int)((LCD_WIDTH / 2 - s_launch_x) * e);
+        int cy = s_launch_y + (int)((LCD_HEIGHT / 2 - s_launch_y) * e);
+        int r = s_launch_r + (int)((LCD_WIDTH * 0.75f - s_launch_r) * e);
+        blit_icon(fb, s_vis[s_launch], cx, cy, r);
+        return;
     }
+}
 
-    for (int i = 0; i < MENU_COUNT; i++) {
-        int sx = cx0 + (int)(s_icon_wx[i] - s_pan_x);
-        int sy = cy0 + (int)(s_icon_wy[i] - s_pan_y);
-
-        bool focused = (i == s_nearest_idx);
-        int r = focused ? (ICON_RADIUS + 8) : ICON_RADIUS;
-        float br = focused ? 1.0f : 0.4f; // dimmed until it's the focused (centered) icon
-
-        if (sx + r < 0 || sx - r > LCD_WIDTH || sy + r < 0 || sy - r > LCD_HEIGHT) continue;
-
-        g->fillCircle(sx, sy, r, COLOR_PANEL);
-        uint16_t ring_c = blend565(CATEGORY_COLOR[MENU_ENTRIES[i].category], COLOR_PANEL, br);
-        g->drawCircle(sx, sy, r, ring_c);
-        if (focused) g->drawCircle(sx, sy, r - 1, ring_c);
-
-        if (MENU_ENTRIES[i].icon_fn) {
-            MENU_ENTRIES[i].icon_fn(g, sx, sy, br);
-        }
-    }
-
-    // No per-icon labels (a clean field of icons is the point) - just a
-    // caption for whichever one is currently centered.
-    if (s_nearest_idx >= 0) {
-        ui_draw_centered_text(LCD_HEIGHT - 44, COLOR_TEXT, MENU_ENTRIES[s_nearest_idx].label, 2);
-    }
-
-    // Persistent per-cluster direction indicators - a small arrow at
-    // the display's edge, in that category's own color, for every
-    // OTHER cluster that isn't currently on screen (skipped once
-    // you're close enough to actually see it, so this doesn't clutter
-    // the view with an arrow pointing at something already visible).
-    // Distinct from a single "you're lost, here's the way back"
-    // pointer - this is constant orientation ("games are that way,
-    // tests are that way") regardless of which cluster you're
-    // currently browsing.
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        float ddx = s_pan_x - CAT_OFFSET_X[cat], ddy = s_pan_y - CAT_OFFSET_Y[cat];
-        float dist = sqrtf(ddx * ddx + ddy * ddy);
-        if (dist <= 300.0f) continue; // close enough that this cluster is already in view
-
-        float angle = atan2f(CAT_OFFSET_Y[cat] - s_pan_y, CAT_OFFSET_X[cat] - s_pan_x);
-        float ca = cosf(angle), sa = sinf(angle);
-        uint16_t c = CATEGORY_COLOR[cat];
-        int ptr_r = 195; // inset from the true bezel edge
-        int px = cx0 + (int)(ca * ptr_r), py = cy0 + (int)(sa * ptr_r);
-
-        // Small triangle pointing along `angle`.
-        float perp = angle + (float)M_PI / 2.0f;
-        int tip_x = px + (int)(ca * 14), tip_y = py + (int)(sa * 14);
-        int base1_x = px + (int)(cosf(perp) * 8), base1_y = py + (int)(sinf(perp) * 8);
-        int base2_x = px - (int)(cosf(perp) * 8), base2_y = py - (int)(sinf(perp) * 8);
-        g->fillTriangle(tip_x, tip_y, base1_x, base1_y, base2_x, base2_y, c);
-
-        // Label just inside the arrow, toward screen center so it
-        // stays within a safely readable area rather than right at
-        // the edge - verified against the actual circle geometry at
-        // every angle used here, not eyeballed.
-        int label_x = cx0 + (int)(ca * (ptr_r - 40)), label_y = cy0 + (int)(sa * (ptr_r - 40));
-        ui_draw_centered_text_at(label_x, label_y - 4, c, CATEGORY_NAME[cat], 1);
+// Past the edge: the drag moves a third as far (the rubber band).
+static void band(float &px, float &py) {
+    float d = sqrtf(px * px + py * py);
+    if (d > s_bound && d > 0) {
+        float over = d - s_bound;
+        float nd = s_bound + over * 0.35f;
+        px *= nd / d;
+        py *= nd / d;
     }
 }
 
 static void menu_touch(int x, int y, bool pressed) {
+    if (s_launch >= 0) return;
     if (pressed) {
         if (!s_dragging) {
             s_dragging = true;
             s_drag_start_x = x;
             s_drag_start_y = y;
-            s_drag_start_pan_x = s_pan_x;
-            s_drag_start_pan_y = s_pan_y;
+            s_drag_start_pan_x = listing() ? 0 : s_pan_x;
+            s_drag_start_pan_y = listing() ? s_list_y : s_pan_y;
             s_last_x = x;
             s_last_y = y;
-            // If the world was still coasting from a previous flick,
-            // touching down is catching/stopping it, not tapping an
-            // icon - treat it as already "moved significantly" from
-            // the very start so a quick catch-and-release can never
-            // be misread as a tap and launch whatever happens to be
-            // under the finger at that instant. A genuinely stationary
-            // world still starts this false, same as before.
-            s_moved_significantly = (fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f);
-            s_vel_x = 0;
-            s_vel_y = 0;
+            // catching a coasting field is not a tap
+            s_moved_significantly = fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f || fabsf(s_list_vel) > 0.3f;
+            s_vel_x = s_vel_y = s_list_vel = 0;
         } else {
             int dx = x - s_drag_start_x, dy = y - s_drag_start_y;
-            s_pan_x = s_drag_start_pan_x - dx;
-            s_pan_y = s_drag_start_pan_y - dy;
             if (abs(dx) > 8 || abs(dy) > 8) s_moved_significantly = true;
-            // Per-sample screen delta becomes the coast velocity if this
-            // turns out to be the last sample before release.
-            s_vel_x = -(float)(x - s_last_x);
-            s_vel_y = -(float)(y - s_last_y);
+            if (listing()) {
+                float maxy = (float)(s_vis_n * LIST_ROW - (LCD_HEIGHT - LIST_TOP - 60));
+                if (maxy < 0) maxy = 0;
+                float ny = s_drag_start_pan_y - dy;
+                if (ny < 0) ny *= 0.35f;                               // rubber band
+                else if (ny > maxy) ny = maxy + (ny - maxy) * 0.35f;
+                s_list_y = ny;
+                s_list_vel = -(float)(y - s_last_y);
+            } else {
+                float px = s_drag_start_pan_x - dx, py = s_drag_start_pan_y - dy;
+                band(px, py);
+                s_pan_x = px;
+                s_pan_y = py;
+                s_vel_x = -(float)(x - s_last_x);
+                s_vel_y = -(float)(y - s_last_y);
+            }
             s_last_x = x;
             s_last_y = y;
         }
-    } else {
-        if (s_dragging) {
-            s_dragging = false;
-            if (s_moved_significantly) {
-                // Cancel any swipe-to-exit gesture this drag might also
-                // have triggered, same as the old grid's scroll did -
-                // keep s_vel_x/y as-is so menu_tick() coasts it out.
-                touch_cancel_swipes();
+    } else if (s_dragging) {
+        s_dragging = false;
+        if (s_moved_significantly) {
+            touch_cancel_swipes();   // a pan, not a swipe away
+        } else {
+            s_vel_x = s_vel_y = s_list_vel = 0;
+            int k = hit_test(x, y);
+            if (k < 0) return;
+            if (listing()) {
+                sleep_register_activity();
+                ui_push(MENU_ENTRIES[s_vis[k]].screen);
             } else {
-                s_vel_x = 0;
-                s_vel_y = 0;
-                int idx = hit_test(x, y);
-                if (idx >= 0 && MENU_ENTRIES[idx].screen) {
-                    ui_push(MENU_ENTRIES[idx].screen);
-                }
+                int sx, sy, r;
+                if (place(k, sx, sy, r)) launch(k, sx, sy, r);
             }
         }
     }
 }
 
 static void menu_tick() {
+    if (s_launch >= 0) {
+        if (millis() - s_launch_ms >= LAUNCH_MS) {
+            Screen *to = MENU_ENTRIES[s_vis[s_launch]].screen;
+            s_launch = -1;
+            ui_push_instant(to);   // it zoomed in already: no slide
+        }
+        return;
+    }
     if (s_dragging) return;
+    if (listing()) {
+        float maxy = (float)(s_vis_n * LIST_ROW - (LCD_HEIGHT - LIST_TOP - 60));
+        if (maxy < 0) maxy = 0;
+        if (fabsf(s_list_vel) > 0.3f) { s_list_y += s_list_vel; s_list_vel *= 0.92f; }
+        else s_list_vel = 0;
+        // spring back from past the ends
+        if (s_list_y < 0) { s_list_y *= 0.7f; s_list_vel *= 0.5f; if (s_list_y > -0.5f) s_list_y = 0; }
+        if (s_list_y > maxy) { s_list_y = maxy + (s_list_y - maxy) * 0.7f; s_list_vel *= 0.5f; if (s_list_y - maxy < 0.5f) s_list_y = maxy; }
+        return;
+    }
     if (fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f) {
         s_pan_x += s_vel_x;
         s_pan_y += s_vel_y;
-        s_vel_x *= 0.90f; // friction - coasts to a stop over ~20-30 frames
+        s_vel_x *= 0.90f;
         s_vel_y *= 0.90f;
     } else {
-        s_vel_x = 0;
-        s_vel_y = 0;
+        s_vel_x = s_vel_y = 0;
+    }
+    // spring back inside the cluster
+    float d = sqrtf(s_pan_x * s_pan_x + s_pan_y * s_pan_y);
+    if (d > s_bound && d > 0) {
+        float nd = s_bound + (d - s_bound) * 0.72f;
+        if (nd - s_bound < 0.5f) nd = s_bound;
+        s_pan_x *= nd / d;
+        s_pan_y *= nd / d;
+        s_vel_x *= 0.6f;
+        s_vel_y *= 0.6f;
     }
 
-    // Controller d-pad pans the world the same way a drag would;
-    // button A selects whichever icon is currently focused (centered),
-    // the same action a tap on it triggers. Only active once a
-    // controller packet has actually arrived, so a watch with no
-    // controller connected behaves exactly as before.
+    // a game controller pans and picks, as a finger would
     if (controller_connected()) {
         float cdx, cdy;
         controller_get_direction(&cdx, &cdy);
         if (cdx != 0.0f || cdy != 0.0f) {
-            const float CTRL_PAN_SPEED = 6.0f;
-            s_pan_x += cdx * CTRL_PAN_SPEED;
-            s_pan_y += cdy * CTRL_PAN_SPEED;
-            // Real input (not just "a controller happens to be
-            // connected") - counts as activity the same way touch
-            // does, so idle_frame_ms throttling (see ui.cpp) doesn't
-            // kick in and make panning choppy while actively steering
-            // via a physical or phone-app joystick with no touch
-            // involved at all.
+            s_pan_x += cdx * 6.0f;
+            s_pan_y += cdy * 6.0f;
             sleep_register_activity();
         }
         bool btn = controller_button(CTRL_BTN_A);
-        if (btn && !s_ctrl_btn_prev && s_nearest_idx >= 0 && MENU_ENTRIES[s_nearest_idx].screen) {
-            sleep_register_activity();
-            ui_push(MENU_ENTRIES[s_nearest_idx].screen);
+        if (btn && !s_ctrl_btn_prev && s_nearest_idx >= 0) {
+            int sx, sy, r;
+            if (place(s_nearest_idx, sx, sy, r)) launch(s_nearest_idx, sx, sy, r);
         }
         s_ctrl_btn_prev = btn;
     }
@@ -810,8 +891,7 @@ static void menu_gesture(Gesture g) {
 }
 
 Screen menu_screen = {
-    "", // no header chrome - an edge swipe (GESTURE_MODE_EDGE) still exits,
-        // same as watchOS's app grid has no title bar either
+    "", // no header - watchOS's app grid has none either; an edge swipe still leaves
     GESTURE_MODE_EDGE,
     UI_FRAME_MS_DEFAULT,
     menu_create,
@@ -820,8 +900,7 @@ Screen menu_screen = {
     menu_tick,
     nullptr,
     menu_gesture,
-    150, // idle_frame_ms - once idle 2s+ (no touch, no active controller
-         // input), drop from 30fps to ~6-7fps; the icon field is static
-         // between pans so nothing looks different, it's just redrawn
-         // (and flushed to the display) far less often
+    150,   // idle: the field is still between pans
+    false, false, false, false,
+    true,  // hide_status: the honeycomb uses the whole round screen
 };

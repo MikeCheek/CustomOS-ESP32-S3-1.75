@@ -63,6 +63,8 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putBool("clk24", s.clock_24h);
     s_prefs.putString("pf_cur", s.photo_face);
     s_prefs.putUChar("pf_rot", s.photo_rotate);
+    s_prefs.putBool("dev_mode", s.developer_mode);
+    s_prefs.putBool("menu_list", s.menu_list);
     s_prefs.putBool("vw_on", s.voice_wake);
     s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
     s_prefs.putBool("v_clean", s.voice_clean);
@@ -141,6 +143,8 @@ bool nvs_load_settings(AppSettings &s) {
     s_prefs.getString("pf_cur", s.photo_face, sizeof(s.photo_face));
     s.photo_rotate = s_prefs.getUChar("pf_rot", 0);
     if (s.photo_rotate > 2) s.photo_rotate = 0;
+    s.developer_mode = s_prefs.getBool("dev_mode", false);
+    s.menu_list = s_prefs.getBool("menu_list", false);
     s.voice_wake = s_prefs.getBool("vw_on", false);
     s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
     s.voice_clean = s_prefs.getBool("v_clean", true);

@@ -1,0 +1,505 @@
+// The Smart Stack and the face switcher - see app_face_nav.h.
+#include "app_face_nav.h"
+#include "config.h"
+#include "board_pins.h"
+#include "ui_font.h"
+#include "watchface_registry.h"
+#include "app_menu.h"
+#include "app_assistant.h"
+#include "app_calendar.h"
+#include "app_navigation.h"
+#include "app_notifications.h"
+#include "complications.h"
+#include "clock_fmt.h"
+#include "phone_link.h"
+#include "hal_power.h"
+#include "hal_imu.h"
+#include "hal_audio.h"
+#include "hal_sleep.h"
+#include "hal_touch.h"
+#include <Arduino_GFX_Library.h>
+#include <esp_heap_caps.h>
+#include <math.h>
+#include <string.h>
+
+extern Screen assistant_screen;
+extern Screen nowplaying_screen;
+extern Screen music_screen;
+extern Screen calendar_screen;
+extern Screen activity_screen;
+extern Screen notifications_screen;
+extern Screen battery_screen;
+extern Screen settings_comp_screen;
+extern Screen photo_watchface_screen;
+
+bool face_nav_is_face(const Screen *s) {
+    if (!s) return false;
+    for (int i = 0; i < watchface_count(); i++) {
+        const WatchfaceEntry *e = watchface_get(i);
+        if (e && e->screen == s) return true;
+    }
+    return false;
+}
+
+// Text cut to fit w pixels, with "..." (whole UTF-8 letters).
+static void fit_text(char *out, int n, const char *in, int size, int w) {
+    strlcpy(out, in ? in : "", n);
+    if (ui_text_width(out, size) <= w) return;
+    int len = strlen(out);
+    while (len > 1) {
+        out[--len] = 0;
+        while (len > 0 && (out[len - 1] & 0xC0) == 0x80) out[--len] = 0;
+        char t[96];
+        snprintf(t, sizeof(t), "%s...", out);
+        if (ui_text_width(t, size) <= w) { strlcpy(out, t, n); return; }
+    }
+}
+
+// =========================================================================
+//  The Smart Stack
+// =========================================================================
+
+enum CardKind { CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_BATTERY };
+struct Card {
+    CardKind kind;
+    Screen *open;          // tapping the card opens this (nullptr: nothing)
+    uint16_t color;
+    char title[24];
+    char main[64];
+    char sub[64];
+    float progress;        // < 0: no bar
+};
+
+static Card s_cards[8];
+static int  s_card_n = 0;
+static float s_scroll = 0, s_scroll_vel = 0;
+static bool  s_st_drag = false, s_st_moved = false;
+static int   s_st_y0 = 0, s_st_last_y = 0;
+static float s_st_scroll0 = 0;
+static uint32_t s_st_built = 0;
+static const int CARD_H = 124, CARD_STEP = 138, CARD_W = 372;
+
+static Card &add(CardKind k, Screen *open, uint16_t color, const char *title) {
+    Card &c = s_cards[s_card_n++];
+    memset(&c, 0, sizeof(c));
+    c.kind = k;
+    c.open = open;
+    c.color = color;
+    c.progress = -1;
+    strlcpy(c.title, title, sizeof(c.title));
+    return c;
+}
+
+// What matters now first: things running, then soon, then the usual.
+static void build_cards() {
+    s_card_n = 0;
+    s_st_built = millis();
+    uint32_t now = calendar_now();
+    CalEvent ev;
+    bool has_ev = calendar_next(ev);
+    bool ev_soon = has_ev && !ev.all_day && ev.start <= now + 3600;
+
+    if (assistant_timer_active()) {
+        uint32_t left = assistant_timer_left_s();
+        Card &c = add(CARD_TIMER, &assistant_screen, COLOR_WARN, "TIMER");
+        snprintf(c.main, sizeof(c.main), "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
+        snprintf(c.sub, sizeof(c.sub), "left");
+    }
+    if (navigation_active()) {
+        Card &c = add(CARD_NAV, &navigation_screen, COLOR_GOOD, "DIRECTIONS");
+        const char *d = navigation_distance();
+        snprintf(c.main, sizeof(c.main), "%s", d[0] ? d : "On route");
+        snprintf(c.sub, sizeof(c.sub), "to the next turn");
+    }
+    const PhoneMedia &m = phone_link_media();
+    if (m.valid && m.playing) {
+        Card &c = add(CARD_MUSIC, &nowplaying_screen, COLOR_ACCENT3, "NOW PLAYING");
+        strlcpy(c.main, m.title, sizeof(c.main));
+        strlcpy(c.sub, m.artist, sizeof(c.sub));
+        if (m.duration_s > 0) c.progress = (float)phone_link_media_position() / m.duration_s;
+    } else if (audio_is_playing()) {
+        Card &c = add(CARD_MUSIC, &music_screen, COLOR_ACCENT3, "NOW PLAYING");
+        snprintf(c.main, sizeof(c.main), "On the watch");
+        snprintf(c.sub, sizeof(c.sub), "Music");
+    }
+    auto event_card = [&]() {
+        Card &c = add(CARD_EVENT, &calendar_screen, ev.color ? ev.color : COLOR_ACCENT2, "UP NEXT");
+        strlcpy(c.main, ev.title, sizeof(c.main));
+        if (ev.all_day) snprintf(c.sub, sizeof(c.sub), "All day");
+        else if (ev.start <= now) snprintf(c.sub, sizeof(c.sub), "Now%s%s", ev.location[0] ? " - " : "", ev.location);
+        else {
+            char hm[16];
+            uint32_t sod = ev.start % 86400;
+            clock_hm_text(hm, sizeof(hm), sod / 3600, sod % 3600 / 60);
+            uint32_t in = ev.start - now;
+            if (in < 3600) snprintf(c.sub, sizeof(c.sub), "%s, in %lu min", hm, (unsigned long)(in / 60 + 1));
+            else snprintf(c.sub, sizeof(c.sub), "%s%s%s", hm, ev.location[0] ? " - " : "", ev.location);
+        }
+    };
+    if (ev_soon) event_card();
+    int t;
+    char cond[32];
+    if (comp_weather_now(t, cond, sizeof(cond))) {
+        Card &c = add(CARD_WEATHER, nullptr, COLOR_ACCENT2, "WEATHER");
+        snprintf(c.main, sizeof(c.main), "%d\xC2\xB0" "C", t);
+        strlcpy(c.sub, cond, sizeof(c.sub));
+    }
+    {
+        uint32_t st = imu_get_step_count(), goal = comp_step_goal();
+        Card &c = add(CARD_ACTIVITY, &activity_screen, COLOR_GOOD, "ACTIVITY");
+        snprintf(c.main, sizeof(c.main), "%lu steps", (unsigned long)st);
+        if (st >= goal) snprintf(c.sub, sizeof(c.sub), "Goal reached");
+        else snprintf(c.sub, sizeof(c.sub), "%lu to go", (unsigned long)(goal - st));
+        c.progress = goal ? (float)st / goal : 0;
+    }
+    int n = notifications_history_count();
+    if (n > 0) {
+        Card &c = add(CARD_NOTIFS, &notifications_screen, COLOR_BAD, "NOTIFICATIONS");
+        snprintf(c.main, sizeof(c.main), "%d %s", n, n == 1 ? "message" : "messages");
+        snprintf(c.sub, sizeof(c.sub), "Tap to read");
+    }
+    if (has_ev && !ev_soon) event_card();
+    {
+        int p = power_get_battery_percent();
+        Card &c = add(CARD_BATTERY, &battery_screen, p >= 0 && p <= 20 ? COLOR_BAD : COLOR_GOOD, "BATTERY");
+        if (p < 0) snprintf(c.main, sizeof(c.main), "--");
+        else snprintf(c.main, sizeof(c.main), "%d%%", p);
+        int pp = phone_link_battery();
+        if (power_is_charging()) snprintf(c.sub, sizeof(c.sub), "Charging");
+        else if (pp >= 0) snprintf(c.sub, sizeof(c.sub), "Phone %d%%", pp);
+        else snprintf(c.sub, sizeof(c.sub), "Watch");
+        c.progress = p < 0 ? -1 : p / 100.0f;
+    }
+}
+
+static void stack_create() {
+    build_cards();
+    s_scroll = s_scroll_vel = 0;
+    s_st_drag = false;
+}
+
+static int card_y(int i) { return 92 + i * CARD_STEP - (int)s_scroll; }   // top of card i
+
+static void draw_card_icon(const Card &c, int cx, int cy) {
+    if (c.open) { menu_draw_app_icon(c.kind == CARD_MUSIC ? &music_screen : c.open, cx, cy, 24); return; }
+    // weather: a sun on a disc, like the app icons
+    Arduino_GFX *g = ui_gfx();
+    g->fillCircle(cx, cy, 24, COLOR_ACCENT2);
+    g->fillCircle(cx, cy, 9, COLOR_WARN);
+    for (int a = 0; a < 8; a++) {
+        float r = a * 0.785398f;
+        g->drawLine(cx + (int)(13 * cosf(r)), cy + (int)(13 * sinf(r)), cx + (int)(17 * cosf(r)), cy + (int)(17 * sinf(r)),
+                    COLOR_WARN);
+    }
+}
+
+static void stack_draw() {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    if (millis() - s_st_built > 1000 && !s_st_drag) build_cards();   // live: timer, steps, song
+    g->fillScreen(COLOR_BG);
+    const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2, R = LCD_WIDTH / 2;
+    for (int i = 0; i < s_card_n; i++) {
+        int y = card_y(i);
+        if (y > LCD_HEIGHT || y + CARD_H < 0) continue;
+        const Card &c = s_cards[i];
+        // narrower where the round screen is: the widest that fits this row
+        int dy = abs(y + CARD_H / 2 - CY) + CARD_H / 2;
+        int w = CARD_W;
+        if (dy < R) {
+            int chord = 2 * (int)sqrtf((float)R * R - (float)dy * dy) - 24;
+            if (chord < w) w = chord;
+        } else {
+            w = 200;
+        }
+        if (w < 200) w = 200;
+        int x = CX - w / 2;
+        g->fillRoundRect(x, y, w, CARD_H, 30, 0x18E3);
+        draw_card_icon(c, x + 44, y + 40);
+        ui_print(x + 80, y + 20, 1, c.color, c.title);
+        char t[80];
+        fit_text(t, sizeof(t), c.main, 2, w - 104);
+        ui_print(x + 80, y + 40, 2, COLOR_TEXT, t);
+        fit_text(t, sizeof(t), c.sub, 1, w - 104);
+        ui_print(x + 80, y + 78, 1, COLOR_TEXT_DIM, t);
+        if (c.progress >= 0) {
+            int bw = w - 104, bx = x + 80, by = y + CARD_H - 18;
+            float p = c.progress > 1 ? 1 : c.progress;
+            g->fillRoundRect(bx, by, bw, 6, 3, COLOR_PANEL);
+            if (p > 0.01f) g->fillRoundRect(bx, by, (int)(bw * p) < 6 ? 6 : (int)(bw * p), 6, 3, c.color);
+        }
+    }
+}
+
+static float stack_max() { return s_card_n > 1 ? (float)(s_card_n - 1) * CARD_STEP - 120 : 0; }
+
+static void stack_touch(int x, int y, bool pressed) {
+    if (pressed) {
+        if (!s_st_drag) {
+            s_st_drag = true;
+            s_st_moved = fabsf(s_scroll_vel) > 0.5f;
+            s_scroll_vel = 0;
+            s_st_y0 = s_st_last_y = y;
+            s_st_scroll0 = s_scroll;
+            return;
+        }
+        if (abs(y - s_st_y0) > 8) s_st_moved = true;
+        float ns = s_st_scroll0 - (y - s_st_y0);
+        float mx = stack_max() < 0 ? 0 : stack_max();
+        if (ns < 0) ns *= 0.4f;   // rubber band
+        else if (ns > mx) ns = mx + (ns - mx) * 0.4f;
+        s_scroll = ns;
+        s_scroll_vel = -(float)(y - s_st_last_y);
+        s_st_last_y = y;
+        return;
+    }
+    if (!s_st_drag) return;
+    s_st_drag = false;
+    if (s_st_moved) {
+        touch_cancel_swipes();
+        if (s_scroll < -70) { s_scroll_vel = 0; ui_pop_screen(); }   // pulled down past the top: back to the face
+        return;
+    }
+    for (int i = 0; i < s_card_n; i++) {
+        int cy = card_y(i);
+        if (y >= cy && y < cy + CARD_H && s_cards[i].open) {
+            sleep_register_activity();
+            ui_push(s_cards[i].open);
+            return;
+        }
+    }
+}
+
+static void stack_tick() {
+    if (s_st_drag) return;
+    float mx = stack_max() < 0 ? 0 : stack_max();
+    if (fabsf(s_scroll_vel) > 0.4f) { s_scroll += s_scroll_vel; s_scroll_vel *= 0.9f; }
+    else s_scroll_vel = 0;
+    if (s_scroll < 0) { s_scroll *= 0.7f; s_scroll_vel *= 0.5f; if (s_scroll > -0.5f) s_scroll = 0; }
+    if (s_scroll > mx) { s_scroll = mx + (s_scroll - mx) * 0.7f; s_scroll_vel *= 0.5f; if (s_scroll - mx < 0.5f) s_scroll = mx; }
+}
+
+static void stack_gesture(Gesture g) {
+    if (g == GESTURE_SWIPE_DOWN && s_scroll <= 1) ui_pop_screen();
+}
+
+Screen smart_stack_screen = {
+    "", GESTURE_MODE_EDGE, UI_FRAME_MS_DEFAULT,
+    stack_create, stack_draw, stack_touch, stack_tick, nullptr, stack_gesture,
+    250,
+};
+
+// =========================================================================
+//  The face switcher
+// =========================================================================
+//
+// Each face as a 256 px preview (a still of it, drawn once), the one worn
+// in the middle and its neighbours peeking in at the sides.
+static const int PV = 256, PV_GAP = 290;
+static uint16_t *s_pv[16];
+static int   s_sel = 0;           // the face in the middle
+static float s_pos = 0;           // shown position (follows s_sel, or the finger)
+static bool  s_sw_drag = false, s_sw_moved = false;
+static int   s_sw_x0 = 0;
+static float s_sw_pos0 = 0;
+static uint32_t s_sw_open_ms = 0;
+
+static void downscale_into(uint16_t *dst, const uint16_t *fb) {
+    for (int y = 0; y < PV; y++) {
+        int sy = y * LCD_HEIGHT / PV;
+        for (int x = 0; x < PV; x++) {
+            int dx = x - PV / 2, dy = y - PV / 2;
+            dst[y * PV + x] = dx * dx + dy * dy <= (PV / 2) * (PV / 2) ? fb[sy * LCD_WIDTH + x * LCD_WIDTH / PV] : 0;
+        }
+    }
+}
+
+static uint16_t *pv_buf(int i) {
+    if (i < 0 || i >= 16) return nullptr;
+    if (!s_pv[i]) s_pv[i] = (uint16_t *)heap_caps_malloc(PV * PV * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return s_pv[i];
+}
+
+static bool s_pv_ok[16];
+
+// Draws face i into the frame (it's cleared after) and keeps a small copy.
+static void render_preview(int i) {
+    const WatchfaceEntry *e = watchface_get(i);
+    uint16_t *b = pv_buf(i);
+    uint16_t *fb = ui_framebuffer();
+    if (!e || !e->screen || !b || !fb) return;
+    Screen *s = e->screen;
+    bool live = ui_screen_in_stack(s);   // already set up underneath: don't create or destroy it
+    if (!live && s->on_create) s->on_create();
+    ui_gfx()->fillScreen(COLOR_BG);
+    if (s->on_draw) s->on_draw();
+    if (!live && s->on_destroy) s->on_destroy();
+    downscale_into(b, fb);
+    s_pv_ok[i] = true;
+}
+
+static void blit_preview(uint16_t *fb, const uint16_t *pv, int cx, int cy) {
+    for (int y = 0; y < PV; y++) {
+        int sy = cy - PV / 2 + y;
+        if (sy < 0 || sy >= LCD_HEIGHT) continue;
+        for (int x = 0; x < PV; x++) {
+            int sx = cx - PV / 2 + x;
+            if (sx < 0 || sx >= LCD_WIDTH) continue;
+            int dx = x - PV / 2, dy = y - PV / 2;
+            if (dx * dx + dy * dy > (PV / 2) * (PV / 2)) continue;
+            fb[sy * LCD_WIDTH + sx] = pv[y * PV + x];
+        }
+    }
+}
+
+static bool editable(int i) {
+    const WatchfaceEntry *e = watchface_get(i);
+    return e && e->screen != &photo_watchface_screen;   // photos are set up in the phone app
+}
+
+static void switch_create() {
+    s_sel = watchface_current();
+    s_pos = (float)s_sel;
+    s_sw_drag = false;
+    s_sw_open_ms = millis();
+    // the face being worn was captured as the press opened this (face_nav_poll)
+    for (int i = 0; i < 16; i++)
+        if (i != s_sel) s_pv_ok[i] = false;
+}
+
+static void switch_draw() {
+    Arduino_GFX *g = ui_gfx();
+    uint16_t *fb = ui_framebuffer();
+    if (!g || !fb) return;
+    int n = watchface_count();
+    // the previews in view that aren't drawn yet
+    for (int i = (int)floorf(s_pos) - 1; i <= (int)ceilf(s_pos) + 1; i++)
+        if (i >= 0 && i < n && i < 16 && !s_pv_ok[i]) render_preview(i);
+
+    g->fillScreen(COLOR_BG);
+    // opening: the face shrinks from full screen to its preview (drawn as a ring
+    // closing in, since the still is small)
+    float t = (millis() - s_sw_open_ms) / 180.0f;
+    if (t > 1) t = 1;
+    const int CX = LCD_WIDTH / 2, CY = 206;
+    for (int i = 0; i < n && i < 16; i++) {
+        float off = (i - s_pos) * PV_GAP;
+        if (fabsf(off) > LCD_WIDTH) continue;
+        int cx = CX + (int)off;
+        if (s_pv_ok[i]) blit_preview(fb, s_pv[i], cx, CY);
+        if (i == s_sel && !s_sw_drag) {
+            int rr = PV / 2 + 4 + (int)((1 - t) * 90);
+            ui_arc(cx, CY, rr + 3, 3, 0, 360, COLOR_TEXT_DIM, false);
+        }
+    }
+    const WatchfaceEntry *e = watchface_get((int)lroundf(s_pos));
+    if (e) ui_draw_centered_text(CY + PV / 2 + 18, COLOR_TEXT, e->name, 2);
+    int near = (int)lroundf(s_pos);
+    if (editable(near)) {
+        int bw = 120, bh = 40, bx = CX - bw / 2, by = CY + PV / 2 + 56;
+        g->fillRoundRect(bx, by, bw, bh, 20, 0x3186);
+        ui_text_center(CX, by + bh / 2, COLOR_TEXT, "Edit", 2);
+    }
+    // dots: which of how many
+    int dw = n * 14;
+    for (int i = 0; i < n; i++)
+        g->fillCircle(CX - dw / 2 + 7 + i * 14, 28 + 12, 3, i == near ? COLOR_TEXT : COLOR_TEXT_DIM);
+}
+
+static void wear(int i) {
+    const WatchfaceEntry *e = watchface_get(i);
+    if (!e) return;
+    watchface_set_current(i);
+    ui_go_home();
+    if (e->screen && !ui_screen_on_top(e->screen)) ui_push_instant(e->screen);
+}
+
+static void switch_touch(int x, int y, bool pressed) {
+    int n = watchface_count();
+    if (pressed) {
+        if (!s_sw_drag) { s_sw_drag = true; s_sw_moved = false; s_sw_x0 = x; s_sw_pos0 = s_pos; return; }
+        if (abs(x - s_sw_x0) > 10) s_sw_moved = true;
+        float p = s_sw_pos0 - (float)(x - s_sw_x0) / PV_GAP;
+        if (p < 0) p *= 0.35f;
+        if (p > n - 1) p = (n - 1) + (p - (n - 1)) * 0.35f;
+        s_pos = p;
+        return;
+    }
+    if (!s_sw_drag) return;
+    s_sw_drag = false;
+    if (s_sw_moved) {
+        touch_cancel_swipes();
+        int to = (int)lroundf(s_pos + (s_pos - s_sw_pos0) * 0.4f);   // a flick goes on to the next
+        if (to < 0) to = 0;
+        if (to > n - 1) to = n - 1;
+        s_sel = to;
+        return;
+    }
+    const int CX = LCD_WIDTH / 2, CY = 206;
+    int by = CY + PV / 2 + 56;
+    if (editable(s_sel) && y >= by - 6 && y <= by + 46 && abs(x - CX) < 70) {
+        watchface_set_current(s_sel);
+        wear(s_sel);
+        ui_push(&settings_comp_screen);
+        return;
+    }
+    int dx = x - CX, dy = y - CY;
+    if (dx * dx + dy * dy <= (PV / 2) * (PV / 2)) wear(s_sel);
+}
+
+static void switch_tick() {
+    if (s_sw_drag) return;
+    float d = s_sel - s_pos;
+    s_pos += fabsf(d) < 0.01f ? d : d * 0.3f;
+}
+
+static void switch_gesture(Gesture) {}
+
+Screen face_switch_screen = {
+    nullptr, GESTURE_MODE_FREE, UI_FRAME_MS_DEFAULT,
+    switch_create, switch_draw, switch_touch, switch_tick, nullptr, switch_gesture,
+    250,
+    false, false, false,
+    true,   // no_drag_back: sideways drags page the faces
+    true,   // hide_status
+};
+
+// =========================================================================
+//  Touch and hold on a face
+// =========================================================================
+static Screen  *s_hold_face = nullptr;
+static int      s_hold_x = 0, s_hold_y = 0;
+static uint32_t s_hold_ms = 0;
+static const uint32_t HOLD_MS = 600;
+
+void face_nav_touch(Screen *face, int x, int y, bool pressed) {
+    if (!pressed) { s_hold_face = nullptr; return; }
+    if (!s_hold_face) {
+        s_hold_face = face;
+        s_hold_x = x;
+        s_hold_y = y;
+        s_hold_ms = millis();
+        return;
+    }
+    int dx = x - s_hold_x, dy = y - s_hold_y;
+    if (dx * dx + dy * dy > 16 * 16) s_hold_face = (Screen *)1;   // moved: a swipe or a drag, not a hold
+}
+
+void face_nav_poll() {
+    if (!s_hold_face || s_hold_face == (Screen *)1) return;
+    if (millis() - s_hold_ms < HOLD_MS) return;
+    Screen *face = s_hold_face;
+    s_hold_face = nullptr;
+    if (!ui_screen_on_top(face)) return;
+    // the face lets go (eyes, the pet) as if the finger had lifted
+    if (face->on_touch) face->on_touch(s_hold_x, s_hold_y, false);
+    touch_cancel_swipes();
+    int cur = watchface_current();
+    uint16_t *b = pv_buf(cur);
+    if (b && ui_framebuffer()) {
+        downscale_into(b, ui_framebuffer());   // the face as it is now
+        s_pv_ok[cur] = true;
+    }
+    sleep_register_activity();
+    ui_push_instant(&face_switch_screen);
+}

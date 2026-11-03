@@ -4,6 +4,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
+#include "app_face_nav.h"
 #include "ui_font.h"
 #include "apps.h"
 #include "app_menu.h"
@@ -320,7 +321,7 @@ static void custom_wf_gesture(Gesture g) {
             ui_push(&notifications_screen);
             break;
         case GESTURE_SWIPE_UP:
-            watchface_cycle_next();
+            ui_push(&smart_stack_screen);
             break;
         default:
             break;

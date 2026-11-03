@@ -94,6 +94,8 @@ struct AppSettings {
     bool clock_24h = true;                   // clock_fmt.h - off: 9:05 PM
     char photo_face[24] = "";                // the Photo face's current photo, "" = the first
     uint8_t photo_rotate = 0;                // Photo face: 0 tap only, 1 every hour, 2 every day
+    bool developer_mode = false;             // the app menu also shows tests and diagnostics
+    bool menu_list = false;                  // the app menu as an A-Z list instead of the honeycomb
 
     // ---- Voice (voice_sr.cpp) --------------------------------------------------
     bool voice_wake = false;                 // listen for the wake word (more battery)
