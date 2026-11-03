@@ -13,6 +13,8 @@ int emu_init(const char *);
 void emu_step();
 uint32_t emu_frame_seq();
 void emu_frame_rgba(uint8_t *);
+int emu_width();
+int emu_height();
 void emu_touch(int, int, int);
 void emu_button(int, int);
 void emu_set_connected(int);
@@ -105,5 +107,26 @@ int main(int argc, char **argv) {
     while ((n = emu_link_pop(buf, sizeof(buf))) > 0) { printf("watch -> app: %s\n", buf); asked |= strstr(buf, "\"ask\"") != nullptr; }
     snprintf(p, sizeof(p), "%s/emu_ask.ppm", out); save(p);
     if (!rec || !asked) { printf("FAIL: no recording (%d) or no ask (%d)\n", rec, asked); return 1; }
+
+    // The photo face (make_test_photoface.py wrote <out>/sd/faces/photo.pwf):
+    // the red disc (the subject) in front of the white time, the time around it.
+    emu_set_option("photoface", 1);
+    run(1200);
+    snprintf(p, sizeof(p), "%s/emu_photo.ppm", out); save(p);
+    {
+        int w = emu_width(), h = emu_height();
+        static uint8_t f[466 * 466 * 4];
+        emu_frame_rgba(f);
+        const uint8_t *c = f + (200 * w + 233) * 4;
+        bool subject_front = c[0] > 240 && c[1] < 16 && c[2] < 16;
+        int white = 0;
+        for (int y = 150; y < 250 && y < h; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *q = f + (y * w + x) * 4;
+                if (q[0] > 245 && q[1] > 245 && q[2] > 245) white++;
+            }
+        printf("photo face: subject in front %d, time pixels %d\n", subject_front, white);
+        if (!subject_front || white < 300) { printf("FAIL: photo face\n"); return 1; }
+    }
     return emu_frame_seq() > 0 ? 0 : 1;
 }

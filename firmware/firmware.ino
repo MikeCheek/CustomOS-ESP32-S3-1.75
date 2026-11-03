@@ -40,6 +40,7 @@
 #include "ui.h"
 #include "app_watchface.h"
 #include "app_custom_watchface.h"
+#include "app_photo_watchface.h"
 #include "watchface_registry.h"
 #include "app_settings_state.h"
 #include "app_notifications.h"
@@ -139,6 +140,42 @@ static void check_file_transfer() {
         }
 #endif
         ble_consume_file();
+        return;
+    }
+
+    // A photo watch face from the app (photo, subject mask, digits):
+    // "pf:photo.pwf" into /faces/, then it's the watch face.
+    bool photo_face = !strncmp(ble_file_name(), "pf:", 3);
+    if (st == BLE_FILE_PENDING && photo_face) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && photo_face) {
+        int len = ble_file_bytes_received();
+        bool ok = false;
+#if FEATURE_SD_CARD
+        if (sd_is_mounted() && !usb_msc_host_active() && len > 40 && !strcmp(ble_file_name() + 3, "photo.pwf")) {
+            SD.mkdir("/faces");
+            SD.remove("/faces/photo.pwf");
+            File f = SD.open("/faces/photo.pwf", FILE_WRITE);
+            if (f) {
+                ok = f.write(ble_file_data(), len) == (size_t)len;
+                f.close();
+                if (!ok) SD.remove("/faces/photo.pwf");
+            }
+        }
+#endif
+        ble_consume_file();
+        photo_face_reload();
+        if (ok && photo_face_available()) {
+            for (int i = 0; i < watchface_count(); i++)
+                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+            ui_go_home();
+            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
+            ui_show_toast("New photo watch face", 2000);
+        } else {
+            ui_show_toast("Couldn't save the photo face", 2000);
+        }
         return;
     }
 

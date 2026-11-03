@@ -28,6 +28,8 @@
 #include "app_fall.h"
 #include "app_activity.h"
 #include "app_sleep.h"
+#include "app_photo_watchface.h"
+#include "watchface_registry.h"
 #include "sim_state.h"
 #include "hal_nvs.h"
 #include "dnd.h"
@@ -256,10 +258,21 @@ __attribute__((visibility("default"))) void emu_set_playing(int on) { sim_set_pl
 __attribute__((visibility("default"))) void emu_set_mic_level(int pct) { sim_set_mic_level(pct); }
 
 // A few settings by name, for tests and tools ("fall", "sleep"): 1 on, 0 off.
+// "photoface": a new photo face file is on the SD card.
 __attribute__((visibility("default"))) void emu_set_option(const char *name, int on) {
     if (!name) return;
     if (!strcmp(name, "fall")) g_app_settings.fall_detect = on != 0;
     else if (!strcmp(name, "sleep")) g_app_settings.sleep_track = on != 0;
+    else if (!strcmp(name, "photoface")) {
+        // The app wrote <sd>/faces/photo.pwf ("pf:photo.pwf"): show it, like the watch does.
+        photo_face_reload();
+        if (on && photo_face_available()) {
+            for (int i = 0; i < watchface_count(); i++)
+                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+            ui_go_home();
+            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
+        }
+    }
 }
 
 }  // extern "C"

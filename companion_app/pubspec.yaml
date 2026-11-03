@@ -32,6 +32,8 @@ dependencies:
   ffi: ^2.1.0
   # Look: a photo from the camera or the gallery
   image_picker: ^1.1.2
+  # Photo face: the photo's subject in front of the time (Android)
+  google_mlkit_subject_segmentation: ^0.2.1
 
 dev_dependencies:
   flutter_test:

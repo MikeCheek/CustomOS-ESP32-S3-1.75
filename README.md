@@ -40,6 +40,10 @@ Built on Arduino + Arduino_GFX, no LVGL.
 
 - **Faces** - Default, Minimal and custom faces designed in the app; complication slots for steps, next event,
   weather, battery, phone battery, messages, next turn, memo to-dos and seconds. A little pet lives on the face.
+- **Photo face with depth** - pick a photo in the app (Photo face): the phone finds its subject (Google ML
+  Kit subject segmentation, on the phone) and the watch draws the time behind it, so a person, pet or building
+  stands in front of the clock. Framing, time position, size, weight and colour in the app; the photo, the
+  subject mask and the digits go to the SD card as one file (`firmware/app_photo_watchface.h`)
 - **Smooth UI** - slide transitions, edge-swipe back, kinetic lists, a pull-down quick panel (brightness,
   volume, radios, DND, torch, battery modes), smooth fonts with accents, auto-rotate.
 - **3D effects** - software-rendered on the watch: a particle power-on sequence, lock/unlock that tilt the real

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "app_watchface.h"
 #include "app_custom_watchface.h"
+#include "app_photo_watchface.h"
 #include "ui.h"
 
 #if FEATURE_NVS
@@ -15,6 +16,7 @@ static const WatchfaceEntry s_registry[] = {
     { "Eyes",     &watchface_screen,         app_watchface_tick },
     { "Minimal",  &watchface_minimal_screen, nullptr },
     { "Custom",   &custom_watchface_screen,  nullptr },
+    { "Photo",    &photo_watchface_screen,   nullptr },   // from the app, with depth
 };
 static const int s_count = sizeof(s_registry) / sizeof(s_registry[0]);
 

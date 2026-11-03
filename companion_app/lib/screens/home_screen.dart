@@ -25,6 +25,7 @@ import 'messages_screen.dart';
 import 'emulator_screen.dart';
 import 'look_screen.dart';
 import 'sound_alerts_screen.dart';
+import 'photo_face_screen.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
@@ -96,85 +97,94 @@ class HomeScreen extends ConsumerWidget {
                   const SectionLabel('Phone link'),
                   _LinkGroup(connected: ble.isConnected),
                   const SectionLabel('More'),
-                  RowGroup(children: [
-                    NavRow(
-                      icon: Icons.graphic_eq_rounded,
-                      color: AppColors.accent3,
-                      title: 'Voice memos',
-                      subtitle: 'Recordings, transcripts and summaries',
-                      onTap: () => TabSwitcher.open(context, 1),
-                    ),
-                    NavRow(
-                      icon: Icons.contacts_outlined,
-                      color: AppColors.accent2,
-                      title: 'Contacts',
-                      subtitle: 'Choose who is on the watch',
-                      onTap: ble.isConnected ? () => _push(context, const ContactsScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.wifi_rounded,
-                      color: AppColors.success,
-                      title: 'Watch Wi-Fi',
-                      subtitle: 'Set up and check the watch\'s network',
-                      onTap: ble.isConnected ? () => _push(context, const WatchWifiScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.folder_outlined,
-                      color: AppColors.warning,
-                      title: 'Send files',
-                      subtitle: 'Saved to the watch SD card',
-                      onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.mic_rounded,
-                      color: AppColors.accent,
-                      title: 'Assistant',
-                      subtitle: 'Ask out loud - the same as on the watch',
-                      onTap: () => _push(context, const AssistantScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.visibility_outlined,
-                      color: AppColors.success,
-                      title: 'Look',
-                      subtitle: 'What is it? Read or translate text from a photo',
-                      onTap: () => _push(context, const LookScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.hearing_rounded,
-                      color: AppColors.warning,
-                      title: 'Sound alerts',
-                      subtitle: 'Doorbell, smoke alarm, baby crying - on your watch',
-                      onTap: () => _push(context, const SoundAlertsScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.forum_outlined,
-                      color: AppColors.accent2,
-                      title: 'Messages',
-                      subtitle: 'Catch me up, translate, smart replies',
-                      onTap: () => _push(context, const MessagesScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.watch_outlined,
-                      color: AppColors.accent3,
-                      title: 'Watch emulator',
-                      subtitle: 'The watch\'s firmware, running on this phone',
-                      onTap: () => _push(context, const EmulatorScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.piano,
-                      color: AppColors.accent,
-                      title: 'Piano Tiles songs',
-                      subtitle: 'Hum a tune or pick a MIDI file',
-                      onTap: () => _push(context, const PianoSongScreen()),
-                    ),
-                    NavRow(
-                      icon: Icons.sports_esports_outlined,
-                      color: AppColors.accent3,
-                      title: 'Game controller',
-                      subtitle: 'Use the phone as a gamepad',
-                      onTap: ble.isConnected ? () => _push(context, const ControllerScreen()) : null,
-                    ),
-                  ]),
+                  RowGroup(
+                    children: [
+                      NavRow(
+                        icon: Icons.graphic_eq_rounded,
+                        color: AppColors.accent3,
+                        title: 'Voice memos',
+                        subtitle: 'Recordings, transcripts and summaries',
+                        onTap: () => TabSwitcher.open(context, 1),
+                      ),
+                      NavRow(
+                        icon: Icons.contacts_outlined,
+                        color: AppColors.accent2,
+                        title: 'Contacts',
+                        subtitle: 'Choose who is on the watch',
+                        onTap: ble.isConnected ? () => _push(context, const ContactsScreen()) : null,
+                      ),
+                      NavRow(
+                        icon: Icons.wifi_rounded,
+                        color: AppColors.success,
+                        title: 'Watch Wi-Fi',
+                        subtitle: 'Set up and check the watch\'s network',
+                        onTap: ble.isConnected ? () => _push(context, const WatchWifiScreen()) : null,
+                      ),
+                      NavRow(
+                        icon: Icons.folder_outlined,
+                        color: AppColors.warning,
+                        title: 'Send files',
+                        subtitle: 'Saved to the watch SD card',
+                        onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
+                      ),
+                      NavRow(
+                        icon: Icons.mic_rounded,
+                        color: AppColors.accent,
+                        title: 'Assistant',
+                        subtitle: 'Ask out loud - the same as on the watch',
+                        onTap: () => _push(context, const AssistantScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.visibility_outlined,
+                        color: AppColors.success,
+                        title: 'Look',
+                        subtitle: 'What is it? Read or translate text from a photo',
+                        onTap: () => _push(context, const LookScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.hearing_rounded,
+                        color: AppColors.warning,
+                        title: 'Sound alerts',
+                        subtitle: 'Doorbell, smoke alarm, baby crying - on your watch',
+                        onTap: () => _push(context, const SoundAlertsScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.forum_outlined,
+                        color: AppColors.accent2,
+                        title: 'Messages',
+                        subtitle: 'Catch me up, translate, smart replies',
+                        onTap: () => _push(context, const MessagesScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.portrait_rounded,
+                        color: AppColors.accent,
+                        title: 'Photo face',
+                        subtitle: 'Your photo as the watch face, the time behind its subject',
+                        onTap: () => _push(context, const PhotoFaceScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.watch_outlined,
+                        color: AppColors.accent3,
+                        title: 'Watch emulator',
+                        subtitle: 'The watch\'s firmware, running on this phone',
+                        onTap: () => _push(context, const EmulatorScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.piano,
+                        color: AppColors.accent,
+                        title: 'Piano Tiles songs',
+                        subtitle: 'Hum a tune or pick a MIDI file',
+                        onTap: () => _push(context, const PianoSongScreen()),
+                      ),
+                      NavRow(
+                        icon: Icons.sports_esports_outlined,
+                        color: AppColors.accent3,
+                        title: 'Game controller',
+                        subtitle: 'Use the phone as a gamepad',
+                        onTap: ble.isConnected ? () => _push(context, const ControllerScreen()) : null,
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -185,8 +195,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-void _push(BuildContext context, Widget page) =>
-    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+void _push(BuildContext context, Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page));
 
 String _greeting() {
   final h = DateTime.now().hour;
@@ -212,8 +221,15 @@ class _Header extends ConsumerWidget {
               children: [
                 Text(_greeting(), style: const TextStyle(color: AppColors.textDim, fontSize: 14)),
                 const SizedBox(height: 2),
-                const Text('AmoledWatch',
-                    style: TextStyle(color: AppColors.text, fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.6)),
+                const Text(
+                  'AmoledWatch',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.6,
+                  ),
+                ),
               ],
             ),
           ),
@@ -275,8 +291,7 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
     final match = results.where((r) {
       final n = r.advertisementData.advName.toLowerCase();
       return n.contains('amoled') || n.contains('watch');
-    }).toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    }).toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
     if (!mounted) return;
     if (match.isEmpty) {
       setState(() => _searching = false);
@@ -332,15 +347,20 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(time,
-                      style: TextStyle(
-                        color: connected ? AppColors.text : AppColors.textFaint,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
+                  Text(
+                    time,
+                    style: TextStyle(
+                      color: connected ? AppColors.text : AppColors.textFaint,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
                   if (connected && bat >= 0)
-                    Text('$bat%', style: TextStyle(color: batteryColor(bat), fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      '$bat%',
+                      style: TextStyle(color: batteryColor(bat), fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
                 ],
               ),
             ),
@@ -350,10 +370,12 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 19, fontWeight: FontWeight.w700)),
+                Text(
+                  ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 19, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 StatusPill(status, color: statusColor),
                 const SizedBox(height: 14),
@@ -361,15 +383,21 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
                   FilledButton.icon(
                     onPressed: _searching ? null : _quickConnect,
                     icon: _searching
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
                         : const Icon(Icons.bluetooth_searching_rounded, size: 18),
                     label: Text(_searching ? 'Searching' : 'Connect'),
                   )
                 else if (connected && link.watchCharging)
                   const Text('Charging', style: TextStyle(color: AppColors.success, fontSize: 13))
                 else if (!connected)
-                  const Text('Will connect when the watch is in range',
-                      style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+                  const Text(
+                    'Will connect when the watch is in range',
+                    style: TextStyle(color: AppColors.textDim, fontSize: 13),
+                  ),
               ],
             ),
           ),
@@ -444,7 +472,10 @@ class _QuickButton extends StatelessWidget {
           children: [
             Icon(icon, color: highlight ? AppColors.danger : AppColors.text, size: 24),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.w500)),
+            Text(
+              label,
+              style: const TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.w500),
+            ),
           ],
         ),
       ),
@@ -539,12 +570,19 @@ class _NowPlayingCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(link.mediaTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(
+                  link.mediaTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 2),
-                Text(link.mediaArtist.isEmpty ? 'Also on your watch' : link.mediaArtist,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+                Text(
+                  link.mediaArtist.isEmpty ? 'Also on your watch' : link.mediaArtist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -577,59 +615,61 @@ class _LinkGroup extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
     final link = ref.watch(companionProvider);
-    return RowGroup(children: [
-      NavRow(
-        icon: Icons.notifications_active_outlined,
-        color: AppColors.accent,
-        title: 'Notifications & calls',
-        subtitle: s.forwardNotifications
-            ? (link.forwardedToday > 0 ? '${link.forwardedToday} sent to the watch today' : 'Forwarding to the watch')
-            : 'Off - tap to set up',
-        onTap: () => _push(context, const NotificationsScreen()),
-      ),
-      NavRow(
-        icon: Icons.music_note_outlined,
-        color: AppColors.accent3,
-        title: 'Music controls',
-        subtitle: s.mediaToWatch ? 'Control phone music from the watch' : 'Off',
-        onTap: () => _push(context, const MediaScreen()),
-      ),
-      NavRow(
-        icon: Icons.wb_cloudy_outlined,
-        color: AppColors.warning,
-        title: 'Weather',
-        subtitle: link.weather != null
-            ? '${link.weather!.condition} · updated ${_ago(link.weather!.fetchedAt)}'
-            : (s.weatherAuto ? 'Automatic, from your location' : 'Manual'),
-        onTap: () => _push(context, const WeatherScreen()),
-      ),
-      NavRow(
-        icon: Icons.calendar_month_rounded,
-        color: AppColors.accent2,
-        title: 'Calendar',
-        subtitle: !link.calendarAllowed
-            ? 'Agenda and reminders on the watch - tap to set up'
-            : link.nextEvent != null
-                ? 'Next: ${link.nextEvent!.title}'
-                : 'Nothing in the next two days',
-        onTap: () => _push(context, const CalendarScreen()),
-      ),
-      ToggleRow(
-        icon: Icons.navigation_rounded,
-        color: AppColors.success,
-        title: 'Navigation',
-        subtitle: 'Google Maps directions on the watch',
-        value: s.navigationToWatch,
-        onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(navigationToWatch: v)),
-      ),
-      NavRow(
-        icon: Icons.directions_run_rounded,
-        color: AppColors.success,
-        title: 'Activity',
-        subtitle: 'Steps counted by the watch',
-        onTap: () => _push(context, const ActivityScreen()),
-      ),
-    ]);
+    return RowGroup(
+      children: [
+        NavRow(
+          icon: Icons.notifications_active_outlined,
+          color: AppColors.accent,
+          title: 'Notifications & calls',
+          subtitle: s.forwardNotifications
+              ? (link.forwardedToday > 0 ? '${link.forwardedToday} sent to the watch today' : 'Forwarding to the watch')
+              : 'Off - tap to set up',
+          onTap: () => _push(context, const NotificationsScreen()),
+        ),
+        NavRow(
+          icon: Icons.music_note_outlined,
+          color: AppColors.accent3,
+          title: 'Music controls',
+          subtitle: s.mediaToWatch ? 'Control phone music from the watch' : 'Off',
+          onTap: () => _push(context, const MediaScreen()),
+        ),
+        NavRow(
+          icon: Icons.wb_cloudy_outlined,
+          color: AppColors.warning,
+          title: 'Weather',
+          subtitle: link.weather != null
+              ? '${link.weather!.condition} · updated ${_ago(link.weather!.fetchedAt)}'
+              : (s.weatherAuto ? 'Automatic, from your location' : 'Manual'),
+          onTap: () => _push(context, const WeatherScreen()),
+        ),
+        NavRow(
+          icon: Icons.calendar_month_rounded,
+          color: AppColors.accent2,
+          title: 'Calendar',
+          subtitle: !link.calendarAllowed
+              ? 'Agenda and reminders on the watch - tap to set up'
+              : link.nextEvent != null
+              ? 'Next: ${link.nextEvent!.title}'
+              : 'Nothing in the next two days',
+          onTap: () => _push(context, const CalendarScreen()),
+        ),
+        ToggleRow(
+          icon: Icons.navigation_rounded,
+          color: AppColors.success,
+          title: 'Navigation',
+          subtitle: 'Google Maps directions on the watch',
+          value: s.navigationToWatch,
+          onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(navigationToWatch: v)),
+        ),
+        NavRow(
+          icon: Icons.directions_run_rounded,
+          color: AppColors.success,
+          title: 'Activity',
+          subtitle: 'Steps counted by the watch',
+          onTap: () => _push(context, const ActivityScreen()),
+        ),
+      ],
+    );
   }
 }
 
@@ -663,21 +703,29 @@ class _Banner extends StatelessWidget {
       onTap: onTap,
       color: color.withValues(alpha: 0.08),
       padding: const EdgeInsets.all(14),
-      child: Row(children: [
-        IconChip(icon, color: color),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
-          ]),
-        ),
-        if (busy)
-          const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-        else if (onTap != null)
-          const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
-      ]),
+      child: Row(
+        children: [
+          IconChip(icon, color: color),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+              ],
+            ),
+          ),
+          if (busy)
+            const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          else if (onTap != null)
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
+        ],
+      ),
     );
   }
 }
@@ -697,21 +745,24 @@ class _MemoBrief extends ConsumerWidget {
     if (kb.isEmpty) return const SizedBox.shrink();
 
     final now = DateTime.now();
-    final urgent = kb.entries
-        .where((e) => e.importance >= 4 && e.summary.isNotEmpty &&
-            (e.recordedAt == null || now.difference(e.recordedAt!).inDays <= 14))
-        .toList()
-      ..sort((a, b) {
-        final c = b.importance.compareTo(a.importance);
-        return c != 0 ? c : (b.recordedAt ?? DateTime(2000)).compareTo(a.recordedAt ?? DateTime(2000));
-      });
+    final urgent =
+        kb.entries
+            .where(
+              (e) =>
+                  e.importance >= 4 &&
+                  e.summary.isNotEmpty &&
+                  (e.recordedAt == null || now.difference(e.recordedAt!).inDays <= 14),
+            )
+            .toList()
+          ..sort((a, b) {
+            final c = b.importance.compareTo(a.importance);
+            return c != 0 ? c : (b.recordedAt ?? DateTime(2000)).compareTo(a.recordedAt ?? DateTime(2000));
+          });
     final todos = kb.actions().where((a) => !done.contains(a.key)).toList();
     final pending = notes.recordings
         .where((r) => r.transcript.isEmpty && !r.noSpeech && !r.name.toLowerCase().endsWith('.mp3'))
         .length;
-    final today = kb.entries
-        .where((e) => e.recordedAt != null && DateUtils.isSameDay(e.recordedAt, now))
-        .length;
+    final today = kb.entries.where((e) => e.recordedAt != null && DateUtils.isSameDay(e.recordedAt, now)).length;
     if (urgent.isEmpty && todos.isEmpty && pending == 0 && today == 0 && !notes.pipelineRunning) {
       return const SizedBox.shrink();
     }
@@ -719,71 +770,77 @@ class _MemoBrief extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionLabel('Memos',
-            trailing: IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Search & ask your memos',
-              icon: const Icon(Icons.search_rounded, size: 20, color: AppColors.textDim),
-              onPressed: () => _push(context, const MemoSearchScreen()),
-            )),
-        Row(children: [
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.priority_high_rounded,
-              color: AppColors.danger,
-              value: '${urgent.length}',
-              label: 'urgent',
-              onTap: urgent.isEmpty
-                  ? null
-                  : () => _push(context, MemoListScreen(title: 'Urgent memos', items: urgent)),
-            ),
+        SectionLabel(
+          'Memos',
+          trailing: IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Search & ask your memos',
+            icon: const Icon(Icons.search_rounded, size: 20, color: AppColors.textDim),
+            onPressed: () => _push(context, const MemoSearchScreen()),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.task_alt_rounded,
-              color: AppColors.success,
-              value: '${todos.length}',
-              label: 'to-dos',
-              onTap: () => _push(context, const ActionsScreen()),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.priority_high_rounded,
+                color: AppColors.danger,
+                value: '${urgent.length}',
+                label: 'urgent',
+                onTap: urgent.isEmpty
+                    ? null
+                    : () => _push(context, MemoListScreen(title: 'Urgent memos', items: urgent)),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.mic_rounded,
-              color: AppColors.accent2,
-              value: '$today',
-              label: 'today',
-              onTap: () => TabSwitcher.open(context, 1),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.task_alt_rounded,
+                color: AppColors.success,
+                value: '${todos.length}',
+                label: 'to-dos',
+                onTap: () => _push(context, const ActionsScreen()),
+              ),
             ),
-          ),
-        ]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.mic_rounded,
+                color: AppColors.accent2,
+                value: '$today',
+                label: 'today',
+                onTap: () => TabSwitcher.open(context, 1),
+              ),
+            ),
+          ],
+        ),
         if (notes.pipelineRunning || pending > 0) ...[
           const SizedBox(height: 10),
           Panel(
             padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-            child: Row(children: [
-              notes.pipelineRunning
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.bolt_rounded, color: AppColors.accent),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  notes.pipelineRunning
-                      ? notes.pipelineStage
-                      : '$pending memo${pending == 1 ? '' : 's'} not transcribed yet',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.text, fontSize: 14),
+            child: Row(
+              children: [
+                notes.pipelineRunning
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.bolt_rounded, color: AppColors.accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    notes.pipelineRunning
+                        ? notes.pipelineStage
+                        : '$pending memo${pending == 1 ? '' : 's'} not transcribed yet',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.text, fontSize: 14),
+                  ),
                 ),
-              ),
-              if (!notes.pipelineRunning)
-                TextButton(
-                  onPressed: notes.processingTranscript ? null : () => ref.read(notesProvider.notifier).runPipeline(),
-                  child: const Text('Process'),
-                ),
-            ]),
+                if (!notes.pipelineRunning)
+                  TextButton(
+                    onPressed: notes.processingTranscript ? null : () => ref.read(notesProvider.notifier).runPipeline(),
+                    child: const Text('Process'),
+                  ),
+              ],
+            ),
           ),
         ],
         if (urgent.isNotEmpty) ...[
@@ -797,11 +854,17 @@ class _MemoBrief extends ConsumerWidget {
                   color: importanceColor(e.importance).withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(e.importance >= 5 ? 'Critical' : 'High',
-                    style: TextStyle(color: importanceColor(e.importance), fontSize: 11, fontWeight: FontWeight.w700)),
+                child: Text(
+                  e.importance >= 5 ? 'Critical' : 'High',
+                  style: TextStyle(color: importanceColor(e.importance), fontSize: 11, fontWeight: FontWeight.w700),
+                ),
               ),
-              below: Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35)),
+              below: Text(
+                e.summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+              ),
             ),
         ],
         if (todos.isNotEmpty) ...[
@@ -813,7 +876,10 @@ class _MemoBrief extends ConsumerWidget {
               children: [
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
-                  child: Text('To-do', style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    'To-do',
+                    style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
                 ),
                 for (final a in todos.take(4)) ActionRow(a),
                 if (todos.length > 4)
@@ -842,18 +908,30 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Panel(
-        onTap: onTap,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        child: Row(children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(value, style: const TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w700)),
-              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textDim, fontSize: 11)),
-            ]),
+    onTap: onTap,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    child: Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 11),
+              ),
+            ],
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }

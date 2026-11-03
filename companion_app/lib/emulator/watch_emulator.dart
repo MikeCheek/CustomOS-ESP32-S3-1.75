@@ -10,26 +10,36 @@ import '../services/ble_service.dart';
 /// app run; see tools/watch_sim/emu_main.cpp for what each call does.
 class WatchEmulator implements VirtualWatch {
   WatchEmulator._(this._lib)
-      : _init = _lib.lookupFunction<Int32 Function(Pointer<Utf8>), int Function(Pointer<Utf8>)>('emu_init'),
-        _step = _lib.lookupFunction<Void Function(), void Function()>('emu_step'),
-        _seq = _lib.lookupFunction<Uint32 Function(), int Function()>('emu_frame_seq'),
-        _frame = _lib.lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>('emu_frame_rgba'),
-        _touch = _lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('emu_touch'),
-        _button = _lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('emu_button'),
-        _connected = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_connected'),
-        _push = _lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('emu_link_push'),
-        _pop = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>('emu_link_pop'),
-        _data = _lib.lookupFunction<Void Function(Int32, Pointer<Utf8>), void Function(int, Pointer<Utf8>)>('emu_set_data'),
-        _accel = _lib.lookupFunction<Void Function(Float, Float, Float), void Function(double, double, double)>(
-            'emu_set_accel'),
-        _sounds = _lib.lookupFunction<Int32 Function(Pointer<Int32>, Int32), int Function(Pointer<Int32>, int)>(
-            'emu_take_sounds'),
-        _event = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>(
-            'emu_take_event'),
-        _playing = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_playing'),
-        _micLevel = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_mic_level'),
-        width = _lib.lookupFunction<Int32 Function(), int Function()>('emu_width')(),
-        height = _lib.lookupFunction<Int32 Function(), int Function()>('emu_height')();
+    : _init = _lib.lookupFunction<Int32 Function(Pointer<Utf8>), int Function(Pointer<Utf8>)>('emu_init'),
+      _step = _lib.lookupFunction<Void Function(), void Function()>('emu_step'),
+      _seq = _lib.lookupFunction<Uint32 Function(), int Function()>('emu_frame_seq'),
+      _frame = _lib.lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>('emu_frame_rgba'),
+      _touch = _lib.lookupFunction<Void Function(Int32, Int32, Int32), void Function(int, int, int)>('emu_touch'),
+      _button = _lib.lookupFunction<Void Function(Int32, Int32), void Function(int, int)>('emu_button'),
+      _connected = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_connected'),
+      _push = _lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('emu_link_push'),
+      _pop = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>(
+        'emu_link_pop',
+      ),
+      _data = _lib.lookupFunction<Void Function(Int32, Pointer<Utf8>), void Function(int, Pointer<Utf8>)>(
+        'emu_set_data',
+      ),
+      _accel = _lib.lookupFunction<Void Function(Float, Float, Float), void Function(double, double, double)>(
+        'emu_set_accel',
+      ),
+      _sounds = _lib.lookupFunction<Int32 Function(Pointer<Int32>, Int32), int Function(Pointer<Int32>, int)>(
+        'emu_take_sounds',
+      ),
+      _event = _lib.lookupFunction<Int32 Function(Pointer<Utf8>, Int32), int Function(Pointer<Utf8>, int)>(
+        'emu_take_event',
+      ),
+      _playing = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_playing'),
+      _micLevel = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_mic_level'),
+      _option = _lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>(
+        'emu_set_option',
+      ),
+      width = _lib.lookupFunction<Int32 Function(), int Function()>('emu_width')(),
+      height = _lib.lookupFunction<Int32 Function(), int Function()>('emu_height')();
 
   static WatchEmulator? _instance;
 
@@ -61,6 +71,7 @@ class WatchEmulator implements VirtualWatch {
   final int Function(Pointer<Utf8>, int) _event;
   final void Function(int) _playing;
   final void Function(int) _micLevel;
+  final void Function(Pointer<Utf8>, int) _option;
 
   /// Its SD card: a folder in the app's storage (set by start()).
   String sdRoot = '';
@@ -144,6 +155,15 @@ class WatchEmulator implements VirtualWatch {
 
   void setMicLevel(int pct) => _micLevel(pct.clamp(0, 100));
 
+  void _setOption(String name, int on) {
+    final n = name.toNativeUtf8();
+    try {
+      _option(n, on);
+    } finally {
+      malloc.free(n);
+    }
+  }
+
   /// While the phone records for the watch: readRecording() waits for it.
   set recordingDone(Future<void> f) => _recordingDone = f;
 
@@ -171,6 +191,8 @@ class WatchEmulator implements VirtualWatch {
       rel = 'piano/${name.substring(3).split('/').last}';
     } else if (name.startsWith('say:')) {
       rel = 'Recordings/_say.wav';
+    } else if (name.startsWith('pf:')) {
+      rel = 'faces/photo.pwf'; // the photo watch face: shown once it's written
     } else if (name.startsWith('wn:')) {
       return; // wake word models: ESP-SR isn't in the emulator
     } else {
@@ -180,6 +202,7 @@ class WatchEmulator implements VirtualWatch {
     await f.parent.create(recursive: true);
     await f.writeAsBytes(data);
     if (name.startsWith('say:')) onSay?.call(f.path);
+    if (name.startsWith('pf:')) _setOption('photoface', 1);
   }
 
   List<Map<String, dynamic>> _drain(int Function(Pointer<Utf8>, int) take) {
@@ -207,5 +230,4 @@ class WatchEmulator implements VirtualWatch {
 
   /// What the watch sent to its phone since the last call.
   List<Map<String, dynamic>> takeMessages() => _drain(_pop);
-
 }

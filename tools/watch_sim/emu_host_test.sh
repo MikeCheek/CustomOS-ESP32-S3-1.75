@@ -25,6 +25,8 @@ for f in sim_stubs emu_main; do "$CXX" "${FLAGS[@]}" -c "$HERE/$f.cpp" -o "$B/$f
 for p in "${pids[@]}"; do wait "$p"; done
 "$CXX" -shared -Wl,--no-undefined "$B"/*.o -o "$B/libwatchemu.so"
 "$CXX" -std=c++17 "$HERE/emu_host_test.cpp" -L"$B" -lwatchemu -Wl,-rpath,"$B" -o "$B/emu_test"
+mkdir -p "$OUT/sd/faces"
+python3 "$HERE/make_test_photoface.py" "$OUT/sd/faces/photo.pwf"
 "$B/emu_test" "$OUT"
 python3 - "$OUT" <<'PY'
 import sys, glob
