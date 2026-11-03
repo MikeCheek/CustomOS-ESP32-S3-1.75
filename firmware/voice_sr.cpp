@@ -163,6 +163,12 @@ static esp_afe_sr_data_t *s_afe = nullptr;
 static int16_t *s_feed_buf = nullptr;
 static int s_feed_n = 0, s_feed_ch = 0;
 static TaskHandle_t s_ctl_task = nullptr, s_feed_task = nullptr;
+// Core 0, priority 1: loop() and all drawing are on core 1 and must not
+// wait for WakeNet; on core 0 the radios and the display sender (priority
+// 2) still go first. It only needs to keep up with the microphone - the
+// I2S DMA buffers hold the rest.
+static const int WAKE_CORE = 0;
+static const int WAKE_PRIO = 1;
 
 static bool engine_load() {
     // The engine's own allocations are mostly PSRAM, but some must be
@@ -184,8 +190,8 @@ static bool engine_load() {
     cfg->wakenet_model_name = strdup(models->model_name[idx]);   // its own copy: afe_config_free() may free it
     cfg->wakenet_model_name_2 = nullptr;
     cfg->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
-    cfg->afe_perferred_core = 1;
-    cfg->afe_perferred_priority = 4;
+    cfg->afe_perferred_core = WAKE_CORE;     // its own separation task
+    cfg->afe_perferred_priority = WAKE_PRIO;
     cfg = afe_config_check(cfg);
     if (!cfg) return false;
     s_ifc = esp_afe_handle_from_config(cfg);
@@ -286,8 +292,8 @@ static bool start_tasks() {
     StackType_t *ctl_stack = (StackType_t *)heap_caps_malloc(12 * 1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     StackType_t *feed_stack = (StackType_t *)heap_caps_malloc(6 * 1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!ctl_stack || !feed_stack) { free(ctl_stack); free(feed_stack); return false; }
-    s_ctl_task = xTaskCreateStaticPinnedToCore(wake_ctl, "wake_ctl", 12 * 1024, nullptr, 4, ctl_stack, &ctl_tcb, 1);
-    s_feed_task = xTaskCreateStaticPinnedToCore(wake_feed, "wake_feed", 6 * 1024, nullptr, 5, feed_stack, &feed_tcb, 1);
+    s_ctl_task = xTaskCreateStaticPinnedToCore(wake_ctl, "wake_ctl", 12 * 1024, nullptr, WAKE_PRIO, ctl_stack, &ctl_tcb, WAKE_CORE);
+    s_feed_task = xTaskCreateStaticPinnedToCore(wake_feed, "wake_feed", 6 * 1024, nullptr, WAKE_PRIO, feed_stack, &feed_tcb, WAKE_CORE);
     return s_ctl_task && s_feed_task;
 }
 
