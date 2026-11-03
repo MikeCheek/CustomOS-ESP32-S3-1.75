@@ -21,6 +21,17 @@ class AmoledCompanionApp extends StatelessWidget {
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.dark,
+      // iPad and big tablets: pages at a readable width, not stretched edge to edge
+      builder: (context, child) => LayoutBuilder(
+        builder: (context, c) => c.maxWidth <= 1100
+            ? child!
+            : ColoredBox(
+                color: AppColors.bg,
+                child: Center(
+                  child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1100), child: child),
+                ),
+              ),
+      ),
       home: const _Gate(),
     );
   }
@@ -41,7 +52,8 @@ class _Gate extends ConsumerWidget {
   }
 }
 
-/// Bottom-navigation shell: Home · Memos · Apps · Faces · Settings.
+/// The tabs: Home · Memos · Apps · Faces · Settings - at the bottom on phones,
+/// down the side on iPad and tablets.
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -60,14 +72,47 @@ class _RootShellState extends State<RootShell> {
     _built.add(i);
   });
 
+  static const _rail = [
+    (Icons.home_outlined, Icons.home_rounded, 'Home'),
+    (Icons.graphic_eq_rounded, Icons.graphic_eq_rounded, 'Memos'),
+    (Icons.apps_outlined, Icons.apps_rounded, 'Apps'),
+    (Icons.palette_outlined, Icons.palette, 'Faces'),
+    (Icons.settings_outlined, Icons.settings_rounded, 'Settings'),
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final pages = IndexedStack(
+      index: _tab,
+      // Tabs are built the first time they're opened, then kept alive.
+      children: [for (var i = 0; i < _pages.length; i++) _built.contains(i) ? _pages[i] : const SizedBox.shrink()],
+    );
+    // iPad, tablets, landscape: the tabs down the side
+    if (MediaQuery.sizeOf(context).width >= 720) {
+      return Scaffold(
+        body: Row(
+          children: [
+            SafeArea(
+              right: false,
+              child: NavigationRail(
+                selectedIndex: _tab,
+                onDestinationSelected: selectTab,
+                labelType: NavigationRailLabelType.all,
+                backgroundColor: AppColors.bg,
+                destinations: [
+                  for (final (icon, sel, label) in _rail)
+                    NavigationRailDestination(icon: Icon(icon), selectedIcon: Icon(sel), label: Text(label)),
+                ],
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(child: pages),
+          ],
+        ),
+      );
+    }
     return Scaffold(
-      body: IndexedStack(
-        index: _tab,
-        // Tabs are built the first time they're opened, then kept alive.
-        children: [for (var i = 0; i < _pages.length; i++) _built.contains(i) ? _pages[i] : const SizedBox.shrink()],
-      ),
+      body: pages,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: selectTab,

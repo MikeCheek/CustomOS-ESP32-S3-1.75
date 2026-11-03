@@ -5,6 +5,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'model_fetch.dart';
 
 /// A Piper voice (MIT, rhasspy/piper), packaged for sherpa-onnx.
 class TtsVoice {
@@ -23,7 +24,22 @@ class TtsService {
 
   static const voices = [
     TtsVoice('vits-piper-en_US-amy-low', 'English - Amy', 'en', 67 * 1024 * 1024),
+    TtsVoice('vits-piper-en_US-lessac-medium', 'English - Lessac', 'en', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-en_US-ryan-medium', 'English - Ryan', 'en', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-en_GB-alan-medium', 'English (UK) - Alan', 'en', 64 * 1024 * 1024),
     TtsVoice('vits-piper-it_IT-riccardo-x_low', 'Italiano - Riccardo', 'it', 26 * 1024 * 1024),
+    TtsVoice('vits-piper-it_IT-paola-medium', 'Italiano - Paola', 'it', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-de_DE-thorsten-medium', 'Deutsch - Thorsten', 'de', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-es_ES-davefx-medium', 'Español - Davefx', 'es', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-es_MX-claude-high', 'Español (MX) - Claude', 'es', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-fr_FR-siwis-medium', 'Français - Siwis', 'fr', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-pt_BR-faber-medium', 'Português (BR) - Faber', 'pt', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-pt_PT-tugao-medium', 'Português - Tugão', 'pt', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-pl_PL-gosia-medium', 'Polski - Gosia', 'pl', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-ro_RO-mihai-medium', 'Română - Mihai', 'ro', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-ru_RU-irina-medium', 'Русский - Irina', 'ru', 64 * 1024 * 1024),
+    TtsVoice('vits-piper-uk_UA-ukrainian_tts-medium', 'Українська', 'uk', 76 * 1024 * 1024),
+    TtsVoice('vits-piper-zh_CN-huayan-medium', '中文 - Huayan', 'zh', 64 * 1024 * 1024),
   ];
   static const _base = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models';
   static const _enabledKey = 'tts_answers_on';
@@ -54,21 +70,14 @@ class TtsService {
   Future<void> install(TtsVoice v, {void Function(double)? onProgress}) async {
     final root = await _root();
     final tarball = File('${root.path}/${v.id}.tar.bz2');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
-    try {
-      final res = await (await client.getUrl(Uri.parse('$_base/${v.id}.tar.bz2'))).close();
-      if (res.statusCode != 200) throw Exception('Download failed (${res.statusCode})');
-      final sink = tarball.openWrite();
-      var got = 0;
-      await for (final c in res) {
-        sink.add(c);
-        got += c.length;
-        onProgress?.call(0.9 * (got / v.sizeBytes).clamp(0, 1));
-      }
-      await sink.close();
-    } finally {
-      client.close();
-    }
+    // In the background, resumable (model_fetch.dart)
+    await ModelFetch.instance.fetch(
+      label: 'Voice - ${v.label}',
+      url: '$_base/${v.id}.tar.bz2',
+      dest: tarball,
+      sizeBytes: v.sizeBytes,
+      onProgress: (p) => onProgress?.call(0.9 * p),
+    );
     try {
       final tar = tarball.path, out = root.path;
       await Isolate.run(() => extractFileToDisk(tar, out)); // creates <root>/<id>/
@@ -107,18 +116,16 @@ class TtsService {
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
 Uint8List _synthesize(String model, String dir, String text) {
   sherpa.initBindings();
-  final tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(
-    model: sherpa.OfflineTtsModelConfig(
-      vits: sherpa.OfflineTtsVitsModelConfig(
-        model: model,
-        tokens: '$dir/tokens.txt',
-        dataDir: '$dir/espeak-ng-data',
+  final tts = sherpa.OfflineTts(
+    sherpa.OfflineTtsConfig(
+      model: sherpa.OfflineTtsModelConfig(
+        vits: sherpa.OfflineTtsVitsModelConfig(model: model, tokens: '$dir/tokens.txt', dataDir: '$dir/espeak-ng-data'),
+        numThreads: 2,
+        debug: false,
       ),
-      numThreads: 2,
-      debug: false,
+      maxNumSentences: 2,
     ),
-    maxNumSentences: 2,
-  ));
+  );
   try {
     final a = tts.generate(text: text, sid: 0, speed: 1.0);
     return pcm16Wav(a.samples, a.sampleRate);

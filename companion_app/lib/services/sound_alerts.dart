@@ -4,9 +4,17 @@ import 'dart:isolate';
 import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'model_fetch.dart';
 import 'phone_recorder.dart';
 
 /// A sound worth telling the watch about, and the AudioSet classes that are it.
+/// A sound tagging model size.
+class SoundModel {
+  final String id, name, blurb;
+  final int sizeBytes;
+  const SoundModel(this.id, this.name, this.blurb, this.sizeBytes);
+}
+
 class AlertSound {
   final String id, label;
   final List<String> classes;
@@ -28,13 +36,25 @@ class SoundAlerts {
     AlertSound('baby', 'Baby crying', ['Baby cry, infant cry']),
     AlertSound('alarm', 'Alarm clock', ['Alarm clock']),
     AlertSound('phone', 'Phone ringing', ['Telephone bell ringing', 'Ringtone']),
-    AlertSound('siren', 'Siren', ['Siren', 'Police car (siren)', 'Ambulance (siren)', 'Fire engine, fire truck (siren)']),
+    AlertSound('siren', 'Siren', [
+      'Siren',
+      'Police car (siren)',
+      'Ambulance (siren)',
+      'Fire engine, fire truck (siren)',
+    ]),
     AlertSound('dog', 'Dog barking', ['Bark', 'Dog']),
     AlertSound('glass', 'Glass breaking', ['Shatter', 'Glass']),
   ];
-  static const _url = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/'
-      'sherpa-onnx-ced-tiny-audio-tagging-2024-04-19.tar.bz2';
-  static const sizeBytes = 28 * 1024 * 1024;
+
+  /// The sound tagging models (CED, Apache-2.0, from sherpa-onnx on GitHub):
+  /// bigger hears more reliably, costs more memory and battery.
+  static const models = [
+    SoundModel('ced-tiny', 'CED tiny', 'Light, the default', 28 * 1024 * 1024),
+    SoundModel('ced-mini', 'CED mini', 'More reliable', 45 * 1024 * 1024),
+    SoundModel('ced-small', 'CED small', 'Most reliable, heavier', 96 * 1024 * 1024),
+  ];
+  static const _rel = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models';
+  static int get sizeBytes => models.first.sizeBytes;
   static const threshold = 0.35;
 
   Future<Directory> _dir() async {
@@ -48,26 +68,29 @@ class SoundAlerts {
 
   Future<bool> isInstalled() async => await File(await _model()).exists() && await File(await _labels()).exists();
 
-  Future<void> install({void Function(double)? onProgress}) async {
+  /// Which model is installed ("ced-tiny"...), or null.
+  Future<String?> installedModel() async {
+    if (!await isInstalled()) return null;
+    final f = File('${(await _dir()).path}/model_id.txt');
+    return await f.exists() ? (await f.readAsString()).trim() : 'ced-tiny';
+  }
+
+  /// Installs [model] (replacing another size). Downloads in the background
+  /// (model_fetch.dart). [onProgress] 0..1.
+  Future<void> install({SoundModel? model, void Function(double)? onProgress}) async {
+    final m = model ?? models.first;
     final d = await _dir();
-    final tarball = File('${d.path}/ced.tar.bz2');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
-    try {
-      final res = await (await client.getUrl(Uri.parse(_url))).close();
-      if (res.statusCode != 200) throw Exception('Download failed (${res.statusCode})');
-      final sink = tarball.openWrite();
-      var got = 0;
-      await for (final c in res) {
-        sink.add(c);
-        got += c.length;
-        onProgress?.call(0.9 * (got / sizeBytes).clamp(0, 1));
-      }
-      await sink.close();
-    } finally {
-      client.close();
-    }
+    final tarball = File('${d.path}/${m.id}.tar.bz2');
+    await ModelFetch.instance.fetch(
+      label: 'Sound alerts - ${m.name}',
+      url: '$_rel/sherpa-onnx-${m.id}-audio-tagging-2024-04-19.tar.bz2',
+      dest: tarball,
+      sizeBytes: m.sizeBytes,
+      onProgress: (p) => onProgress?.call(0.9 * p),
+    );
     final out = '${d.path}/x';
     final tar = tarball.path;
+    if (await Directory(out).exists()) await Directory(out).delete(recursive: true);
     await Isolate.run(() => extractFileToDisk(tar, out));
     await tarball.delete();
     // keep the two files we need, flat
@@ -78,6 +101,7 @@ class SoundAlerts {
     }
     await Directory(out).delete(recursive: true);
     if (!await isInstalled()) throw Exception('The sound model is incomplete - try again');
+    await File('${d.path}/model_id.txt').writeAsString(m.id);
     onProgress?.call(1);
   }
 
@@ -117,7 +141,9 @@ class SoundAlerts {
       final now = DateTime.now();
       for (final s in sounds) {
         if (!wanted.contains(s.id)) continue;
-        final p = tags.entries.where((e) => s.classes.contains(e.key)).fold<double>(0, (a, e) => e.value > a ? e.value : a);
+        final p = tags.entries
+            .where((e) => s.classes.contains(e.key))
+            .fold<double>(0, (a, e) => e.value > a ? e.value : a);
         final last = _last[s.id];
         if (p >= threshold && (last == null || now.difference(last) > const Duration(minutes: 1))) {
           _last[s.id] = now;

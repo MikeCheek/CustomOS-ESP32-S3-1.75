@@ -365,7 +365,7 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
       if (mounted) showSnack(context, 'Language set - download the memo to transcribe it');
       return;
     }
-    if (!await WhisperService.instance.isDownloaded()) {
+    if (!await WhisperService.instance.ready()) {
       if (mounted) showSnack(context, 'Download a speech model in Transcription & AI first');
       return;
     }

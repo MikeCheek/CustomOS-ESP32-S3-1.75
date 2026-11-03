@@ -4,6 +4,7 @@ import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'model_fetch.dart';
 import 'speaker_merge.dart';
 
 /// "Who said what": speaker diarization with sherpa-onnx (Apache-2.0), on
@@ -12,16 +13,55 @@ import 'speaker_merge.dart';
 ///  - 3D-Speaker CAM++ (Apache-2.0, VoxCeleb) - tells the voices apart
 /// The memo pipeline runs it after Whisper on the same 16 kHz mono file;
 /// speaker_merge.dart then matches the voices to the words.
+/// A voice model for telling speakers apart.
+class SpeakerModel {
+  final String id, name, blurb, file;
+  final int sizeBytes;
+  const SpeakerModel(this.id, this.name, this.blurb, this.file, this.sizeBytes);
+}
+
 class DiarizationService {
   DiarizationService._();
   static final DiarizationService instance = DiarizationService._();
 
   static const _rel = 'https://github.com/k2-fsa/sherpa-onnx/releases/download';
   static const _segUrl = '$_rel/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2';
-  static const _embUrl = '$_rel/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx';
   static const _segFile = 'segmentation.int8.onnx';
-  static const _embFile = 'campplus_voxceleb.onnx';
-  static const sizeBytes = 37 * 1024 * 1024;
+  static const _embFile = 'campplus_voxceleb.onnx'; // whichever voice model is installed
+  static const _segBytes = 7 * 1024 * 1024;
+
+  /// The voice models that tell speakers apart (sherpa-onnx, on GitHub).
+  static const voiceModels = [
+    SpeakerModel(
+      'campplus-en',
+      'CAM++ (English)',
+      'The default: light and accurate',
+      '3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx',
+      28 * 1024 * 1024,
+    ),
+    SpeakerModel(
+      'wespeaker-r34',
+      'WeSpeaker ResNet34',
+      'Strong on English conversations',
+      'wespeaker_en_voxceleb_resnet34_LM.onnx',
+      25 * 1024 * 1024,
+    ),
+    SpeakerModel(
+      'titanet-small',
+      'NVIDIA TitaNet small',
+      'Robust in noisy rooms',
+      'nemo_en_titanet_small.onnx',
+      38 * 1024 * 1024,
+    ),
+    SpeakerModel(
+      'eres2net-zh',
+      '3D-Speaker ERes2Net',
+      'Best for Chinese, fine for others',
+      '3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx',
+      37 * 1024 * 1024,
+    ),
+  ];
+  static int get sizeBytes => _segBytes + voiceModels.first.sizeBytes;
   static const _enabledKey = 'diarize_on';
 
   Future<Directory> _dir() async {
@@ -41,34 +81,28 @@ class DiarizationService {
 
   Future<bool> ready() async => await enabled() && await isInstalled();
 
-  Future<void> _download(String url, File to, void Function(int got) onBytes) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
-    try {
-      final res = await (await client.getUrl(Uri.parse(url))).close();
-      if (res.statusCode != 200) throw Exception('Download failed (${res.statusCode})');
-      final tmp = File('${to.path}.part');
-      final sink = tmp.openWrite();
-      var got = 0;
-      await for (final c in res) {
-        sink.add(c);
-        got += c.length;
-        onBytes(got);
-      }
-      await sink.close();
-      await tmp.rename(to.path);
-    } finally {
-      client.close();
-    }
+  /// Which voice model is installed, or null.
+  Future<String?> installedVoiceModel() async {
+    if (!await isInstalled()) return null;
+    final f = File('${(await _dir()).path}/voice_model.txt');
+    return await f.exists() ? (await f.readAsString()).trim() : voiceModels.first.id;
   }
 
-  /// [onProgress] 0..1.
-  Future<void> install({void Function(double)? onProgress}) async {
+  /// Installs the segmentation model and [voice] (another voice model
+  /// replaces the one there). Downloads in the background. [onProgress] 0..1.
+  Future<void> install({SpeakerModel? voice, void Function(double)? onProgress}) async {
+    final v = voice ?? voiceModels.first;
     final d = await _dir();
-    const segBytes = 7 * 1024 * 1024, embBytes = 30 * 1024 * 1024;
     final seg = File('${d.path}/$_segFile');
     if (!await seg.exists()) {
       final tarball = File('${d.path}/seg.tar.bz2');
-      await _download(_segUrl, tarball, (g) => onProgress?.call(0.2 * g / segBytes));
+      await ModelFetch.instance.fetch(
+        label: 'Speakers - segmentation',
+        url: _segUrl,
+        dest: tarball,
+        sizeBytes: _segBytes,
+        onProgress: (p) => onProgress?.call(0.2 * p),
+      );
       // Only the int8 model is needed out of the archive.
       final tar = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(await tarball.readAsBytes()));
       final model = tar.files.where((f) => f.isFile && f.name.endsWith('/model.int8.onnx')).firstOrNull;
@@ -77,8 +111,19 @@ class DiarizationService {
       await seg.writeAsBytes(model.content);
     }
     final emb = File('${d.path}/$_embFile');
-    if (!await emb.exists()) {
-      await _download(_embUrl, emb, (g) => onProgress?.call(0.2 + 0.8 * (g / embBytes).clamp(0, 1)));
+    final have = await installedVoiceModel();
+    if (have != v.id || !await emb.exists()) {
+      final dl = File('${d.path}/${v.file}');
+      await ModelFetch.instance.fetch(
+        label: 'Speakers - ${v.name}',
+        url: '$_rel/speaker-recongition-models/${v.file}',
+        dest: dl,
+        sizeBytes: v.sizeBytes,
+        onProgress: (p) => onProgress?.call(0.2 + 0.8 * p),
+      );
+      if (await emb.exists()) await emb.delete();
+      await dl.rename(emb.path);
+      await File('${d.path}/voice_model.txt').writeAsString(v.id);
     }
     onProgress?.call(1);
   }
@@ -101,18 +146,20 @@ class DiarizationService {
 List<List<double>> _diarize(String seg, String emb, String wav) {
   sherpa.initBindings();
   final threads = Platform.numberOfProcessors >= 4 ? 2 : 1;
-  final sd = sherpa.OfflineSpeakerDiarization(sherpa.OfflineSpeakerDiarizationConfig(
-    segmentation: sherpa.OfflineSpeakerSegmentationModelConfig(
-      pyannote: sherpa.OfflineSpeakerSegmentationPyannoteModelConfig(model: seg),
-      numThreads: threads,
-      debug: false,
+  final sd = sherpa.OfflineSpeakerDiarization(
+    sherpa.OfflineSpeakerDiarizationConfig(
+      segmentation: sherpa.OfflineSpeakerSegmentationModelConfig(
+        pyannote: sherpa.OfflineSpeakerSegmentationPyannoteModelConfig(model: seg),
+        numThreads: threads,
+        debug: false,
+      ),
+      embedding: sherpa.SpeakerEmbeddingExtractorConfig(model: emb, numThreads: threads, debug: false),
+      // Number of speakers unknown: cluster by distance.
+      clustering: const sherpa.FastClusteringConfig(numClusters: -1, threshold: 0.5),
+      minDurationOn: 0.3,
+      minDurationOff: 0.5,
     ),
-    embedding: sherpa.SpeakerEmbeddingExtractorConfig(model: emb, numThreads: threads, debug: false),
-    // Number of speakers unknown: cluster by distance.
-    clustering: const sherpa.FastClusteringConfig(numClusters: -1, threshold: 0.5),
-    minDurationOn: 0.3,
-    minDurationOff: 0.5,
-  ));
+  );
   try {
     final wave = sherpa.readWave(wav);
     if (wave.samples.isEmpty) return const [];

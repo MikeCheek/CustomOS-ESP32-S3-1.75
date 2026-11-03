@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:whisper_ggml/whisper_ggml.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../services/ai_catalog.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
+import '../services/model_fetch.dart';
 import '../services/tts_service.dart';
-import '../services/memo_embeddings.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'wake_word_screen.dart';
 
-/// The on-device AI: one card per capability with its status; open it to
-/// download, pick or delete its models.
+/// The on-device AI: one card per feature with its status; open it to
+/// download, pick or delete its models (services/ai_catalog.dart). Downloads
+/// run in the background and keep going with the app closed
+/// (services/model_fetch.dart); "Set up in one go" downloads a pack or a
+/// chosen set and makes them the ones used.
 class AiSettingsScreen extends StatefulWidget {
   const AiSettingsScreen({super.key});
 
@@ -20,69 +24,46 @@ class AiSettingsScreen extends StatefulWidget {
 
 class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _whisper = WhisperService.instance;
-  final _llm = GemmaService.instance;
-
-  final Map<WhisperModel, bool> _speechDownloaded = {};
-  WhisperModel? _speechBusy;
-  double _speechProgress = 0;
-
-  final Map<String, bool> _llmInstalled = {};
-  String? _llmSelected;
-  String? _llmBusy;
-  double _llmProgress = 0;
+  final _jobs = ModelJobs.instance;
   final _tokenCtrl = TextEditingController();
-  bool _loading = true;
-
-  final _diar = DiarizationService.instance;
-  bool _diarInstalled = false, _diarOn = true, _diarBusy = false;
-  double _diarProgress = 0;
-
-  final Map<String, bool> _visInstalled = {};
-  String? _visBusy;
-  double _visProgress = 0;
-
-  final _emb = MemoEmbeddings.instance;
-  bool _embInstalled = false, _embBusy = false;
-  double _embProgress = 0;
-
-  final _tts = TtsService.instance;
-  final Map<String, bool> _voiceInstalled = {};
-  bool _ttsOn = true;
-  String? _voiceBusy;
-  double _voiceProgress = 0;
+  final _mirrorCtrl = TextEditingController();
+  final Map<String, bool> _installed = {}, _selected = {};
+  final Set<String> _open = {};
+  bool _loading = true, _diarOn = true, _ttsOn = true;
+  int _running = 0;
 
   @override
   void initState() {
     super.initState();
+    _jobs.addListener(_onJobs);
     _refresh();
   }
 
   @override
   void dispose() {
+    _jobs.removeListener(_onJobs);
     _tokenCtrl.dispose();
+    _mirrorCtrl.dispose();
     super.dispose();
+  }
+
+  void _onJobs() {
+    final n = _jobs.progress.length;
+    if (n < _running) _refresh(); // one finished: look again
+    _running = n;
+    if (mounted) setState(() {});
   }
 
   Future<void> _refresh() async {
     await _whisper.loadPrefs();
-    for (final m in WhisperService.offered) {
-      _speechDownloaded[m] = await _whisper.isDownloaded(m);
+    for (final i in AiCatalog.items) {
+      _installed[i.id] = await i.installed();
+      _selected[i.id] = _installed[i.id]! && await i.selected();
     }
-    for (final m in GemmaService.models) {
-      _llmInstalled[m.key] = await _llm.isInstalled(m);
-    }
-    _llmSelected = await _llm.selectedKey();
-    _tokenCtrl.text = await _llm.hfToken();
-    _diarInstalled = await _diar.isInstalled();
-    _diarOn = await _diar.enabled();
-    for (final v in TtsService.voices) {
-      _voiceInstalled[v.id] = await _tts.isInstalled(v);
-    }
-    _ttsOn = await _tts.enabled();
-    _embInstalled = await _emb.isInstalled();
-    for (final m in GemmaService.visionModels) {
-      _visInstalled[m.key] = await _llm.isInstalled(m);
-    }
+    _tokenCtrl.text = await GemmaService.instance.hfToken();
+    _mirrorCtrl.text = await ModelFetch.instance.mirror();
+    _diarOn = await DiarizationService.instance.enabled();
+    _ttsOn = await TtsService.instance.enabled();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -90,179 +71,126 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
       : '${(bytes / (1024 * 1024)).round()} MB';
 
-  Future<void> _downloadSpeech(WhisperModel m) async {
-    setState(() {
-      _speechBusy = m;
-      _speechProgress = 0;
-    });
+  Future<void> _saveToken() async {
+    final t = _tokenCtrl.text.trim();
+    if (t != await GemmaService.instance.hfToken()) await GemmaService.instance.setHfToken(t);
+  }
+
+  Future<void> _install(AiItem i) async {
+    await _saveToken();
+    if (i.gated && _tokenCtrl.text.trim().isEmpty) {
+      if (mounted) showSnack(context, '${i.name} needs a Hugging Face token (Account, at the bottom)');
+      return;
+    }
+    await Permission.notification.request(); // the download's progress notification
     try {
-      await _whisper.download(
-        model: m,
-        onProgress: (p) {
-          if (mounted) setState(() => _speechProgress = p);
-        },
-      );
-      await _whisper.setModel(m);
-      _speechDownloaded[m] = true;
-      if (mounted) showSnack(context, '${WhisperService.labels[m]} speech model ready');
+      await _jobs.run(i.id);
+      if (mounted) showSnack(context, '${i.name} is ready');
+    } on ModelFetchCanceled {
+      // nothing to say
     } catch (e) {
-      if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
-    } finally {
-      if (mounted) setState(() => _speechBusy = null);
+      if (mounted) showSnack(context, '${i.name}: ${e.toString().replaceFirst('Exception: ', '')}');
     }
   }
 
-  Future<void> _installDiar() async {
-    setState(() {
-      _diarBusy = true;
-      _diarProgress = 0;
-    });
+  Future<void> _select(AiItem i) async {
     try {
-      await _diar.install(
-        onProgress: (p) {
-          if (mounted) setState(() => _diarProgress = p);
-        },
-      );
-      _diarInstalled = true;
-      if (mounted) showSnack(context, 'New memos with several voices are split by speaker');
-    } catch (e) {
-      if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
-    } finally {
-      if (mounted) setState(() => _diarBusy = false);
-    }
-  }
-
-  Future<void> _installVision(GemmaModelInfo m) async {
-    if (m.gated) await _llm.setHfToken(_tokenCtrl.text);
-    setState(() {
-      _visBusy = m.key;
-      _visProgress = 0;
-    });
-    try {
-      await _llm.installVision(
-        m,
-        onProgress: (p) {
-          if (mounted) setState(() => _visProgress = p);
-        },
-      );
-      _visInstalled[m.key] = true;
-      if (mounted) showSnack(context, '${m.name} ready for Look');
+      await i.select();
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _visBusy = null);
     }
+    await _refresh();
   }
 
-  Future<void> _installEmb() async {
-    await _llm.setHfToken(_tokenCtrl.text);
-    setState(() {
-      _embBusy = true;
-      _embProgress = 0;
-    });
-    try {
-      await _emb.install(
-        onProgress: (p) {
-          if (mounted) setState(() => _embProgress = p);
-        },
-      );
-      _embInstalled = true;
-      if (mounted) showSnack(context, 'Memo search and Ask AI now also find memos by meaning');
-    } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _embBusy = false);
-    }
+  Future<void> _delete(AiItem i) async {
+    await i.delete();
+    await _refresh();
   }
 
-  Future<void> _installVoice(TtsVoice v) async {
-    setState(() {
-      _voiceBusy = v.id;
-      _voiceProgress = 0;
-    });
-    try {
-      await _tts.install(
-        v,
-        onProgress: (p) {
-          if (mounted) setState(() => _voiceProgress = p);
-        },
-      );
-      _voiceInstalled[v.id] = true;
-      if (mounted) showSnack(context, 'The assistant now answers out loud on the watch');
-    } catch (e) {
-      if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
-    } finally {
-      if (mounted) setState(() => _voiceBusy = null);
-    }
-  }
-
-  Future<void> _installLlm(GemmaModelInfo m) async {
-    if (m.gated) await _llm.setHfToken(_tokenCtrl.text);
-    setState(() {
-      _llmBusy = m.key;
-      _llmProgress = 0;
-    });
-    try {
-      await _llm.install(
-        m,
-        onProgress: (p) {
-          if (mounted) setState(() => _llmProgress = p);
-        },
-      );
-      _llmInstalled[m.key] = true;
-      _llmSelected = m.key;
-      if (mounted) showSnack(context, '${m.name} ready for summaries');
-    } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _llmBusy = null);
-    }
-  }
-
-  final Set<String> _open = {};
-
-  Widget _cap(
-    String id,
-    IconData icon,
-    Color color,
-    String title,
-    String what,
-    String status,
-    bool ready,
-    List<Widget> children,
-  ) {
-    return _Capability(
-      icon: icon,
-      color: color,
-      title: title,
-      what: what,
-      status: status,
-      ready: ready,
-      open: _open.contains(id),
-      onToggle: () => setState(() => _open.contains(id) ? _open.remove(id) : _open.add(id)),
-      children: children,
+  Widget _card(AiItem i) {
+    final busy = _jobs.busy(i.id);
+    final err = _jobs.errors[i.id];
+    return _ModelCard(
+      title: i.name,
+      subtitle: [
+        i.blurb,
+        _size(i.sizeBytes),
+        i.github ? 'GitHub' : (i.gated ? 'Hugging Face, needs the token' : 'Hugging Face'),
+        if (err != null && !busy) 'Last try: $err',
+      ].join(' · '),
+      selected: _selected[i.id] == true,
+      installed: _installed[i.id] == true,
+      busy: busy,
+      progress: (_jobs.progress[i.id] ?? -1).clamp(0.0, 1.0),
+      onInstall: busy ? null : () => _install(i),
+      onSelect: () => _select(i),
+      onDelete: () => _delete(i),
     );
   }
 
-  List<Widget> _spaced(List<Widget> cards) => [
-    for (var i = 0; i < cards.length; i++) ...[if (i > 0) const SizedBox(height: 10), cards[i]],
+  List<Widget> _cards(Iterable<AiItem> items) => [
+    for (final (n, i) in items.indexed) ...[if (n > 0) const SizedBox(height: 10), _card(i)],
   ];
+
+  Widget _feature(AiFeature f, IconData icon, Color color, String what, {List<Widget> extra = const []}) {
+    final items = AiCatalog.of(f);
+    final sel = items.where((i) => _selected[i.id] == true).firstOrNull;
+    final busy = items.where((i) => _jobs.busy(i.id)).firstOrNull;
+    final installed = items.where((i) => _installed[i.id] == true).length;
+    final status = busy != null
+        ? 'Downloading ${busy.name}'
+        : sel != null
+        ? 'Ready · ${sel.name}'
+        : installed > 0
+        ? 'Installed, not in use'
+        : 'Not set up';
+    return _Capability(
+      icon: icon,
+      color: color,
+      title: f.title,
+      what: what,
+      status: status,
+      ready: sel != null,
+      open: _open.contains(f.name),
+      onToggle: () => setState(() => _open.contains(f.name) ? _open.remove(f.name) : _open.add(f.name)),
+      children: [...extra, ..._cards(items)],
+    );
+  }
+
+  Future<void> _openPacks() async {
+    await _saveToken();
+    if (!mounted) return;
+    final ids = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      builder: (_) => _PacksSheet(installed: Map.of(_installed), hasToken: _tokenCtrl.text.trim().isNotEmpty),
+    );
+    if (ids == null || ids.isEmpty || !mounted) return;
+    await Permission.notification.request();
+    if (mounted) {
+      showSnack(
+        context,
+        'Downloading ${ids.length} model${ids.length == 1 ? '' : 's'} - they keep going with the app closed',
+      );
+    }
+    final failed = await _jobs.runAll(ids);
+    await _refresh();
+    if (!mounted) return;
+    showSnack(
+      context,
+      failed.isEmpty
+          ? 'All set up'
+          : 'Set up, except ${failed.map((id) => AiCatalog.byId(id)?.name ?? id).join(', ')} - try those again',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final speechReady = _speechDownloaded[_whisper.model] == true;
-    final llmReady = _llmSelected != null && _llmInstalled[_llmSelected] == true;
-    final llmName = GemmaService.models.where((m) => m.key == _llmSelected).map((m) => m.name).firstOrNull;
-    final voices = _voiceInstalled.values.where((x) => x).length;
-    final vision = _visInstalled.values.where((x) => x).length;
-    final readyCount = [
-      speechReady,
-      llmReady,
-      _diarInstalled,
-      _embInstalled,
-      voices > 0,
-      vision > 0,
-    ].where((x) => x).length;
+    final features = AiFeature.values;
+    final ready = features.where((f) => AiCatalog.of(f).any((i) => _selected[i.id] == true)).length;
+    final transcribing = AiCatalog.of(AiFeature.transcription).any((i) => _selected[i.id] == true);
+    final active = [for (final e in _jobs.progress.entries) (AiCatalog.byId(e.key), e.value)];
 
     return Scaffold(
       appBar: AppBar(title: const Text('AI models')),
@@ -277,72 +205,88 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     end: Alignment.bottomRight,
                     colors: [Color(0xFF17142B), Color(0xFF0B0B10)],
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Ring(
-                        value: readyCount / 6,
-                        size: 64,
-                        stroke: 6,
-                        color: AppColors.accent,
-                        child: Text(
-                          '$readyCount/6',
-                          style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w700),
-                        ),
+                      Row(
+                        children: [
+                          Ring(
+                            value: ready / features.length,
+                            size: 64,
+                            stroke: 6,
+                            color: AppColors.accent,
+                            child: Text(
+                              '$ready/${features.length}',
+                              style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  transcribing ? 'Running on this phone' : 'Start with transcription',
+                                  style: const TextStyle(
+                                    color: AppColors.text,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Nothing leaves the phone. Downloads keep going with the app closed.',
+                                  style: TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.35),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              speechReady ? 'Running on this phone' : 'Start with transcription',
-                              style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              speechReady
-                                  ? 'Nothing leaves the phone. Add more below when you want them.'
-                                  : 'It turns memos and questions into text - everything else builds on it.',
-                              style: const TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.35),
-                            ),
-                          ],
-                        ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        onPressed: _openPacks,
+                        icon: const Icon(Icons.download_for_offline_outlined),
+                        label: const Text('Set up in one go'),
                       ),
                     ],
                   ),
                 ),
+                if (active.isNotEmpty) ...[
+                  const SectionLabel('Downloading'),
+                  Panel(
+                    child: Column(
+                      children: [
+                        for (final (item, p) in active) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item?.name ?? '',
+                                  style: const TextStyle(color: AppColors.text, fontSize: 14),
+                                ),
+                              ),
+                              Text(
+                                p < 0 ? 'Starting…' : (p >= 1 ? 'Setting up…' : '${(p * 100).round()}%'),
+                                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          LinearProgressIndicator(value: p > 0 && p < 1 ? p : null, minHeight: 5),
+                          const SizedBox(height: 10),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
                 const SectionLabel('Core'),
-                _cap(
-                  'speech',
+                _feature(
+                  AiFeature.transcription,
                   Icons.mic_rounded,
                   AppColors.accent,
-                  'Transcription',
-                  'Memos, the assistant and voice replies to text (Whisper)',
-                  speechReady ? 'Ready · ${WhisperService.labels[_whisper.model]}' : 'Not set up',
-                  speechReady,
-                  [
-                    ..._spaced([
-                      for (final m in WhisperService.offered)
-                        _ModelCard(
-                          title: WhisperService.labels[m]!,
-                          subtitle: '${WhisperService.blurbs[m]} · ${_size(WhisperService.sizes[m]!)}',
-                          selected: _whisper.model == m,
-                          installed: _speechDownloaded[m] == true,
-                          busy: _speechBusy == m,
-                          progress: _speechProgress,
-                          onInstall: _speechBusy == null ? () => _downloadSpeech(m) : null,
-                          onSelect: () async {
-                            await _whisper.setModel(m);
-                            setState(() {});
-                          },
-                          onDelete: () async {
-                            await _whisper.deleteModel(m);
-                            _speechDownloaded[m] = false;
-                            setState(() {});
-                          },
-                        ),
-                    ]),
-                    const SizedBox(height: 4),
+                  'Memos, the assistant and voice replies to text: sherpa-onnx models from GitHub, or whisper.cpp',
+                  extra: [
                     Row(
                       children: [
                         const Icon(Icons.translate_rounded, color: AppColors.textDim, size: 20),
@@ -366,69 +310,24 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
                   ],
                 ),
                 const SizedBox(height: 10),
-                _cap(
-                  'llm',
+                _feature(
+                  AiFeature.summaries,
                   Icons.auto_awesome_rounded,
                   AppColors.accent2,
-                  'Summaries & answers',
-                  'Memo summaries, Ask AI, smart replies, Catch me up (local LLM)',
-                  llmReady ? 'Ready · $llmName' : 'Basic summaries only',
-                  llmReady,
-                  _spaced([
-                    for (final m in GemmaService.models)
-                      _ModelCard(
-                        title: m.name,
-                        subtitle:
-                            '${m.description}${m.gated ? ' · needs the Hugging Face token' : ''} · '
-                            '${_size(m.sizeBytes)}',
-                        selected: _llmSelected == m.key,
-                        installed: _llmInstalled[m.key] == true,
-                        busy: _llmBusy == m.key,
-                        progress: _llmProgress,
-                        onInstall: _llmBusy == null ? () => _installLlm(m) : null,
-                        onSelect: () => _installLlm(m), // install() just re-activates an installed model
-                        onDelete: () async {
-                          await _llm.uninstall(m);
-                          _llmInstalled[m.key] = false;
-                          if (_llmSelected == m.key) _llmSelected = null;
-                          setState(() {});
-                        },
-                      ),
-                  ]),
+                  'Memo summaries, Ask AI, smart replies, Catch me up (a local language model)',
                 ),
                 const SectionLabel('Extras'),
-                _cap(
-                  'speakers',
+                _feature(
+                  AiFeature.speakers,
                   Icons.groups_rounded,
                   AppColors.accent3,
-                  'Who said what',
                   'Splits conversations in memos by speaker',
-                  _diarInstalled ? (_diarOn ? 'On' : 'Installed, off') : 'Not installed',
-                  _diarInstalled && _diarOn,
-                  [
-                    _ModelCard(
-                      title: 'Speakers in memos',
-                      subtitle:
-                          '"Speaker 1 / Speaker 2", name them in the memo. sherpa-onnx, pyannote + CAM++ · '
-                          '${_size(DiarizationService.sizeBytes)}',
-                      selected: _diarOn,
-                      installed: _diarInstalled,
-                      busy: _diarBusy,
-                      progress: _diarProgress,
-                      onInstall: _diarBusy ? null : _installDiar,
-                      onSelect: () async {
-                        await _diar.setEnabled(true);
-                        setState(() => _diarOn = true);
-                      },
-                      onDelete: () async {
-                        await _diar.delete();
-                        setState(() => _diarInstalled = false);
-                      },
-                    ),
-                    if (_diarInstalled)
+                  extra: [
+                    if (AiCatalog.of(AiFeature.speakers).any((i) => _installed[i.id] == true))
                       SwitchListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                         title: const Text(
@@ -441,114 +340,51 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                         ),
                         value: _diarOn,
                         onChanged: (v) async {
-                          await _diar.setEnabled(v);
-                          setState(() => _diarOn = v);
+                          await DiarizationService.instance.setEnabled(v);
+                          await _refresh();
                         },
                       ),
                   ],
                 ),
                 const SizedBox(height: 10),
-                _cap(
-                  'search',
+                _feature(
+                  AiFeature.search,
                   Icons.manage_search_rounded,
                   AppColors.success,
-                  'Search by meaning',
                   'Finds memos by what they mean, in search, Ask AI and the assistant',
-                  _embInstalled ? 'Ready' : 'Not installed',
-                  _embInstalled,
-                  [
-                    _ModelCard(
-                      title: 'EmbeddingGemma (4-bit)',
-                      subtitle: 'Needs the Hugging Face token · ${_size(MemoEmbeddings.sizeBytes)}',
-                      selected: true,
-                      installed: _embInstalled,
-                      busy: _embBusy,
-                      progress: _embProgress,
-                      onInstall: _embBusy ? null : _installEmb,
-                      onSelect: () {},
-                      onDelete: () async {
-                        await _emb.delete();
-                        setState(() => _embInstalled = false);
-                      },
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 10),
-                _cap(
-                  'voice',
+                _feature(
+                  AiFeature.voice,
                   Icons.volume_up_rounded,
                   AppColors.warning,
-                  'Spoken answers',
-                  'The assistant answers out loud on the watch (Piper voices)',
-                  voices > 0
-                      ? (_ttsOn ? 'On · $voices voice${voices > 1 ? 's' : ''}' : 'Installed, off')
-                      : 'Not installed',
-                  voices > 0 && _ttsOn,
-                  [
-                    ..._spaced([
-                      for (final v in TtsService.voices)
-                        _ModelCard(
-                          title: v.label,
-                          subtitle: 'sherpa-onnx · ${_size(v.sizeBytes)}',
-                          selected: _ttsOn,
-                          installed: _voiceInstalled[v.id] == true,
-                          busy: _voiceBusy == v.id,
-                          progress: _voiceProgress,
-                          onInstall: _voiceBusy == null ? () => _installVoice(v) : null,
-                          onSelect: () async {
-                            await _tts.setEnabled(true);
-                            setState(() => _ttsOn = true);
-                          },
-                          onDelete: () async {
-                            await _tts.delete(v);
-                            setState(() => _voiceInstalled[v.id] = false);
-                          },
-                        ),
-                    ]),
-                    if (voices > 0)
+                  'The assistant answers out loud on the watch, in the language it was asked in',
+                  extra: [
+                    if (AiCatalog.of(AiFeature.voice).any((i) => _installed[i.id] == true))
                       SwitchListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                         title: const Text('Say the answers', style: TextStyle(color: AppColors.text, fontSize: 14)),
-                        subtitle: const Text(
-                          'Italian answers use the Italian voice when it\'s installed',
-                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
-                        ),
                         value: _ttsOn,
                         onChanged: (v) async {
-                          await _tts.setEnabled(v);
-                          setState(() => _ttsOn = v);
+                          await TtsService.instance.setEnabled(v);
+                          await _refresh();
                         },
                       ),
                   ],
                 ),
                 const SizedBox(height: 10),
-                _cap(
-                  'look',
+                _feature(
+                  AiFeature.look,
                   Icons.visibility_outlined,
                   AppColors.success,
-                  'Look (vision)',
                   'Describe, read or translate a photo',
-                  vision > 0 ? 'Ready' : 'Not installed',
-                  vision > 0,
-                  _spaced([
-                    for (final m in GemmaService.visionModels)
-                      _ModelCard(
-                        title: m.name,
-                        subtitle:
-                            '${m.description}${m.gated ? ' · needs the Hugging Face token' : ''} · '
-                            '${_size(m.sizeBytes)}',
-                        selected: true,
-                        installed: _visInstalled[m.key] == true,
-                        busy: _visBusy == m.key,
-                        progress: _visProgress,
-                        onInstall: _visBusy == null ? () => _installVision(m) : null,
-                        onSelect: () {},
-                        onDelete: () async {
-                          await _llm.uninstallVision(m);
-                          setState(() => _visInstalled[m.key] = false);
-                        },
-                      ),
-                  ]),
+                ),
+                const SizedBox(height: 10),
+                _feature(
+                  AiFeature.sounds,
+                  Icons.hearing_rounded,
+                  AppColors.warning,
+                  'The phone listens for doorbells, alarms, a baby crying',
                 ),
                 const SectionLabel('On the watch'),
                 RowGroup(
@@ -562,7 +398,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     ),
                   ],
                 ),
-                const SectionLabel('Account'),
+                const SectionLabel('Account and sources'),
                 Panel(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -573,18 +409,40 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Only for the models marked "needs the Hugging Face token" (Gemma): accept the license on '
-                        'the model page on huggingface.co, create a read token and paste it here.',
+                        'Only for models marked "needs the token" (Google Gemma): accept the license on the model '
+                        'page on huggingface.co, create a read token and paste it here.',
                         style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.4),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       TextField(
                         controller: _tokenCtrl,
                         obscureText: true,
                         decoration: const InputDecoration(hintText: 'hf_…'),
-                        onSubmitted: (v) async {
-                          await _llm.setHfToken(v);
+                        onSubmitted: (_) async {
+                          await _saveToken();
                           if (context.mounted) showSnack(context, 'Token saved');
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Mirror for Hugging Face files',
+                        style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'A server with the same paths as huggingface.co (your own, or a regional mirror), tried '
+                        'first. If a file can\'t be had from there or from Hugging Face, hf-mirror.com is tried. '
+                        'GitHub models don\'t need it.',
+                        style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.4),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _mirrorCtrl,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(hintText: 'https://… (empty: none)'),
+                        onSubmitted: (v) async {
+                          await ModelFetch.instance.setMirror(v);
+                          if (context.mounted) showSnack(context, v.trim().isEmpty ? 'No mirror' : 'Mirror saved');
                         },
                       ),
                     ],
@@ -592,8 +450,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Everything runs on the phone: whisper.cpp for speech, a small local language model for summaries '
-                  'and answers. Without a language model, memos still get a short automatic summary.',
+                  'Everything runs on the phone. Downloads go through the system, so they continue in the background '
+                  'and after the app is closed, pick up where they stopped, and try mirrors; a notification shows '
+                  'the progress. A model that finished while the app was closed is set up the next time it opens.',
                   style: TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.4),
                 ),
               ],
@@ -602,7 +461,159 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 }
 
-/// One AI capability: what it does and whether it's ready; tap for its models.
+/// Packs and a free choice: returns the ids to download and set up.
+class _PacksSheet extends StatefulWidget {
+  final Map<String, bool> installed;
+  final bool hasToken;
+  const _PacksSheet({required this.installed, required this.hasToken});
+
+  @override
+  State<_PacksSheet> createState() => _PacksSheetState();
+}
+
+class _PacksSheetState extends State<_PacksSheet> {
+  String _pack = 'essentials';
+  final Set<String> _custom = {};
+
+  List<String> _ids() {
+    final all = _pack == 'custom' ? _custom.toList() : AiPack.all.firstWhere((p) => p.id == _pack).items();
+    // what's already there is only made the one in use, not downloaded again
+    return [
+      for (final id in all)
+        if (widget.hasToken || AiCatalog.byId(id)?.gated != true) id,
+    ];
+  }
+
+  String _size(int bytes) => bytes >= 1024 * 1024 * 1024
+      ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
+      : '${(bytes / (1024 * 1024)).round()} MB';
+
+  int _toDownload(List<String> ids) => ids
+      .where((id) => widget.installed[id] != true)
+      .map((id) => AiCatalog.byId(id)?.sizeBytes ?? 0)
+      .fold(0, (a, b) => a + b);
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = _ids();
+    final skipped = (_pack == 'custom' ? _custom.toList() : AiPack.all.firstWhere((p) => p.id == _pack).items())
+        .where((id) => !ids.contains(id))
+        .toList();
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => ListView(
+        controller: scroll,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Set up in one go',
+            style: TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Downloads one after another in the background - you can close the app. Each becomes the model '
+            'its feature uses.',
+            style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          for (final p in AiPack.all) ...[
+            _choice(
+              id: p.id,
+              title: p.name,
+              text: p.blurb,
+              tags: [_size(p.sizeBytes), if (p.githubOnly) 'no Hugging Face', if (p.needsToken) 'some need the token'],
+            ),
+            const SizedBox(height: 8),
+          ],
+          _choice(id: 'custom', title: 'Choose', text: 'Pick the models yourself', tags: const []),
+          if (_pack == 'custom') ...[
+            for (final f in AiFeature.values) ...[
+              SectionLabel(f.title),
+              for (final i in AiCatalog.of(f))
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: _custom.contains(i.id) || widget.installed[i.id] == true,
+                  onChanged: widget.installed[i.id] == true
+                      ? null
+                      : (v) => setState(() => v == true ? _custom.add(i.id) : _custom.remove(i.id)),
+                  title: Text(i.name, style: const TextStyle(color: AppColors.text, fontSize: 14)),
+                  subtitle: Text(
+                    '${_size(i.sizeBytes)} · ${widget.installed[i.id] == true ? 'installed' : i.source}'
+                    '${i.gated ? ' · needs the token' : ''}',
+                    style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                  ),
+                ),
+            ],
+          ],
+          if (skipped.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Left out without a Hugging Face token: ${skipped.map((id) => AiCatalog.byId(id)?.name ?? id).join(', ')}',
+              style: const TextStyle(color: AppColors.warning, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: ids.isEmpty ? null : () => Navigator.pop(context, ids),
+            child: Text(
+              ids.isEmpty
+                  ? 'Choose something'
+                  : 'Download ${_size(_toDownload(ids))} and set up ${ids.length} model${ids.length == 1 ? '' : 's'}',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _choice({required String id, required String title, required String text, required List<String> tags}) {
+    final on = _pack == id;
+    return Panel(
+      color: on ? AppColors.accent.withValues(alpha: 0.12) : null,
+      onTap: () => setState(() => _pack = id),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            on ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+            color: on ? AppColors.accent : AppColors.textFaint,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(text, style: const TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.35)),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(tags.join(' · '), style: const TextStyle(color: AppColors.accent2, fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Capability extends StatelessWidget {
   final IconData icon;
   final Color color;

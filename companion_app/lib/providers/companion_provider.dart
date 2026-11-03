@@ -736,7 +736,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     File? tmp;
     try {
       await whisper.loadPrefs();
-      if (!await whisper.isDownloaded()) {
+      if (!await whisper.ready()) {
         return fail('Download the speech model in the companion app first');
       }
       if (mounted) state = state.copyWith(dictation: 'Receiving voice reply');
@@ -775,7 +775,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     File? tmp;
     try {
       await whisper.loadPrefs();
-      if (!await whisper.isDownloaded()) {
+      if (!await whisper.ready()) {
         return fail('Download the speech model in the companion app first');
       }
       await status('Listening');
@@ -850,7 +850,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   Future<({String heard, String answer})> askFromPhone(String wavPath) async {
     final whisper = WhisperService.instance;
     await whisper.loadPrefs();
-    if (!await whisper.isDownloaded()) throw Exception('Download the speech model first (Transcription & AI)');
+    if (!await whisper.ready()) throw Exception('Download a speech model first (AI models)');
     final heard = (await whisper.transcribe(wavPath))
         .replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')

@@ -40,7 +40,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _checkModels() async {
     await WhisperService.instance.loadPrefs();
-    final ok = await WhisperService.instance.isDownloaded();
+    final ok = await WhisperService.instance.ready();
     if (mounted) setState(() => _speechReady = ok);
   }
 

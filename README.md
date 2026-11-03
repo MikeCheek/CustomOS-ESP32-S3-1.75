@@ -76,8 +76,16 @@ Built on Arduino + Arduino_GFX, no LVGL.
   your calendar, music, weather, the agenda, Do Not Disturb, finding the phone, questions about your memos, or
   anything else for the on-phone language model. Whisper and the LLM run on the phone, nothing goes online.
   With a Piper voice installed (English, Italian) it also says the answer on the watch speaker.
+- **AI models** (app: Apps or Settings > AI models) - everything runs on the phone, and every model is a
+  download you choose: transcription (sherpa-onnx Whisper, Moonshine and SenseVoice from GitHub, or whisper.cpp),
+  summaries and answers (Qwen3, Gemma), who said what (four speaker models), search by meaning, 17 Piper voices in
+  12 languages, Look (FastVLM, Gemma 3n) and sound alerts (three CED sizes). Downloads go through the system, so
+  they keep going with the app in the background or closed, resume where they stopped, retry, show a notification
+  and try mirrors for Hugging Face files (your own mirror, then hf-mirror.com); one that finishes while the app
+  is closed is set up when it next opens. **Set up in one go** downloads a pack - Essentials, Without Hugging
+  Face, Everything, Light - or your own choice, and makes each the model its feature uses
 - **Wake word** - say "Alexa", "Jarvis", "Hi ESP"... and the assistant opens (Espressif ESP-SR WakeNet on both
-  microphones, models on the SD card, installed from the app: Transcription & AI > Wake word). Off by default;
+  microphones, models on the SD card, installed from the app: AI models > Wake word). Off by default;
   Settings > Sound > Voice turns it on, picks the word and whether it also listens with the screen off. The same
   page has **Voice cleanup**: noise suppression and auto gain on assistant questions and voice replies, and
   **Skip silences**: the Recorder leaves out long pauses

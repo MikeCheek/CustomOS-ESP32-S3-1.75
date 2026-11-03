@@ -1401,7 +1401,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
         }
       }
       if (toTranscribe.isNotEmpty) {
-        if (!await WhisperService.instance.isDownloaded()) {
+        if (!await WhisperService.instance.ready()) {
           notes.add('${toTranscribe.length} memo(s) need a speech model (AI settings)');
         } else {
           for (var i = 0; i < toTranscribe.length && !_pipelineCancel; i++) {

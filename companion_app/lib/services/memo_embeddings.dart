@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'ble_protocol.dart';
 import 'gemma_service.dart';
 import 'knowledge_base.dart';
+import 'model_fetch.dart';
 
 /// Search by meaning: memos and questions as vectors from an on-phone
 /// embedding model (EmbeddingGemma 300M, 4-bit, multilingual - through
@@ -27,7 +28,8 @@ class MemoEmbeddings {
 
   Future<bool> isInstalled() async {
     try {
-      return await FlutterGemma.isModelInstalled(modelFile) && await FlutterGemma.isModelInstalled('sentencepiece.model');
+      return await FlutterGemma.isModelInstalled(modelFile) &&
+          await FlutterGemma.isModelInstalled('sentencepiece.model');
     } catch (_) {
       return false;
     }
@@ -38,11 +40,25 @@ class MemoEmbeddings {
     await GemmaService.initializeEngine();
     final token = await GemmaService.instance.hfToken();
     if (token.isEmpty) throw Exception('EmbeddingGemma is gated: add your Hugging Face token below first');
-    await FlutterGemma.installEmbedder()
-        .modelFromNetwork('$_hf/model.tflite', token: token)
-        .tokenizerFromNetwork('$_hf/sentencepiece.model', token: token)
-        .withModelProgress((p) => onProgress?.call(p / 100.0))
-        .install();
+    // In the background, resumable, mirrors (model_fetch.dart); then registered.
+    final dir = '${(await getApplicationSupportDirectory()).path}/models/embeddings';
+    final auth = {'Authorization': 'Bearer $token'};
+    final model = await ModelFetch.instance.fetch(
+      label: 'EmbeddingGemma',
+      url: '$_hf/model.tflite',
+      dest: File('$dir/$modelFile'),
+      sizeBytes: sizeBytes,
+      headers: auth,
+      onProgress: (p) => onProgress?.call(0.97 * p),
+    );
+    final tok = await ModelFetch.instance.fetch(
+      label: 'EmbeddingGemma tokenizer',
+      url: '$_hf/sentencepiece.model',
+      dest: File('$dir/sentencepiece.model'),
+      headers: auth,
+    );
+    await FlutterGemma.installEmbedder().modelFromFile(model.path).tokenizerFromFile(tok.path).install();
+    onProgress?.call(1);
   }
 
   Future<void> delete() async {
@@ -51,6 +67,8 @@ class MemoEmbeddings {
     try {
       await FlutterGemma.uninstallModel(modelFile);
     } catch (_) {}
+    final own = Directory('${(await getApplicationSupportDirectory()).path}/models/embeddings');
+    if (await own.exists()) await own.delete(recursive: true);
     final f = await _file();
     if (await f.exists()) await f.delete();
     _cache = {};
@@ -69,7 +87,9 @@ class MemoEmbeddings {
   }
 
   Future<void> _save() async {
-    final out = {for (final e in _cache!.entries) e.key: {'h': e.value.hash, 'v': e.value.v}};
+    final out = {
+      for (final e in _cache!.entries) e.key: {'h': e.value.hash, 'v': e.value.v},
+    };
     await (await _file()).writeAsString(jsonEncode(out));
   }
 

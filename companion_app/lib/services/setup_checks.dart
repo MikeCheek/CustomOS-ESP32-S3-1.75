@@ -45,7 +45,7 @@ class SetupStatus {
       location: await safe(() => Permission.locationWhenInUse.isGranted),
       contacts: await safe(() => Permission.contacts.isGranted),
       calendar: await safe(() => Permission.calendarFullAccess.isGranted),
-      speechModel: await safe(() => w.isDownloaded()),
+      speechModel: await safe(() => w.ready()),
       summaryModel: await safe(() => GemmaService.instance.hasModel()),
     );
   }
