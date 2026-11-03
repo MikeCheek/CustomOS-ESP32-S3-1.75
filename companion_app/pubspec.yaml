@@ -43,6 +43,12 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
+
+# connectivity_plus (needed by background_downloader) 7.1+ uses an iOS 26 SDK API
+# (NWPath.isUltraConstrained) that Xcode 16 can't compile; 7.0.0 is the last one without it.
+dependency_overrides:
+  connectivity_plus: 7.0.0
+
 flutter:
   uses-material-design: true
   # iOS: CocoaPods only - several plugins (whisper_ggml, ML Kit, ffmpeg) have no Swift
