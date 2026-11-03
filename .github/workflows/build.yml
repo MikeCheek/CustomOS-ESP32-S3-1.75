@@ -60,6 +60,11 @@ jobs:
           test "$fw" = "$tag"
 
       - name: Build
+        env:
+          # The platform's own Python env (penv) takes "pioarduino>=6.2.0":
+          # keep it on 6.2.0 (pio/uv-constraints.txt says why).
+          UV_CONSTRAINT: ${{ github.workspace }}/pio/uv-constraints.txt
+          PIP_CONSTRAINT: ${{ github.workspace }}/pio/uv-constraints.txt
         run: |
           pio run -e watch 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" = 0
