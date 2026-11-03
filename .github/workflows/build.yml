@@ -170,6 +170,8 @@ jobs:
           ./motion_test
           g++ -std=c++17 -Wall -Ifirmware tools/silence_test.cpp -o silence_test
           ./silence_test
+          g++ -std=c++17 -Wall -Ifirmware tools/voice_capture_test.cpp -o voice_capture_test
+          ./voice_capture_test
 
       - name: Cache cores and libraries
         uses: actions/cache@v4

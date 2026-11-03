@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sys/stat.h>
 #include <ctime>
 #include <vector>
 
@@ -15,6 +16,7 @@ uint32_t emu_frame_seq();
 void emu_frame_rgba(uint8_t *);
 int emu_width();
 void emu_photo_face(const char *);
+int emu_ask_recorded(int ms);
 int emu_height();
 void emu_touch(int, int, int);
 void emu_button(int, int);
@@ -108,6 +110,22 @@ int main(int argc, char **argv) {
     while ((n = emu_link_pop(buf, sizeof(buf))) > 0) { printf("watch -> app: %s\n", buf); asked |= strstr(buf, "\"ask\"") != nullptr; }
     snprintf(p, sizeof(p), "%s/emu_ask.ppm", out); save(p);
     if (!rec || !asked) { printf("FAIL: no recording (%d) or no ask (%d)\n", rec, asked); return 1; }
+
+    // What the wake word heard that wasn't a command: sent as the question
+    // as it is - no new recording, the file is exactly what was heard.
+    while (emu_take_event(ev, sizeof(ev)) > 0) {}
+    if (!emu_ask_recorded(1500)) { printf("FAIL: ask_recorded refused\n"); return 1; }
+    run(300);
+    bool rec2 = false, asked2 = false;
+    while (emu_take_event(ev, sizeof(ev)) > 0) rec2 |= strstr(ev, "\"rec\",\"on\":1") != nullptr;
+    while ((n = emu_link_pop(buf, sizeof(buf))) > 0) asked2 |= strstr(buf, "\"ask\"") && strstr(buf, "_ask.wav");
+    struct stat ast;
+    snprintf(p, sizeof(p), "%s/sd/Recordings/_ask.wav", out);
+    long want = 44 + 1500L * 16 * 2;
+    bool sized = stat(p, &ast) == 0 && ast.st_size == want;
+    printf("recorded question: asked %d, no new recording %d, file %ld bytes (want %ld)\n", asked2, !rec2,
+           (long)(sized ? ast.st_size : -1), want);
+    if (!asked2 || rec2 || !sized) { printf("FAIL: recorded question\n"); return 1; }
 
     // The photo face (make_test_photoface.py wrote <out>/sd/faces/photo.pwf):
     // the red disc (the subject) in front of the white time, the time around it.

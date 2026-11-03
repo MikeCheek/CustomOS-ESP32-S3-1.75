@@ -21,7 +21,10 @@
  * The same front end's output goes to MultiNet for a few seconds ("next
  * song", "set a timer for five minutes", "find my phone"...); a command
  * runs here on the watch, with no phone and no network. Nothing it knows
- * in that time opens the assistant as before.
+ * in that time goes to the assistant: what was said is kept as it's
+ * heard (voice_capture.h), recording goes on while you're still talking,
+ * and it's sent to the phone as the question - no need to say it again.
+ * Silence after the word opens the assistant to listen, as before.
  */
 #include "voice_sr.h"
 #include "config.h"
@@ -49,6 +52,7 @@
 #include "esp_mn_iface.h"
 #include "esp_mn_speech_commands.h"
 #include "model_path.h"
+#include "voice_capture.h"
 #include "apps.h"
 #include "app_recorder.h"
 #include "app_sleep.h"
@@ -224,6 +228,13 @@ static const esp_mn_iface_t *s_mn = nullptr;
 static model_iface_data_t *s_mnd = nullptr;
 static volatile bool s_cmd_listen = false;  // wake_ctl: feeding MultiNet after the word
 static volatile int s_cmd_result = CMD_NONE;    // wake_ctl -> main loop, -1 = nothing understood
+// What was said after the word (PSRAM, 10 s): the question when it isn't a command.
+static const int CAP_SAMPLES = VoiceCapture::RATE * 10;
+static int16_t *s_cap_buf = nullptr;
+static VoiceCapture s_cap;
+static bool s_cap_on = false;               // wake_ctl: capturing this time
+static volatile bool s_cap_extend = false;  // no command, still talking: keep recording
+static volatile bool s_cap_ready = false;   // s_cap holds a question for the main loop (it owns it until cleared)
 // Core 0, priority 1: loop() and all drawing are on core 1 and must not
 // wait for WakeNet; on core 0 the radios and the display sender (priority
 // 2) still go first. It only needs to keep up with the microphone - the
@@ -233,6 +244,7 @@ static const int WAKE_PRIO = 1;
 
 static void mn_unload() {
     s_cmd_listen = false;
+    s_cap_extend = false;
     if (s_mnd) {
         esp_mn_commands_free();
         s_mn->destroy(s_mnd);
@@ -270,6 +282,8 @@ static bool mn_load(srmodel_list_t *models) {
     for (const CmdPhrase &p : CMD_PHRASES) esp_mn_commands_phoneme_add(p.id, p.text, p.phonemes);
     esp_mn_error_t *err = esp_mn_commands_update();
     if (err && err->num > 0) DEBUG_PRINTF("[voice] %d command phrases not accepted\n", err->num);
+    if (!s_cap_buf)
+        s_cap_buf = (int16_t *)heap_caps_malloc(CAP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     DEBUG_PRINTF("[voice] commands ready (%s)\n", s_mn_dir);
     return true;
 }
@@ -352,15 +366,28 @@ static void wake_ctl(void *) {
             continue;
         }
         s_state = s_pause ? VW_PAUSED : VW_LISTENING;
-        if (s_cmd_listen && s_pause) {
+        if ((s_cmd_listen || s_cap_extend) && s_pause) {
             // Something else took the microphone: no command this time.
             s_cmd_listen = false;
+            s_cap_extend = false;
             s_ifc->enable_wakenet(s_afe);
         }
         afe_fetch_result_t *r = s_ifc->fetch_with_delay(s_afe, pdMS_TO_TICKS(100));
         if (!r || r->ret_value == ESP_FAIL) continue;
+        if (s_cap_extend) {
+            // No command: the rest of the question, until a pause.
+            if (r->data && r->data_size > 0) s_cap.add((const int16_t *)r->data, r->data_size / 2);
+            if (!s_cap.still_talking() || s_cap.full()) {
+                s_cap_extend = false;
+                s_ifc->enable_wakenet(s_afe);
+                s_cap_ready = true;
+                s_cmd_result = -1;
+            }
+            continue;
+        }
         if (s_cmd_listen) {
             if (!r->data || r->data_size <= 0) continue;
+            if (s_cap_on) s_cap.add((const int16_t *)r->data, r->data_size / 2);
             esp_mn_state_t st = s_mn->detect(s_mnd, r->data);
             if (st == ESP_MN_STATE_DETECTING) continue;
             int cmd = -1;
@@ -370,6 +397,10 @@ static void wake_ctl(void *) {
                 DEBUG_PRINTF("[voice] command %d (%s)\n", cmd, res ? res->string : "");
             }
             s_cmd_listen = false;
+            if (cmd < 0 && s_cap_on && s_cap.spoke()) {
+                if (s_cap.still_talking() && !s_cap.full()) { s_cap_extend = true; continue; }
+                s_cap_ready = true;          // the question, all of it
+            }
             s_ifc->enable_wakenet(s_afe);
             s_cmd_result = cmd;
         } else if (r->wakeup_state == WAKENET_DETECTED) {
@@ -377,6 +408,9 @@ static void wake_ctl(void *) {
             if (s_mnd) {
                 s_mn->clean(s_mnd);
                 s_ifc->disable_wakenet(s_afe);
+                // The main loop may still be saving the last question: then none this time.
+                s_cap_on = s_cap_buf && !s_cap_ready;
+                if (s_cap_on) s_cap.begin(s_cap_buf, CAP_SAMPLES);
                 s_cmd_listen = true;
             }
             s_detected = true;
@@ -624,7 +658,7 @@ void voice_update() {
             sleep_register_activity();      // wakes the screen
             if (s_cmd_listen) {
                 vibrate_ms(20);
-                ui_show_toast("Listening for a command...", CMD_LISTEN_MS);
+                ui_show_toast("Listening...", CMD_LISTEN_MS);
             } else {
                 ui_push(&assistant_screen); // starts listening for the question
             }
@@ -635,9 +669,18 @@ void voice_update() {
         s_cmd_result = CMD_NONE;
         if (!pause) {
             sleep_register_activity();
-            if (cmd < 0) ui_push(&assistant_screen);   // nothing it knows: the assistant listens instead
-            else run_command(cmd);
+            if (cmd >= 0) {
+                run_command(cmd);
+            } else if (s_cap_ready && s_cap.samples() > VoiceCapture::RATE / 2) {
+                // Not a command, but something was said: that's the question.
+                s_cap.normalize();
+                if (!assistant_ask_recorded(s_cap.data(), s_cap.samples(), VoiceCapture::RATE))
+                    ui_push(&assistant_screen);   // no phone / no card: the assistant says why
+            } else {
+                ui_push(&assistant_screen);       // nothing said: the assistant listens instead
+            }
         }
+        s_cap_ready = false;   // wake_ctl may use the buffer again
     }
 }
 

@@ -85,7 +85,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   page), the wake word listens a few seconds for a command and the watch runs it on its own, no phone or
   network: "what time is it", "next song", "pause music", "volume up", "set a timer for five minutes",
   "cancel the timer", "find my phone", "turn on do not disturb", "open settings", "show notifications",
-  "open the recorder", "go home"... Anything else opens the assistant. The phrases and their phonemes are in
+  "open the recorder", "go home"... Anything else is a question: what you said goes to the phone's assistant
+  as it is (any language Whisper knows), so you don't say it twice. The phrases and their phonemes are in
   `tools/voice_cmd_phrases.py` (Settings > Sound > Voice > Commands)
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.

@@ -4,6 +4,8 @@
  *
  *   watch: records /Recordings/_ask.wav (mono, stops by itself when you
  *          stop talking), then  {"e":"ask","n":<seq>,"f":"_ask.wav"}
+ *          (or, after the wake word, the words that weren't a command:
+ *          assistant_ask_recorded())
  *   phone: downloads it, transcribes it (Whisper), works out what was
  *          asked (its own rules first, then the local LLM) and does it -
  *          music, reminders and alarms in the calendar, weather, the
@@ -35,3 +37,9 @@ void assistant_timer_update();
 bool assistant_timer_active();
 uint32_t assistant_timer_left_s();
 void assistant_timer_set(uint32_t seconds);   // 0 = cancel
+
+// A question already recorded (16-bit mono, what was said after the wake
+// word that wasn't a command): saved as _ask.wav and sent to the phone,
+// with the assistant showing the answer. False without the phone link or
+// the SD card - then nothing happens.
+bool assistant_ask_recorded(const int16_t *pcm, int samples, int rate);

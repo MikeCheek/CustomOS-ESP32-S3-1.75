@@ -91,15 +91,45 @@ static void start_listening() {
     set_state(A_LISTEN);
 }
 
-static void stop_and_send() {
-    audio_stop_record();
-    if (!s_spoke && millis() - s_state_ms < 900) { fail("Didn't hear anything - tap and ask again"); return; }
+static void send_ask() {
     char msg[80];
     s_seq++;
     snprintf(msg, sizeof(msg), "{\"e\":\"ask\",\"n\":%lu,\"f\":\"" ASK_FILE "\"}", (unsigned long)s_seq);
     if (!ble_link_send(msg)) { fail("Phone not reachable"); return; }
     snprintf(s_status, sizeof(s_status), "Sending");
     set_state(A_WAIT);
+}
+
+static void stop_and_send() {
+    audio_stop_record();
+    if (!s_spoke && millis() - s_state_ms < 900) { fail("Didn't hear anything - tap and ask again"); return; }
+    send_ask();
+}
+
+// ---- a question that's already recorded (after the wake word) -------------------------
+static bool s_prerecorded = false;   // the next open sends _ask.wav instead of recording
+
+static void put_le(uint8_t *p, uint32_t v, int n) { for (int i = 0; i < n; i++) p[i] = (uint8_t)(v >> (8 * i)); }
+
+bool assistant_ask_recorded(const int16_t *pcm, int samples, int rate) {
+    if (!phone_link_active() || !sd_is_mounted() || samples <= 0 || audio_is_recording()) return false;
+    SD.mkdir("/Recordings");
+    SD.remove("/Recordings/" ASK_FILE);
+    File f = SD.open("/Recordings/" ASK_FILE, FILE_WRITE);
+    if (!f) return false;
+    uint32_t bytes = (uint32_t)samples * 2;
+    uint8_t h[44];
+    memcpy(h, "RIFF", 4); put_le(h + 4, 36 + bytes, 4); memcpy(h + 8, "WAVEfmt ", 8);
+    put_le(h + 16, 16, 4); put_le(h + 20, 1, 2); put_le(h + 22, 1, 2);        // PCM, mono
+    put_le(h + 24, rate, 4); put_le(h + 28, rate * 2, 4); put_le(h + 32, 2, 2); put_le(h + 34, 16, 2);
+    memcpy(h + 36, "data", 4); put_le(h + 40, bytes, 4);
+    bool ok = f.write(h, 44) == 44 && f.write((const uint8_t *)pcm, bytes) == bytes;   // little-endian already
+    f.close();
+    if (!ok) { SD.remove("/Recordings/" ASK_FILE); return false; }
+    s_prerecorded = true;
+    if (ui_screen_on_top(&assistant_screen)) ui_pop_screen();
+    ui_push(&assistant_screen);
+    return true;
 }
 
 // ---- called from phone_link.cpp ---------------------------------------------------------
@@ -229,6 +259,12 @@ static void assist_draw() {
 // ---- screen ------------------------------------------------------------------------------
 static void assist_create() {
     s_open = true;
+    if (s_prerecorded) {
+        s_prerecorded = false;
+        s_question[0] = s_answer[0] = s_chip[0] = s_status[0] = 0;
+        send_ask();
+        return;
+    }
     start_listening();
 }
 

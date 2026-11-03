@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <string.h>
+#include <math.h>
 
 HostSerial Serial;
 // sim_stubs.cpp
@@ -280,6 +281,16 @@ __attribute__((visibility("default"))) void emu_photo_face(const char *name) {
         if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
     }
     phone_link_send_photo_faces();
+}
+
+// Tests: what the wake word hands the assistant when it wasn't a command -
+// `ms` of a 220 Hz tone as the question (voice_sr.cpp on the watch).
+__attribute__((visibility("default"))) int emu_ask_recorded(int ms) {
+    static int16_t pcm[16000 * 5];
+    int n = 16 * ms;
+    if (n > (int)(sizeof(pcm) / 2)) n = sizeof(pcm) / 2;
+    for (int i = 0; i < n; i++) pcm[i] = (int16_t)(8000 * sin(2 * M_PI * 220 * i / 16000.0));
+    return assistant_ask_recorded(pcm, n, 16000) ? 1 : 0;
 }
 
 }  // extern "C"

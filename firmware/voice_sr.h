@@ -13,7 +13,8 @@
  *  - Offline commands: with MultiNet7 installed as well (~2.7 MB), the
  *    wake word listens ~4 s for a command ("next song", "set a timer for
  *    five minutes", "find my phone") and runs it on the watch; anything
- *    else opens the assistant.
+ *    else said is sent to the phone's assistant as the question
+ *    (voice_capture.h, assistant_ask_recorded()), silence opens it.
  *
  *  - Voice cleanup: the mono recordings the assistant and voice replies
  *    make (mic1 + mic2 summed) go through ESP-SR's noise suppression and
