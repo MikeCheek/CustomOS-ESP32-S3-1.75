@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -249,9 +250,7 @@ void _run(List<dynamic> a) {
     final rec = sherpa.OfflineRecognizer(sherpa.OfflineRecognizerConfig(model: model));
     final result = <List<Object>>[];
     try {
-      final cuts = _cuts(samples);
-      for (var i = 0; i < cuts.length - 1; i++) {
-        final s = cuts[i], e = cuts[i + 1];
+      for (final (s, e) in speechPieces(samples)) {
         final stream = rec.createStream();
         try {
           stream.acceptWaveform(samples: Float32List.sublistView(samples, s, e), sampleRate: 16000);
@@ -272,29 +271,95 @@ void _run(List<dynamic> a) {
   }
 }
 
-/// Where to cut: pieces of at most 28 s, each ending at the quietest 100 ms
-/// of its last 4 s (between words, not in one).
-List<int> _cuts(Float32List s) {
-  const rate = 16000, maxLen = 28 * rate, look = 4 * rate, win = rate ~/ 10;
-  final cuts = [0];
-  var start = 0;
-  while (s.length - start > maxLen) {
-    var best = start + maxLen, bestE = double.infinity;
-    for (var w = start + maxLen - look; w + win <= start + maxLen; w += win ~/ 2) {
-      var e = 0.0;
-      for (var k = w; k < w + win; k++) {
-        e += s[k] * s[k];
-      }
-      if (e < bestE) {
-        bestE = e;
-        best = w + win ~/ 2;
-      }
+/// The stretches with speech, as (start, end) sample offsets: cut at
+/// pauses of half a second or more, so each piece is about one utterance -
+/// one speaker's turn, which is what "who said what" lines up with. The
+/// room's level is measured from the recording itself (its quietest
+/// tenth). Bits under a second join the piece before; pieces over 28 s
+/// (what Whisper takes at a time) are split at their quietest moment;
+/// pieces without speech are left out. Public for tests.
+List<(int, int)> speechPieces(Float32List s, {int rate = 16000}) {
+  final frame = rate ~/ 50; // 20 ms
+  final n = s.length ~/ frame;
+  if (n == 0) return s.isEmpty ? const [] : [(0, s.length)];
+  final rms = Float64List(n);
+  for (var f = 0; f < n; f++) {
+    var e = 0.0;
+    for (var k = f * frame; k < (f + 1) * frame; k++) {
+      e += s[k] * s[k];
     }
-    cuts.add(best);
-    start = best;
+    rms[f] = math.sqrt(e / frame);
+  }
+  final sorted = Float64List.fromList(rms)..sort();
+  final floor = sorted[n ~/ 10], loud = sorted[n * 9 ~/ 10];
+  // ~10 dB over the room and never under -50 dBFS - but never above a third of the
+  // loud parts either (a recording with hardly any pause has no "room" to measure)
+  final thr = math.max(0.003, math.min(floor * 3, loud * 0.3));
+  final voiced = [for (final r in rms) r > thr];
+
+  // cut in the middle of every pause of 0.5 s or more
+  final minPause = 25; // frames
+  final cuts = <int>[0];
+  var f = 0;
+  while (f < n) {
+    if (voiced[f]) {
+      f++;
+      continue;
+    }
+    final a = f;
+    while (f < n && !voiced[f]) {
+      f++;
+    }
+    if (f - a >= minPause && a > 0 && f < n) cuts.add(((a + f) ~/ 2) * frame);
   }
   cuts.add(s.length);
-  return cuts;
+
+  // pieces, without the silent ones; short bits join the one before
+  var pieces = <(int, int)>[];
+  for (var i = 0; i + 1 < cuts.length; i++) {
+    final a = cuts[i], b = cuts[i + 1];
+    final fa = a ~/ frame, fb = math.min(n, (b + frame - 1) ~/ frame);
+    var speech = 0;
+    for (var k = fa; k < fb; k++) {
+      if (voiced[k]) speech++;
+    }
+    if (speech < 5) continue; // < 0.1 s of speech: nothing to read
+    // under a second of speech, right after the piece before: part of it
+    if (pieces.isNotEmpty && speech < 50 && a - pieces.last.$2 < rate) {
+      pieces[pieces.length - 1] = (pieces.last.$1, b);
+    } else {
+      pieces.add((a, b));
+    }
+  }
+  // over 28 s: split at the quietest 100 ms of the last 4 s
+  const maxS = 28;
+  final out = <(int, int)>[];
+  for (var (a, b) in pieces) {
+    while (b - a > maxS * rate) {
+      final cut = _quietCut(s, a + maxS * rate - 4 * rate, a + maxS * rate, rate);
+      out.add((a, cut));
+      a = cut;
+    }
+    out.add((a, b));
+  }
+  pieces = out;
+  return pieces;
+}
+
+int _quietCut(Float32List s, int from, int to, int rate) {
+  final win = rate ~/ 10;
+  var best = to, bestE = double.infinity;
+  for (var w = from; w + win <= to; w += win ~/ 2) {
+    var e = 0.0;
+    for (var k = w; k < w + win; k++) {
+      e += s[k] * s[k];
+    }
+    if (e < bestE) {
+      bestE = e;
+      best = w + win ~/ 2;
+    }
+  }
+  return best;
 }
 
 /// A 16-bit mono WAV's samples as -1..1.

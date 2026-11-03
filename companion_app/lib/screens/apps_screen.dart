@@ -27,6 +27,7 @@ import 'wake_word_screen.dart';
 import 'watch_slots_screen.dart';
 import 'watch_wifi_screen.dart';
 import 'weather_screen.dart';
+import '../widgets/platform_notice.dart';
 
 /// One thing the app can do.
 class AppFeature {
@@ -184,7 +185,7 @@ final appGroups = <AppGroup>[
   AppGroup('Phone link', [
     AppFeature(
       'Notifications & calls',
-      'What reaches the watch',
+      isIos ? 'Android only - see why' : 'What reaches the watch',
       Icons.notifications_active_outlined,
       AppColors.accent,
       page: () => const NotificationsScreen(),
@@ -192,7 +193,7 @@ final appGroups = <AppGroup>[
     ),
     AppFeature(
       'Music',
-      'Control the phone\'s music from the watch',
+      isIos ? 'Android only - see why' : 'Control the phone\'s music from the watch',
       Icons.music_note_outlined,
       AppColors.accent3,
       page: () => const MediaScreen(),
@@ -216,7 +217,7 @@ final appGroups = <AppGroup>[
     ),
     AppFeature(
       'Do Not Disturb',
-      'Bedtime and quick replies',
+      isIos ? 'Bedtime on the watch' : 'Bedtime and quick replies',
       Icons.do_not_disturb_on_outlined,
       AppColors.accent2,
       page: () => const DndRepliesScreen(),

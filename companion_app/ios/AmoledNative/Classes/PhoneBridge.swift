@@ -4,6 +4,7 @@ import CoreLocation
 import EventKit
 import Flutter
 import UIKit
+import UserNotifications
 
 /// "com.amoledwatch.native" on iPhone (lib/services/native_service.dart,
 /// PhoneBridge.kt on Android): what iOS lets an app do - battery, contacts,
@@ -17,10 +18,12 @@ final class PhoneBridge: NSObject, FlutterStreamHandler {
     private var batterySink: FlutterEventSink?
     private var calendarSink: FlutterEventSink?
     private var finder: AVAudioPlayer?
+    private let smsTaps = SmsTapHandler()
 
     init(messenger: FlutterBinaryMessenger) {
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
+        smsTaps.install()
         FlutterMethodChannel(name: "com.amoledwatch.native", binaryMessenger: messenger)
             .setMethodCallHandler { [weak self] call, result in self?.handle(call, result) }
         FlutterEventChannel(name: "com.amoledwatch.native/battery", binaryMessenger: messenger).setStreamHandler(self)
@@ -61,7 +64,9 @@ final class PhoneBridge: NSObject, FlutterStreamHandler {
              "installApk", "startLinkService":
             result(false)
         case "sendSms":
-            result(FlutterError(code: "unsupported", message: "iOS doesn't let apps send texts on their own", details: nil))
+            // iOS doesn't let an app send a text by itself: open Messages with it written
+            // (app in front), or post a notification that does when tapped (fall alerts).
+            result(composeText(to: args?["to"] as? String ?? "", body: args?["text"] as? String ?? ""))
         default:
             result(nil)   // Android-only settings and helpers: nothing to do here
         }
@@ -165,6 +170,33 @@ final class PhoneBridge: NSObject, FlutterStreamHandler {
         }
     }
 
+    // ---- texts: Messages with the text ready ----
+    static func smsUrl(to: String, body: String) -> URL? {
+        let number = to.filter { "+0123456789".contains($0) }
+        guard !number.isEmpty else { return nil }
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=?+")
+        let text = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        return URL(string: "sms:\(number)&body=\(text)")   // iOS's own sms: form
+    }
+
+    private func composeText(to: String, body: String) -> Bool {
+        guard let url = PhoneBridge.smsUrl(to: to, body: body) else { return false }
+        if UIApplication.shared.applicationState == .active {
+            UIApplication.shared.open(url)
+            return true
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "Fall alert"
+        content.body = "Tap to send your emergency contact the text with your location"
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.userInfo = ["sms": url.absoluteString]
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "amoled.fall", content: content, trigger: nil))
+        return true
+    }
+
     // ---- find my phone: a loud repeating beep until stopped ----
     private func findPhone(_ on: Bool) {
         finder?.stop()
@@ -185,6 +217,41 @@ final class PhoneBridge: NSObject, FlutterStreamHandler {
         finder?.numberOfLoops = -1
         finder?.volume = 1
         finder?.play()
+    }
+}
+
+/// Taps on the fall alert's notification open Messages with the text; any
+/// other notification goes on to the delegate that was there before.
+final class SmsTapHandler: NSObject, UNUserNotificationCenterDelegate {
+    private weak var next: UNUserNotificationCenterDelegate?
+
+    func install() {
+        let c = UNUserNotificationCenter.current()
+        if c.delegate !== self {
+            next = c.delegate
+            c.delegate = self
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        if let s = response.notification.request.content.userInfo["sms"] as? String, let url = URL(string: s) {
+            UIApplication.shared.open(url)
+            done()
+        } else if let n = next {
+            n.userNotificationCenter?(center, didReceive: response, withCompletionHandler: done) ?? done()
+        } else {
+            done()
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if let n = next, n.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:willPresent:withCompletionHandler:))) {
+            n.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: done)
+        } else {
+            done([.banner, .sound])
+        }
     }
 }
 

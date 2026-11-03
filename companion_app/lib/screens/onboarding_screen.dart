@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'scan_screen.dart';
 import '../services/model_fetch.dart';
+import '../widgets/platform_notice.dart';
 
 /// First-run setup: pair the watch, then grant what each feature needs, one
 /// step at a time with a sentence on why. Every step can be skipped and
@@ -139,10 +140,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
         color: AppColors.accent,
         art: Image.asset('assets/logo.png', width: 112, height: 112),
         title: 'Your watch, linked to your phone',
-        body:
-            'Notifications with replies, calls, music controls, weather, voice memos with transcripts, '
-            'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
-            'A few quick steps and you\'re set.',
+        body: isIos
+            ? 'Weather, your agenda and reminders, voice memos with transcripts, the assistant, photo faces, '
+                  'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
+                  'A few quick steps and you\'re set.'
+            : 'Notifications with replies, calls, music controls, weather, voice memos with transcripts, '
+                  'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
+                  'A few quick steps and you\'re set.',
       ),
       _Step(
         icon: Icons.bluetooth_searching_rounded,
@@ -157,26 +161,33 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
           _Action(ble.isConnected ? 'Pair a different watch' : 'Find my watch', _pair, primary: !ble.isConnected),
         ],
       ),
-      _Step(
-        icon: Icons.notifications_active_rounded,
-        color: AppColors.accent3,
-        title: 'Notifications and calls',
-        body:
-            'To show your phone\'s notifications on the watch - and reply, dismiss, answer calls and '
-            'control music from it - allow notification access for AmoledWatch on the next screen.',
-        done: _s.notificationAccess,
-        doneText: settings.forwardNotifications ? 'Notifications go to the watch' : 'Access allowed',
-        actions: [if (!_s.notificationAccess) _Action('Allow notification access', _notificationAccess, primary: true)],
-      ),
+      // iPhone: iOS doesn't let apps read notifications (see Notifications & calls)
+      if (!isIos)
+        _Step(
+          icon: Icons.notifications_active_rounded,
+          color: AppColors.accent3,
+          title: 'Notifications and calls',
+          body:
+              'To show your phone\'s notifications on the watch - and reply, dismiss, answer calls and '
+              'control music from it - allow notification access for AmoledWatch on the next screen.',
+          done: _s.notificationAccess,
+          doneText: settings.forwardNotifications ? 'Notifications go to the watch' : 'Access allowed',
+          actions: [
+            if (!_s.notificationAccess) _Action('Allow notification access', _notificationAccess, primary: true),
+          ],
+        ),
       _Step(
         icon: Icons.sync_lock_rounded,
         color: AppColors.success,
         title: 'Stay connected',
-        body:
-            'The app keeps the watch linked while it\'s closed, with a small status notification. '
-            'Weather uses your approximate location; your calendar gives the watch an agenda and reminders.',
+        body: isIos
+            ? 'The app keeps the watch linked in the background. Notifications show fall alerts and model '
+                  'downloads. Weather uses your approximate location; your calendar gives the watch an agenda and '
+                  'reminders.'
+            : 'The app keeps the watch linked while it\'s closed, with a small status notification. '
+                  'Weather uses your approximate location; your calendar gives the watch an agenda and reminders.',
         checklist: [
-          _CheckItem('Status notification', _s.postNotifications, () async {
+          _CheckItem(isIos ? 'Notifications' : 'Status notification', _s.postNotifications, () async {
             await Permission.notification.request();
             final st = ref.read(settingsProvider);
             await ref.read(settingsProvider.notifier).update(st.copyWith(backgroundLink: true));

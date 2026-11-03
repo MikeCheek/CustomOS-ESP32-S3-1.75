@@ -31,6 +31,10 @@ class ModelFetch {
   // Our own scope: flutter_gemma uses the default FileDownloader too.
   final FileDownloader _dl = FileDownloader.scoped('amoled');
   final _waiters = <String, Completer<TaskStatusUpdate>>{};
+  // Which install (ModelJobs id, from the zone ModelJobs.run sets) each running download is for
+  static const jobKey = #modelJob;
+  final _jobTasks = <String, Set<String>>{};
+  final _canceledJobs = <String>{};
   final _listeners = <String, void Function(double)>{};
   Future<void>? _init;
 
@@ -151,8 +155,11 @@ class ModelFetch {
   }
 
   Future<TaskStatusUpdate> _run(String id, DownloadTask Function() make, void Function(double)? onProgress) async {
+    final job = Zone.current[jobKey] as String?;
+    if (job != null && _canceledJobs.contains(job)) throw const ModelFetchCanceled();
     final c = Completer<TaskStatusUpdate>();
     _waiters[id] = c;
+    if (job != null) _jobTasks.putIfAbsent(job, () => {}).add(id);
     if (onProgress != null) _listeners[id] = onProgress;
     try {
       final existing = await _dl.taskForId(id);
@@ -167,7 +174,46 @@ class ModelFetch {
     } finally {
       _waiters.remove(id);
       _listeners.remove(id);
+      if (job != null) _jobTasks[job]?.remove(id);
     }
+  }
+
+  // ---- pause / cancel, per install -------------------------------------------------------
+  /// Stops [job]'s downloads; its install ends with ModelFetchCanceled.
+  Future<void> cancelJob(String job) async {
+    _canceledJobs.add(job);
+    final ids = {...?_jobTasks[job]};
+    if (ids.isNotEmpty) await _dl.cancelTasksWithIds(ids);
+    // a paused task doesn't report a final state of its own: end the wait here
+    for (final id in ids) {
+      final c = _waiters[id];
+      if (c != null && !c.isCompleted) {
+        final t = await _dl.taskForId(id);
+        if (t != null) c.complete(TaskStatusUpdate(t, TaskStatus.canceled));
+      }
+    }
+  }
+
+  /// The install [job] can start downloads again (ModelJobs.run).
+  void allow(String job) => _canceledJobs.remove(job);
+
+  /// Pauses / resumes [job]'s downloads (they pick up where they were).
+  Future<bool> pauseJob(String job) async {
+    var any = false;
+    for (final id in {...?_jobTasks[job]}) {
+      final t = await _dl.taskForId(id);
+      if (t is DownloadTask) any |= await _dl.pause(t);
+    }
+    return any;
+  }
+
+  Future<bool> resumeJob(String job) async {
+    var any = false;
+    for (final id in {...?_jobTasks[job]}) {
+      final t = await _dl.taskForId(id);
+      if (t is DownloadTask) any |= await _dl.resume(t);
+    }
+    return any;
   }
 
   void _onStatus(TaskStatusUpdate u) {
@@ -239,6 +285,42 @@ class ModelJobs extends ChangeNotifier {
 
   bool busy(String id) => progress.containsKey(id);
 
+  /// Installs whose downloads are paused.
+  final Set<String> paused = {};
+  bool _stopAll = false;
+
+  Future<void> pause(String id) async {
+    if (await ModelFetch.instance.pauseJob(id)) {
+      paused.add(id);
+      notifyListeners();
+    }
+  }
+
+  Future<void> resumeJob(String id) async {
+    await ModelFetch.instance.resumeJob(id);
+    paused.remove(id);
+    notifyListeners();
+  }
+
+  /// Stops [id]'s install; a pack goes on with the next one.
+  Future<void> cancel(String id) async {
+    paused.remove(id);
+    await ModelFetch.instance.cancelJob(id);
+    await _setPending(id, false);
+    notifyListeners();
+  }
+
+  /// Stops everything, including the rest of a pack.
+  Future<void> cancelAll() async {
+    _stopAll = true;
+    for (final id in [...progress.keys]) {
+      await cancel(id);
+    }
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_pendingKey);
+    notifyListeners();
+  }
+
   /// Every installer, by id (ai_catalog.dart registers them), so pending
   /// jobs can be resumed after a restart.
   void register(String id, Future<void> Function(void Function(double) onProgress) run) => _runners[id] = run;
@@ -255,18 +337,23 @@ class ModelJobs extends ChangeNotifier {
     final go = job ?? _runners[id];
     if (go == null) throw Exception('Unknown model $id');
     errors.remove(id);
+    ModelFetch.instance.allow(id);
     progress[id] = -1;
     notifyListeners();
     await _setPending(id, true);
     var last = 0.0;
     try {
-      await go((p) {
-        if (p - last >= 0.01 || p >= 1) {
-          last = p;
-          progress[id] = p;
-          notifyListeners();
-        }
-      });
+      // the zone tells ModelFetch which install each download is for (pause / cancel)
+      await runZoned(
+        () => go((p) {
+          if (p - last >= 0.01 || p >= 1) {
+            last = p;
+            progress[id] = p;
+            notifyListeners();
+          }
+        }),
+        zoneValues: {ModelFetch.jobKey: id},
+      );
       await _setPending(id, false);
     } on ModelFetchCanceled {
       await _setPending(id, false);
@@ -277,6 +364,7 @@ class ModelJobs extends ChangeNotifier {
       rethrow;
     } finally {
       progress.remove(id);
+      paused.remove(id);
       notifyListeners();
     }
   }
@@ -285,13 +373,17 @@ class ModelJobs extends ChangeNotifier {
   /// remembered first, so closing the app halfway finishes the rest at the
   /// next start. Returns the ones that failed.
   Future<List<String>> runAll(List<String> ids) async {
+    _stopAll = false;
     for (final id in ids) {
       await _setPending(id, true);
     }
     final failed = <String>[];
     for (final id in ids) {
+      if (_stopAll) break; // "Stop all"
       try {
         await run(id);
+      } on ModelFetchCanceled {
+        // this one was stopped: go on with the next
       } catch (_) {
         failed.add(id);
       }
@@ -302,11 +394,13 @@ class ModelJobs extends ChangeNotifier {
   /// At app start: finish what was being installed when the app closed,
   /// one after another.
   Future<void> resume() async {
+    _stopAll = false;
     final ids = [
       for (final id in await pending())
         if (_runners.containsKey(id)) id,
     ];
     for (final id in ids) {
+      if (_stopAll) break;
       try {
         await run(id);
       } catch (_) {}

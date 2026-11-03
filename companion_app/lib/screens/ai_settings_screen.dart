@@ -190,7 +190,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     final features = AiFeature.values;
     final ready = features.where((f) => AiCatalog.of(f).any((i) => _selected[i.id] == true)).length;
     final transcribing = AiCatalog.of(AiFeature.transcription).any((i) => _selected[i.id] == true);
-    final active = [for (final e in _jobs.progress.entries) (AiCatalog.byId(e.key), e.value)];
+    final active = [for (final e in _jobs.progress.entries) (e.key, AiCatalog.byId(e.key), e.value)];
 
     return Scaffold(
       appBar: AppBar(title: const Text('AI models')),
@@ -253,27 +253,63 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   ),
                 ),
                 if (active.isNotEmpty) ...[
-                  const SectionLabel('Downloading'),
+                  SectionLabel(
+                    'Downloading',
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await _jobs.cancelAll();
+                        if (context.mounted) showSnack(context, 'Downloads stopped');
+                      },
+                      child: const Text('Stop all'),
+                    ),
+                  ),
                   Panel(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
                     child: Column(
                       children: [
-                        for (final (item, p) in active) ...[
+                        for (final (id, item, p) in active) ...[
                           Row(
                             children: [
                               Expanded(
                                 child: Text(
-                                  item?.name ?? '',
+                                  item?.name ?? id,
                                   style: const TextStyle(color: AppColors.text, fontSize: 14),
                                 ),
                               ),
                               Text(
-                                p < 0 ? 'Starting…' : (p >= 1 ? 'Setting up…' : '${(p * 100).round()}%'),
+                                _jobs.paused.contains(id)
+                                    ? 'Paused'
+                                    : p < 0
+                                    ? 'Starting…'
+                                    : (p >= 1 ? 'Setting up…' : '${(p * 100).round()}%'),
                                 style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                              ),
+                              // pause/resume only while it's downloading (not while unpacking)
+                              if (p < 1)
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: _jobs.paused.contains(id) ? 'Resume' : 'Pause',
+                                  icon: Icon(
+                                    _jobs.paused.contains(id) ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                                    color: AppColors.textDim,
+                                  ),
+                                  onPressed: () => _jobs.paused.contains(id) ? _jobs.resumeJob(id) : _jobs.pause(id),
+                                ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                tooltip: 'Cancel',
+                                icon: const Icon(Icons.close_rounded, color: AppColors.textDim),
+                                onPressed: () => _jobs.cancel(id),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          LinearProgressIndicator(value: p > 0 && p < 1 ? p : null, minHeight: 5),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 10),
+                            child: LinearProgressIndicator(
+                              value: _jobs.paused.contains(id) ? (p > 0 ? p : 0) : (p > 0 && p < 1 ? p : null),
+                              minHeight: 5,
+                            ),
+                          ),
                           const SizedBox(height: 10),
                         ],
                       ],

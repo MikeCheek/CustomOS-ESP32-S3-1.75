@@ -5,6 +5,7 @@ import '../providers/settings_provider.dart';
 import '../services/smart_replies.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/platform_notice.dart';
 
 /// Do Not Disturb sync + bedtime, and the quick replies offered on the
 /// watch (firmware 3.1+).
@@ -45,10 +46,11 @@ class _DndRepliesScreenState extends ConsumerState<DndRepliesScreen> with Widget
 
   Future<void> _refresh() async {
     final d = await ref.read(nativeServiceProvider).getDnd();
-    if (mounted) setState(() {
-      _access = d.access;
-      _phoneDnd = d.on;
-    });
+    if (mounted)
+      setState(() {
+        _access = d.access;
+        _phoneDnd = d.on;
+      });
   }
 
   String _fmt(int min) => '${(min ~/ 60).toString().padLeft(2, '0')}:${(min % 60).toString().padLeft(2, '0')}';
@@ -57,7 +59,8 @@ class _DndRepliesScreenState extends ConsumerState<DndRepliesScreen> with Widget
     final t = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: min ~/ 60, minute: min % 60),
-      builder: (ctx, child) => MediaQuery(data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true), child: child!),
+      builder: (ctx, child) =>
+          MediaQuery(data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true), child: child!),
     );
     return t == null ? null : t.hour * 60 + t.minute;
   }
@@ -96,127 +99,151 @@ class _DndRepliesScreenState extends ConsumerState<DndRepliesScreen> with Widget
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           const SectionLabel('Do Not Disturb'),
-          RowGroup(children: [
-            ToggleRow(
-              icon: Icons.do_not_disturb_on_outlined,
-              title: 'Sync with the phone',
-              subtitle: _phoneDnd ? 'Phone is in Do Not Disturb now' : 'Phone and watch switch together',
-              value: s.dndSync,
-              onChanged: (v) => setter.update(s.copyWith(dndSync: v)),
+          if (isIos) ...[
+            const Text(
+              'On iPhone the watch\'s Do Not Disturb is its own: iOS doesn\'t let apps switch the phone\'s Focus '
+              'or see it, so the two can\'t be synced. Bedtime below works on the watch either way.',
+              style: TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.4),
             ),
-            if (s.dndSync && !_access)
-              NavRow(
-                icon: Icons.lock_open_rounded,
-                color: AppColors.warning,
-                title: 'Allow Do Not Disturb access',
-                subtitle: 'So the watch can switch the phone too (one-time system setting)',
-                onTap: () => ref.read(nativeServiceProvider).openDndAccess(),
-              ),
-            ToggleRow(
-              icon: Icons.bedtime_outlined,
-              color: AppColors.accent2,
-              title: 'Bedtime on the watch',
-              subtitle: 'Silent every night, also when the phone is away',
-              value: s.bedtimeOn,
-              onChanged: (v) => setter.update(s.copyWith(bedtimeOn: v)),
-            ),
-            if (s.bedtimeOn) ...[
-              NavRow(
-                icon: Icons.nightlight_round,
+            const SizedBox(height: 10),
+          ],
+          RowGroup(
+            children: [
+              if (!isIos)
+                ToggleRow(
+                  icon: Icons.do_not_disturb_on_outlined,
+                  title: 'Sync with the phone',
+                  subtitle: _phoneDnd ? 'Phone is in Do Not Disturb now' : 'Phone and watch switch together',
+                  value: s.dndSync,
+                  onChanged: (v) => setter.update(s.copyWith(dndSync: v)),
+                ),
+              if (!isIos && s.dndSync && !_access)
+                NavRow(
+                  icon: Icons.lock_open_rounded,
+                  color: AppColors.warning,
+                  title: 'Allow Do Not Disturb access',
+                  subtitle: 'So the watch can switch the phone too (one-time system setting)',
+                  onTap: () => ref.read(nativeServiceProvider).openDndAccess(),
+                ),
+              ToggleRow(
+                icon: Icons.bedtime_outlined,
                 color: AppColors.accent2,
-                title: 'From',
-                subtitle: _fmt(s.bedFrom),
-                onTap: () async {
-                  final m = await _pickTime(s.bedFrom);
-                  if (m != null) setter.update(ref.read(settingsProvider).copyWith(bedFrom: m));
-                },
+                title: 'Bedtime on the watch',
+                subtitle: 'Silent every night, also when the phone is away',
+                value: s.bedtimeOn,
+                onChanged: (v) => setter.update(s.copyWith(bedtimeOn: v)),
               ),
-              NavRow(
-                icon: Icons.wb_sunny_outlined,
-                color: AppColors.warning,
-                title: 'Until',
-                subtitle: _fmt(s.bedTo),
-                onTap: () async {
-                  final m = await _pickTime(s.bedTo);
-                  if (m != null) setter.update(ref.read(settingsProvider).copyWith(bedTo: m));
-                },
-              ),
+              if (s.bedtimeOn) ...[
+                NavRow(
+                  icon: Icons.nightlight_round,
+                  color: AppColors.accent2,
+                  title: 'From',
+                  subtitle: _fmt(s.bedFrom),
+                  onTap: () async {
+                    final m = await _pickTime(s.bedFrom);
+                    if (m != null) setter.update(ref.read(settingsProvider).copyWith(bedFrom: m));
+                  },
+                ),
+                NavRow(
+                  icon: Icons.wb_sunny_outlined,
+                  color: AppColors.warning,
+                  title: 'Until',
+                  subtitle: _fmt(s.bedTo),
+                  onTap: () async {
+                    final m = await _pickTime(s.bedTo);
+                    if (m != null) setter.update(ref.read(settingsProvider).copyWith(bedTo: m));
+                  },
+                ),
+              ],
             ],
-          ]),
-          const SectionLabel('Smart replies'),
-          RowGroup(children: [
-            ToggleRow(
-              icon: Icons.auto_awesome_rounded,
-              color: AppColors.accent2,
-              title: 'Write replies for each message',
-              subtitle: 'The on-phone AI model suggests 3 replies; the watch shows them first',
-              value: _smart,
-              onChanged: (v) async {
-                await SmartReplies.setEnabled(v);
-                setState(() => _smart = v);
-              },
-            ),
-          ]),
-          SectionLabel('Quick replies',
-              trailing: s.quickReplies.isEmpty
-                  ? null
-                  : TextButton(onPressed: () => saveReplies(const []), child: const Text('Reset'))),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
-            child: Text('Offered on the watch when you reply to a message, after "Dictate". Up to 10; drag to reorder.',
-                style: TextStyle(color: AppColors.textDim, fontSize: 13)),
           ),
-          Panel(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: ReorderableListView(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              buildDefaultDragHandles: false,
-              onReorder: (a, b) {
-                final l = [...replies];
-                if (b > a) b--;
-                l.insert(b, l.removeAt(a));
-                saveReplies(l);
-              },
+          // Replies are for forwarded messages: none on iPhone (see Notifications & calls)
+          if (!isIos) ...[
+            const SectionLabel('Smart replies'),
+            RowGroup(
               children: [
-                for (var i = 0; i < replies.length; i++)
-                  ListTile(
-                    key: ValueKey('qr$i${replies[i]}'),
-                    leading: ReorderableDragStartListener(
-                        index: i, child: const Icon(Icons.drag_indicator_rounded, color: AppColors.textFaint)),
-                    title: Text(replies[i]),
-                    onTap: () async {
-                      final v = await _editReply(replies[i]);
-                      if (v == null) return;
-                      final l = [...replies];
-                      if (v.isEmpty) {
-                        l.removeAt(i);
-                      } else {
-                        l[i] = v;
-                      }
-                      saveReplies(l);
-                    },
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      onPressed: replies.length <= 1 ? null : () => saveReplies([...replies]..removeAt(i)),
-                    ),
-                  ),
+                ToggleRow(
+                  icon: Icons.auto_awesome_rounded,
+                  color: AppColors.accent2,
+                  title: 'Write replies for each message',
+                  subtitle: 'The on-phone AI model suggests 3 replies; the watch shows them first',
+                  value: _smart,
+                  onChanged: (v) async {
+                    await SmartReplies.setEnabled(v);
+                    setState(() => _smart = v);
+                  },
+                ),
               ],
             ),
-          ),
-          const SizedBox(height: 8),
-          if (replies.length < 10)
-            OutlinedButton.icon(
-              onPressed: () async {
-                final v = await _editReply('');
-                if (v != null && v.isNotEmpty) saveReplies([...replies, v]);
-              },
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add a reply'),
+            SectionLabel(
+              'Quick replies',
+              trailing: s.quickReplies.isEmpty
+                  ? null
+                  : TextButton(onPressed: () => saveReplies(const []), child: const Text('Reset')),
             ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
+              child: Text(
+                'Offered on the watch when you reply to a message, after "Dictate". Up to 10; drag to reorder.',
+                style: TextStyle(color: AppColors.textDim, fontSize: 13),
+              ),
+            ),
+            Panel(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: ReorderableListView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                onReorder: (a, b) {
+                  final l = [...replies];
+                  if (b > a) b--;
+                  l.insert(b, l.removeAt(a));
+                  saveReplies(l);
+                },
+                children: [
+                  for (var i = 0; i < replies.length; i++)
+                    ListTile(
+                      key: ValueKey('qr$i${replies[i]}'),
+                      leading: ReorderableDragStartListener(
+                        index: i,
+                        child: const Icon(Icons.drag_indicator_rounded, color: AppColors.textFaint),
+                      ),
+                      title: Text(replies[i]),
+                      onTap: () async {
+                        final v = await _editReply(replies[i]);
+                        if (v == null) return;
+                        final l = [...replies];
+                        if (v.isEmpty) {
+                          l.removeAt(i);
+                        } else {
+                          l[i] = v;
+                        }
+                        saveReplies(l);
+                      },
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: replies.length <= 1 ? null : () => saveReplies([...replies]..removeAt(i)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (replies.length < 10)
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final v = await _editReply('');
+                  if (v != null && v.isNotEmpty) saveReplies([...replies, v]);
+                },
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add a reply'),
+              ),
+          ],
           const SizedBox(height: 8),
-          const Text('Needs watch firmware 3.1 or newer; changes are sent when the watch is connected.',
-              style: TextStyle(color: AppColors.textFaint, fontSize: 12)),
+          const Text(
+            'Needs watch firmware 3.1 or newer; changes are sent when the watch is connected.',
+            style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+          ),
         ],
       ),
     );

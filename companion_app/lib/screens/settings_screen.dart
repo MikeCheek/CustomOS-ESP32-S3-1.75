@@ -22,6 +22,7 @@ import 'weather_screen.dart';
 import 'safety_screen.dart';
 import 'wake_word_screen.dart';
 import '../widgets/emulator_card.dart';
+import '../widgets/platform_notice.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -113,14 +114,16 @@ class SettingsScreen extends ConsumerWidget {
               NavRow(
                 icon: Icons.notifications_active_outlined,
                 title: 'Notifications & calls',
-                subtitle: s.forwardNotifications ? 'Forwarding to the watch' : 'Off',
+                subtitle: isIos
+                    ? 'Android only - see why'
+                    : (s.forwardNotifications ? 'Forwarding to the watch' : 'Off'),
                 onTap: () => push(const NotificationsScreen()),
               ),
               NavRow(
                 icon: Icons.music_note_outlined,
                 color: AppColors.accent3,
                 title: 'Music controls',
-                subtitle: s.mediaToWatch ? 'On' : 'Off',
+                subtitle: isIos ? 'Android only - see why' : (s.mediaToWatch ? 'On' : 'Off'),
                 onTap: () => push(const MediaScreen()),
               ),
               NavRow(
@@ -141,14 +144,16 @@ class SettingsScreen extends ConsumerWidget {
                     : 'Off',
                 onTap: () => push(const CalendarScreen()),
               ),
-              ToggleRow(
-                icon: Icons.navigation_rounded,
-                color: AppColors.success,
-                title: 'Navigation',
-                subtitle: 'Google Maps directions on the watch',
-                value: s.navigationToWatch,
-                onChanged: (v) => setter.update(s.copyWith(navigationToWatch: v)),
-              ),
+              // reads Google Maps' notifications: Android only
+              if (!isIos)
+                ToggleRow(
+                  icon: Icons.navigation_rounded,
+                  color: AppColors.success,
+                  title: 'Navigation',
+                  subtitle: 'Google Maps directions on the watch',
+                  value: s.navigationToWatch,
+                  onChanged: (v) => setter.update(s.copyWith(navigationToWatch: v)),
+                ),
               NavRow(
                 icon: Icons.do_not_disturb_on_outlined,
                 color: AppColors.accent2,

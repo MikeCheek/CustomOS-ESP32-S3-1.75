@@ -19,6 +19,7 @@ import 'assistant_screen.dart';
 import '../widgets/emulator_card.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../widgets/platform_notice.dart';
 
 /// Home: the watch (real or emulated), what needs attention, today, shortcuts.
 /// Every feature is in the Apps tab, every option in Settings.
@@ -540,7 +541,15 @@ class _Shortcuts extends StatelessWidget {
   final bool connected;
   const _Shortcuts({required this.connected});
 
-  static const _titles = ['Assistant', 'Look', 'Messages', 'Photo face', 'Notifications & calls', 'Search memos'];
+  // iPhone: no notification forwarding there, so sound alerts instead
+  static final _titles = [
+    'Assistant',
+    'Look',
+    'Messages',
+    'Photo face',
+    isIos ? 'Sound alerts' : 'Notifications & calls',
+    'Search memos',
+  ];
 
   @override
   Widget build(BuildContext context) {

@@ -5,6 +5,7 @@ import '../providers/ble_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/platform_notice.dart';
 
 /// Which phone notifications reach the watch, and call alerts.
 class NotificationsScreen extends ConsumerStatefulWidget {
@@ -101,6 +102,30 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     final ble = ref.watch(bleProvider);
     final allApps = s.notifPackages.isEmpty;
 
+    if (isIos) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Notifications & calls')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: const [
+            IosLimitNotice(
+              title: 'Not possible from an iPhone',
+              text:
+                  'iOS doesn\'t let apps read other apps\' notifications or see incoming calls - only the Apple '
+                  'Watch gets them, through a private system link. So messages and calls can\'t be forwarded to '
+                  'this watch from an iPhone. With an Android phone they can.',
+              stillWorks: [
+                'Calendar events and reminders, timers, weather and the agenda on the watch',
+                'The assistant and voice memos, from the watch and from the phone',
+                'Catch me up and smart replies for what this app itself receives',
+                'Find my phone, phone battery and everything else in the watch link',
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications & calls')),
       body: ListView(
@@ -125,65 +150,72 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
               ),
             ),
           const SizedBox(height: 4),
-          RowGroup(children: [
-            ToggleRow(
-              icon: Icons.notifications_active_outlined,
-              title: 'Forward notifications',
-              subtitle: 'Reply and dismiss from the watch',
-              value: s.forwardNotifications && _hasAccess,
-              onChanged: _setForward,
-            ),
-            ToggleRow(
-              icon: Icons.call_rounded,
-              color: AppColors.success,
-              title: 'Call alerts',
-              subtitle: 'See who is calling, answer or decline',
-              value: s.callAlerts,
-              onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(callAlerts: v)),
-            ),
-          ]),
+          RowGroup(
+            children: [
+              ToggleRow(
+                icon: Icons.notifications_active_outlined,
+                title: 'Forward notifications',
+                subtitle: 'Reply and dismiss from the watch',
+                value: s.forwardNotifications && _hasAccess,
+                onChanged: _setForward,
+              ),
+              ToggleRow(
+                icon: Icons.call_rounded,
+                color: AppColors.success,
+                title: 'Call alerts',
+                subtitle: 'See who is calling, answer or decline',
+                value: s.callAlerts,
+                onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(callAlerts: v)),
+              ),
+            ],
+          ),
           const SectionLabel('Apps'),
-          RowGroup(children: [
-            ToggleRow(
-              icon: Icons.apps_rounded,
-              color: AppColors.accent2,
-              title: 'All apps',
-              subtitle: allApps ? 'Every notification goes to the watch' : 'Only the apps selected below',
-              value: allApps,
-              onChanged: (v) => ref.read(settingsProvider.notifier).update(
-                  s.copyWith(notifPackages: v ? <String>[] : _apps.take(4).map((a) => a.pkg).toList())),
-            ),
-            if (!allApps)
-              for (final a in _apps)
-                ToggleRow(
-                  icon: a.icon,
-                  color: a.color,
-                  title: a.name,
-                  value: s.notifPackages.contains(a.pkg),
-                  onChanged: (v) => _toggleApp(a.pkg, v),
-                ),
-          ]),
+          RowGroup(
+            children: [
+              ToggleRow(
+                icon: Icons.apps_rounded,
+                color: AppColors.accent2,
+                title: 'All apps',
+                subtitle: allApps ? 'Every notification goes to the watch' : 'Only the apps selected below',
+                value: allApps,
+                onChanged: (v) => ref
+                    .read(settingsProvider.notifier)
+                    .update(s.copyWith(notifPackages: v ? <String>[] : _apps.take(4).map((a) => a.pkg).toList())),
+              ),
+              if (!allApps)
+                for (final a in _apps)
+                  ToggleRow(
+                    icon: a.icon,
+                    color: a.color,
+                    title: a.name,
+                    value: s.notifPackages.contains(a.pkg),
+                    onChanged: (v) => _toggleApp(a.pkg, v),
+                  ),
+            ],
+          ),
           const SectionLabel('Try it'),
-          RowGroup(children: [
-            NavRow(
-              icon: Icons.send_rounded,
-              title: 'Send a test notification',
-              subtitle: ble.isConnected ? 'Shows up on the watch right away' : 'Connect the watch first',
-              onTap: ble.isConnected
-                  ? () async {
-                      await ref.read(bleServiceProvider).sendLink({
-                        't': 'ntf',
-                        'id': DateTime.now().millisecondsSinceEpoch & 0x7fffffff,
-                        'ap': 'AmoledWatch',
-                        'ti': 'Hello from your phone',
-                        'tx': 'Notifications are linked. Tap to open, swipe right to go back.',
-                        'rp': 0,
-                      });
-                      if (context.mounted) showSnack(context, 'Sent');
-                    }
-                  : null,
-            ),
-          ]),
+          RowGroup(
+            children: [
+              NavRow(
+                icon: Icons.send_rounded,
+                title: 'Send a test notification',
+                subtitle: ble.isConnected ? 'Shows up on the watch right away' : 'Connect the watch first',
+                onTap: ble.isConnected
+                    ? () async {
+                        await ref.read(bleServiceProvider).sendLink({
+                          't': 'ntf',
+                          'id': DateTime.now().millisecondsSinceEpoch & 0x7fffffff,
+                          'ap': 'AmoledWatch',
+                          'ti': 'Hello from your phone',
+                          'tx': 'Notifications are linked. Tap to open, swipe right to go back.',
+                          'rp': 0,
+                        });
+                        if (context.mounted) showSnack(context, 'Sent');
+                      }
+                    : null,
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           const Text(
             'Ongoing notifications (music players, downloads, navigation) and duplicate updates are skipped. '
