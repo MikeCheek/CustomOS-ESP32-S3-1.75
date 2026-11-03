@@ -9,7 +9,8 @@ import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'wake_word_screen.dart';
 
-/// Download/select the on-device models used for voice memos.
+/// The on-device AI: one card per capability with its status; open it to
+/// download, pick or delete its models.
 class AiSettingsScreen extends StatefulWidget {
   const AiSettingsScreen({super.key});
 
@@ -95,9 +96,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _speechProgress = 0;
     });
     try {
-      await _whisper.download(model: m, onProgress: (p) {
-        if (mounted) setState(() => _speechProgress = p);
-      });
+      await _whisper.download(
+        model: m,
+        onProgress: (p) {
+          if (mounted) setState(() => _speechProgress = p);
+        },
+      );
       await _whisper.setModel(m);
       _speechDownloaded[m] = true;
       if (mounted) showSnack(context, '${WhisperService.labels[m]} speech model ready');
@@ -114,9 +118,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _diarProgress = 0;
     });
     try {
-      await _diar.install(onProgress: (p) {
-        if (mounted) setState(() => _diarProgress = p);
-      });
+      await _diar.install(
+        onProgress: (p) {
+          if (mounted) setState(() => _diarProgress = p);
+        },
+      );
       _diarInstalled = true;
       if (mounted) showSnack(context, 'New memos with several voices are split by speaker');
     } catch (e) {
@@ -133,9 +139,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _visProgress = 0;
     });
     try {
-      await _llm.installVision(m, onProgress: (p) {
-        if (mounted) setState(() => _visProgress = p);
-      });
+      await _llm.installVision(
+        m,
+        onProgress: (p) {
+          if (mounted) setState(() => _visProgress = p);
+        },
+      );
       _visInstalled[m.key] = true;
       if (mounted) showSnack(context, '${m.name} ready for Look');
     } catch (e) {
@@ -152,9 +161,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _embProgress = 0;
     });
     try {
-      await _emb.install(onProgress: (p) {
-        if (mounted) setState(() => _embProgress = p);
-      });
+      await _emb.install(
+        onProgress: (p) {
+          if (mounted) setState(() => _embProgress = p);
+        },
+      );
       _embInstalled = true;
       if (mounted) showSnack(context, 'Memo search and Ask AI now also find memos by meaning');
     } catch (e) {
@@ -170,9 +181,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _voiceProgress = 0;
     });
     try {
-      await _tts.install(v, onProgress: (p) {
-        if (mounted) setState(() => _voiceProgress = p);
-      });
+      await _tts.install(
+        v,
+        onProgress: (p) {
+          if (mounted) setState(() => _voiceProgress = p);
+        },
+      );
       _voiceInstalled[v.id] = true;
       if (mounted) showSnack(context, 'The assistant now answers out loud on the watch');
     } catch (e) {
@@ -189,9 +203,12 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _llmProgress = 0;
     });
     try {
-      await _llm.install(m, onProgress: (p) {
-        if (mounted) setState(() => _llmProgress = p);
-      });
+      await _llm.install(
+        m,
+        onProgress: (p) {
+          if (mounted) setState(() => _llmProgress = p);
+        },
+      );
       _llmInstalled[m.key] = true;
       _llmSelected = m.key;
       if (mounted) showSnack(context, '${m.name} ready for summaries');
@@ -202,236 +219,362 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     }
   }
 
+  final Set<String> _open = {};
+
+  Widget _cap(
+    String id,
+    IconData icon,
+    Color color,
+    String title,
+    String what,
+    String status,
+    bool ready,
+    List<Widget> children,
+  ) {
+    return _Capability(
+      icon: icon,
+      color: color,
+      title: title,
+      what: what,
+      status: status,
+      ready: ready,
+      open: _open.contains(id),
+      onToggle: () => setState(() => _open.contains(id) ? _open.remove(id) : _open.add(id)),
+      children: children,
+    );
+  }
+
+  List<Widget> _spaced(List<Widget> cards) => [
+    for (var i = 0; i < cards.length; i++) ...[if (i > 0) const SizedBox(height: 10), cards[i]],
+  ];
+
   @override
   Widget build(BuildContext context) {
     final speechReady = _speechDownloaded[_whisper.model] == true;
     final llmReady = _llmSelected != null && _llmInstalled[_llmSelected] == true;
+    final llmName = GemmaService.models.where((m) => m.key == _llmSelected).map((m) => m.name).firstOrNull;
+    final voices = _voiceInstalled.values.where((x) => x).length;
+    final vision = _visInstalled.values.where((x) => x).length;
+    final readyCount = [
+      speechReady,
+      llmReady,
+      _diarInstalled,
+      _embInstalled,
+      voices > 0,
+      vision > 0,
+    ].where((x) => x).length;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Transcription & AI')),
+      appBar: AppBar(title: const Text('AI models')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: StatTile(
-                        icon: Icons.mic_rounded,
-                        color: speechReady ? AppColors.success : AppColors.textDim,
-                        value: speechReady ? 'Ready' : 'Not set up',
-                        label: 'Transcription',
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: StatTile(
-                        icon: Icons.auto_awesome_rounded,
-                        color: llmReady ? AppColors.success : AppColors.textDim,
-                        value: llmReady ? 'Ready' : 'Basic',
-                        label: 'Summaries',
-                      ),
-                    ),
-                  ],
-                ),
-                const SectionLabel('Speech to text (Whisper)'),
-                for (final m in WhisperService.offered) ...[
-                  _ModelCard(
-                    title: WhisperService.labels[m]!,
-                    subtitle: '${WhisperService.blurbs[m]} · ${_size(WhisperService.sizes[m]!)}',
-                    selected: _whisper.model == m,
-                    installed: _speechDownloaded[m] == true,
-                    busy: _speechBusy == m,
-                    progress: _speechProgress,
-                    onInstall: _speechBusy == null ? () => _downloadSpeech(m) : null,
-                    onSelect: () async {
-                      await _whisper.setModel(m);
-                      setState(() {});
-                    },
-                    onDelete: () async {
-                      await _whisper.deleteModel(m);
-                      _speechDownloaded[m] = false;
-                      setState(() {});
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                ],
                 Panel(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF17142B), Color(0xFF0B0B10)],
+                  ),
                   child: Row(
                     children: [
-                      const Icon(Icons.translate_rounded, color: AppColors.textDim),
-                      const SizedBox(width: 14),
-                      const Expanded(child: Text('Language', style: TextStyle(color: AppColors.text, fontSize: 15))),
-                      DropdownButton<String>(
-                        value: _whisper.language,
-                        underline: const SizedBox.shrink(),
-                        dropdownColor: AppColors.surfaceLight,
-                        items: [
-                          for (final e in WhisperService.languages.entries)
-                            DropdownMenuItem(value: e.key, child: Text(e.value)),
-                        ],
-                        onChanged: (v) async {
-                          if (v == null) return;
-                          await _whisper.setLanguage(v);
-                          setState(() {});
-                        },
+                      Ring(
+                        value: readyCount / 6,
+                        size: 64,
+                        stroke: 6,
+                        color: AppColors.accent,
+                        child: Text(
+                          '$readyCount/6',
+                          style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w700),
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-                const SectionLabel('On the watch'),
-                Panel(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WakeWordScreen())),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.record_voice_over_rounded, color: AppColors.textDim),
-                      SizedBox(width: 14),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Wake word', style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
-                            SizedBox(height: 2),
-                            Text('Say "Alexa", "Jarvis"... to open the assistant',
-                                style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.3)),
+                            Text(
+                              speechReady ? 'Running on this phone' : 'Start with transcription',
+                              style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              speechReady
+                                  ? 'Nothing leaves the phone. Add more below when you want them.'
+                                  : 'It turns memos and questions into text - everything else builds on it.',
+                              style: const TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.35),
+                            ),
                           ],
                         ),
                       ),
-                      Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
                     ],
                   ),
                 ),
-                const SectionLabel('Who said what (speaker split)'),
-                _ModelCard(
-                  title: 'Speakers in memos',
-                  subtitle: 'Splits conversations by voice: "Speaker 1 / Speaker 2", name them in the memo. '
-                      'sherpa-onnx, pyannote + CAM++ · ${_size(DiarizationService.sizeBytes)}',
-                  selected: _diarOn,
-                  installed: _diarInstalled,
-                  busy: _diarBusy,
-                  progress: _diarProgress,
-                  onInstall: _diarBusy ? null : _installDiar,
-                  onSelect: () async {
-                    await _diar.setEnabled(true);
-                    setState(() => _diarOn = true);
-                  },
-                  onDelete: () async {
-                    await _diar.delete();
-                    setState(() => _diarInstalled = false);
-                  },
-                ),
-                if (_diarInstalled)
-                  SwitchListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    title: const Text('Split new memos by speaker', style: TextStyle(color: AppColors.text, fontSize: 14)),
-                    subtitle: const Text('For older memos: "Transcribe again" in the memo',
-                        style: TextStyle(color: AppColors.textDim, fontSize: 12)),
-                    value: _diarOn,
-                    onChanged: (v) async {
-                      await _diar.setEnabled(v);
-                      setState(() => _diarOn = v);
-                    },
-                  ),
-                const SectionLabel('Look (vision)'),
-                for (final m in GemmaService.visionModels) ...[
-                  _ModelCard(
-                    title: m.name,
-                    subtitle: '${m.description}${m.gated ? ' · gated: needs the token below' : ''} · ${_size(m.sizeBytes)}',
-                    selected: true,
-                    installed: _visInstalled[m.key] == true,
-                    busy: _visBusy == m.key,
-                    progress: _visProgress,
-                    onInstall: _visBusy == null ? () => _installVision(m) : null,
-                    onSelect: () {},
-                    onDelete: () async {
-                      await _llm.uninstallVision(m);
-                      setState(() => _visInstalled[m.key] = false);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                const SectionLabel('Search by meaning'),
-                _ModelCard(
-                  title: 'EmbeddingGemma (4-bit)',
-                  subtitle: 'Finds memos by what they mean, not only their words - in search, Ask AI and the '
-                      'assistant. Gated: needs the Hugging Face token below · ${_size(MemoEmbeddings.sizeBytes)}',
-                  selected: true,
-                  installed: _embInstalled,
-                  busy: _embBusy,
-                  progress: _embProgress,
-                  onInstall: _embBusy ? null : _installEmb,
-                  onSelect: () {},
-                  onDelete: () async {
-                    await _emb.delete();
-                    setState(() => _embInstalled = false);
-                  },
+                const SectionLabel('Core'),
+                _cap(
+                  'speech',
+                  Icons.mic_rounded,
+                  AppColors.accent,
+                  'Transcription',
+                  'Memos, the assistant and voice replies to text (Whisper)',
+                  speechReady ? 'Ready · ${WhisperService.labels[_whisper.model]}' : 'Not set up',
+                  speechReady,
+                  [
+                    ..._spaced([
+                      for (final m in WhisperService.offered)
+                        _ModelCard(
+                          title: WhisperService.labels[m]!,
+                          subtitle: '${WhisperService.blurbs[m]} · ${_size(WhisperService.sizes[m]!)}',
+                          selected: _whisper.model == m,
+                          installed: _speechDownloaded[m] == true,
+                          busy: _speechBusy == m,
+                          progress: _speechProgress,
+                          onInstall: _speechBusy == null ? () => _downloadSpeech(m) : null,
+                          onSelect: () async {
+                            await _whisper.setModel(m);
+                            setState(() {});
+                          },
+                          onDelete: () async {
+                            await _whisper.deleteModel(m);
+                            _speechDownloaded[m] = false;
+                            setState(() {});
+                          },
+                        ),
+                    ]),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.translate_rounded, color: AppColors.textDim, size: 20),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text('Language', style: TextStyle(color: AppColors.text, fontSize: 14)),
+                        ),
+                        DropdownButton<String>(
+                          value: _whisper.language,
+                          underline: const SizedBox.shrink(),
+                          dropdownColor: AppColors.surfaceLight,
+                          items: [
+                            for (final e in WhisperService.languages.entries)
+                              DropdownMenuItem(value: e.key, child: Text(e.value)),
+                          ],
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            await _whisper.setLanguage(v);
+                            setState(() {});
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
-                const SectionLabel('Spoken answers (text to speech)'),
-                for (final v in TtsService.voices) ...[
-                  _ModelCard(
-                    title: v.label,
-                    subtitle: 'Piper voice via sherpa-onnx: the assistant\'s answers on the watch speaker · ${_size(v.sizeBytes)}',
-                    selected: _ttsOn,
-                    installed: _voiceInstalled[v.id] == true,
-                    busy: _voiceBusy == v.id,
-                    progress: _voiceProgress,
-                    onInstall: _voiceBusy == null ? () => _installVoice(v) : null,
-                    onSelect: () async {
-                      await _tts.setEnabled(true);
-                      setState(() => _ttsOn = true);
-                    },
-                    onDelete: () async {
-                      await _tts.delete(v);
-                      setState(() => _voiceInstalled[v.id] = false);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                if (_voiceInstalled.values.any((x) => x))
-                  SwitchListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    title: const Text('Say the answers', style: TextStyle(color: AppColors.text, fontSize: 14)),
-                    subtitle: const Text('Italian answers use the Italian voice when it\'s installed',
-                        style: TextStyle(color: AppColors.textDim, fontSize: 12)),
-                    value: _ttsOn,
-                    onChanged: (v) async {
-                      await _tts.setEnabled(v);
-                      setState(() => _ttsOn = v);
-                    },
-                  ),
-                const SectionLabel('Summaries (on-device LLM)'),
-                for (final m in GemmaService.models) ...[
-                  _ModelCard(
-                    title: m.name,
-                    subtitle: '${m.description} · ${_size(m.sizeBytes)}',
-                    selected: _llmSelected == m.key,
-                    installed: _llmInstalled[m.key] == true,
-                    busy: _llmBusy == m.key,
-                    progress: _llmProgress,
-                    onInstall: _llmBusy == null ? () => _installLlm(m) : null,
-                    onSelect: () => _installLlm(m), // install() just re-activates an installed model
-                    onDelete: () async {
-                      await _llm.uninstall(m);
-                      _llmInstalled[m.key] = false;
-                      if (_llmSelected == m.key) _llmSelected = null;
-                      setState(() {});
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                ],
+                _cap(
+                  'llm',
+                  Icons.auto_awesome_rounded,
+                  AppColors.accent2,
+                  'Summaries & answers',
+                  'Memo summaries, Ask AI, smart replies, Catch me up (local LLM)',
+                  llmReady ? 'Ready · $llmName' : 'Basic summaries only',
+                  llmReady,
+                  _spaced([
+                    for (final m in GemmaService.models)
+                      _ModelCard(
+                        title: m.name,
+                        subtitle:
+                            '${m.description}${m.gated ? ' · needs the Hugging Face token' : ''} · '
+                            '${_size(m.sizeBytes)}',
+                        selected: _llmSelected == m.key,
+                        installed: _llmInstalled[m.key] == true,
+                        busy: _llmBusy == m.key,
+                        progress: _llmProgress,
+                        onInstall: _llmBusy == null ? () => _installLlm(m) : null,
+                        onSelect: () => _installLlm(m), // install() just re-activates an installed model
+                        onDelete: () async {
+                          await _llm.uninstall(m);
+                          _llmInstalled[m.key] = false;
+                          if (_llmSelected == m.key) _llmSelected = null;
+                          setState(() {});
+                        },
+                      ),
+                  ]),
+                ),
+                const SectionLabel('Extras'),
+                _cap(
+                  'speakers',
+                  Icons.groups_rounded,
+                  AppColors.accent3,
+                  'Who said what',
+                  'Splits conversations in memos by speaker',
+                  _diarInstalled ? (_diarOn ? 'On' : 'Installed, off') : 'Not installed',
+                  _diarInstalled && _diarOn,
+                  [
+                    _ModelCard(
+                      title: 'Speakers in memos',
+                      subtitle:
+                          '"Speaker 1 / Speaker 2", name them in the memo. sherpa-onnx, pyannote + CAM++ · '
+                          '${_size(DiarizationService.sizeBytes)}',
+                      selected: _diarOn,
+                      installed: _diarInstalled,
+                      busy: _diarBusy,
+                      progress: _diarProgress,
+                      onInstall: _diarBusy ? null : _installDiar,
+                      onSelect: () async {
+                        await _diar.setEnabled(true);
+                        setState(() => _diarOn = true);
+                      },
+                      onDelete: () async {
+                        await _diar.delete();
+                        setState(() => _diarInstalled = false);
+                      },
+                    ),
+                    if (_diarInstalled)
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text(
+                          'Split new memos by speaker',
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'For older memos: "Transcribe again" in the memo',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _diarOn,
+                        onChanged: (v) async {
+                          await _diar.setEnabled(v);
+                          setState(() => _diarOn = v);
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _cap(
+                  'search',
+                  Icons.manage_search_rounded,
+                  AppColors.success,
+                  'Search by meaning',
+                  'Finds memos by what they mean, in search, Ask AI and the assistant',
+                  _embInstalled ? 'Ready' : 'Not installed',
+                  _embInstalled,
+                  [
+                    _ModelCard(
+                      title: 'EmbeddingGemma (4-bit)',
+                      subtitle: 'Needs the Hugging Face token · ${_size(MemoEmbeddings.sizeBytes)}',
+                      selected: true,
+                      installed: _embInstalled,
+                      busy: _embBusy,
+                      progress: _embProgress,
+                      onInstall: _embBusy ? null : _installEmb,
+                      onSelect: () {},
+                      onDelete: () async {
+                        await _emb.delete();
+                        setState(() => _embInstalled = false);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _cap(
+                  'voice',
+                  Icons.volume_up_rounded,
+                  AppColors.warning,
+                  'Spoken answers',
+                  'The assistant answers out loud on the watch (Piper voices)',
+                  voices > 0
+                      ? (_ttsOn ? 'On · $voices voice${voices > 1 ? 's' : ''}' : 'Installed, off')
+                      : 'Not installed',
+                  voices > 0 && _ttsOn,
+                  [
+                    ..._spaced([
+                      for (final v in TtsService.voices)
+                        _ModelCard(
+                          title: v.label,
+                          subtitle: 'sherpa-onnx · ${_size(v.sizeBytes)}',
+                          selected: _ttsOn,
+                          installed: _voiceInstalled[v.id] == true,
+                          busy: _voiceBusy == v.id,
+                          progress: _voiceProgress,
+                          onInstall: _voiceBusy == null ? () => _installVoice(v) : null,
+                          onSelect: () async {
+                            await _tts.setEnabled(true);
+                            setState(() => _ttsOn = true);
+                          },
+                          onDelete: () async {
+                            await _tts.delete(v);
+                            setState(() => _voiceInstalled[v.id] = false);
+                          },
+                        ),
+                    ]),
+                    if (voices > 0)
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text('Say the answers', style: TextStyle(color: AppColors.text, fontSize: 14)),
+                        subtitle: const Text(
+                          'Italian answers use the Italian voice when it\'s installed',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _ttsOn,
+                        onChanged: (v) async {
+                          await _tts.setEnabled(v);
+                          setState(() => _ttsOn = v);
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _cap(
+                  'look',
+                  Icons.visibility_outlined,
+                  AppColors.success,
+                  'Look (vision)',
+                  'Describe, read or translate a photo',
+                  vision > 0 ? 'Ready' : 'Not installed',
+                  vision > 0,
+                  _spaced([
+                    for (final m in GemmaService.visionModels)
+                      _ModelCard(
+                        title: m.name,
+                        subtitle:
+                            '${m.description}${m.gated ? ' · needs the Hugging Face token' : ''} · '
+                            '${_size(m.sizeBytes)}',
+                        selected: true,
+                        installed: _visInstalled[m.key] == true,
+                        busy: _visBusy == m.key,
+                        progress: _visProgress,
+                        onInstall: _visBusy == null ? () => _installVision(m) : null,
+                        onSelect: () {},
+                        onDelete: () async {
+                          await _llm.uninstallVision(m);
+                          setState(() => _visInstalled[m.key] = false);
+                        },
+                      ),
+                  ]),
+                ),
+                const SectionLabel('On the watch'),
+                RowGroup(
+                  children: [
+                    NavRow(
+                      icon: Icons.record_voice_over_rounded,
+                      title: 'Wake word & offline commands',
+                      subtitle: 'Say "Alexa", "Jarvis"... then a command or a question',
+                      onTap: () =>
+                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WakeWordScreen())),
+                    ),
+                  ],
+                ),
+                const SectionLabel('Account'),
                 Panel(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Hugging Face token (for Gemma)',
-                          style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                      const Text(
+                        'Hugging Face token',
+                        style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Gemma models are gated: accept the license on the model page on huggingface.co, '
-                        'create a read token in your account settings and paste it here.',
+                        'Only for the models marked "needs the Hugging Face token" (Gemma): accept the license on '
+                        'the model page on huggingface.co, create a read token and paste it here.',
                         style: TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.4),
                       ),
                       const SizedBox(height: 12),
@@ -449,12 +592,89 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Everything runs on the phone: recordings are transcribed with whisper.cpp and summarized with a small '
-                  'local language model. Without a summary model, memos still get a short automatic summary.',
+                  'Everything runs on the phone: whisper.cpp for speech, a small local language model for summaries '
+                  'and answers. Without a language model, memos still get a short automatic summary.',
                   style: TextStyle(color: AppColors.textFaint, fontSize: 12, height: 1.4),
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// One AI capability: what it does and whether it's ready; tap for its models.
+class _Capability extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title, what, status;
+  final bool ready, open;
+  final VoidCallback onToggle;
+  final List<Widget> children;
+  const _Capability({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.what,
+    required this.status,
+    required this.ready,
+    required this.open,
+    required this.onToggle,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(22),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+              child: Row(
+                children: [
+                  IconChip(icon, color: color),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(what, style: const TextStyle(color: AppColors.textDim, fontSize: 12.5, height: 1.3)),
+                        const SizedBox(height: 8),
+                        StatusPill(status, color: ready ? AppColors.success : AppColors.textDim),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: open ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.expand_more_rounded, color: AppColors.textFaint),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: open
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -486,7 +706,7 @@ class _ModelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = selected && installed;
     return Panel(
-      color: active ? AppColors.accent.withValues(alpha: 0.10) : null,
+      color: active ? AppColors.accent.withValues(alpha: 0.10) : AppColors.surfaceLight,
       onTap: installed && !selected && !busy ? onSelect : null,
       child: Column(
         children: [
@@ -501,7 +721,10 @@ class _ModelCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text(
+                      title,
+                      style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
                     const SizedBox(height: 2),
                     Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.3)),
                   ],
@@ -529,8 +752,10 @@ class _ModelCard extends StatelessWidget {
             const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerRight,
-              child: Text(progress > 0 ? '${(progress * 100).round()}%' : 'Starting…',
-                  style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
+              child: Text(
+                progress > 0 ? '${(progress * 100).round()}%' : 'Starting…',
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+              ),
             ),
           ],
         ],

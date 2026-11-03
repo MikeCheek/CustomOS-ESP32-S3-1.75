@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/settings_provider.dart';
 import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
+import 'screens/apps_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/notes_screen.dart';
 import 'screens/settings_screen.dart';
@@ -40,7 +41,7 @@ class _Gate extends ConsumerWidget {
   }
 }
 
-/// Bottom-navigation shell: Watch · Recordings · Faces · Settings.
+/// Bottom-navigation shell: Home · Memos · Apps · Faces · Settings.
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -52,17 +53,12 @@ class _RootShellState extends State<RootShell> {
   int _tab = 0;
   final _built = <int>{0};
 
-  static const _pages = <Widget>[
-    HomeScreen(),
-    NotesScreen(),
-    WatchfaceLibrary(),
-    SettingsScreen(),
-  ];
+  static const _pages = <Widget>[HomeScreen(), NotesScreen(), AppsScreen(), WatchfaceLibrary(), SettingsScreen()];
 
   void selectTab(int i) => setState(() {
-        _tab = i;
-        _built.add(i);
-      });
+    _tab = i;
+    _built.add(i);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -70,26 +66,31 @@ class _RootShellState extends State<RootShell> {
       body: IndexedStack(
         index: _tab,
         // Tabs are built the first time they're opened, then kept alive.
-        children: [
-          for (var i = 0; i < _pages.length; i++) _built.contains(i) ? _pages[i] : const SizedBox.shrink(),
-        ],
+        children: [for (var i = 0; i < _pages.length; i++) _built.contains(i) ? _pages[i] : const SizedBox.shrink()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: selectTab,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.watch_outlined), selectedIcon: Icon(Icons.watch), label: 'Watch'),
-          NavigationDestination(icon: Icon(Icons.graphic_eq_rounded), label: 'Recordings'),
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.graphic_eq_rounded), label: 'Memos'),
+          NavigationDestination(icon: Icon(Icons.apps_outlined), selectedIcon: Icon(Icons.apps_rounded), label: 'Apps'),
           NavigationDestination(icon: Icon(Icons.palette_outlined), selectedIcon: Icon(Icons.palette), label: 'Faces'),
-          NavigationDestination(icon: Icon(Icons.tune_rounded), label: 'Settings'),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings_rounded),
+            label: 'Settings',
+          ),
         ],
       ),
     );
   }
 }
 
-/// Lets any screen switch tabs (e.g. the dashboard's "Recordings" row).
+/// Lets any screen switch tabs (e.g. the dashboard's "Memos" tile).
 class TabSwitcher {
+  static const home = 0, memos = 1, apps = 2, faces = 3, settings = 4;
+
   static void open(BuildContext context, int tab) {
     context.findAncestorStateOfType<_RootShellState>()?.selectTab(tab);
   }

@@ -8,28 +8,20 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'activity_screen.dart';
-import 'contacts_screen.dart';
-import 'calendar_screen.dart';
-import 'controller_screen.dart';
 import 'diagnostics_screen.dart';
-import 'files_screen.dart';
 import 'media_screen.dart';
-import 'notifications_screen.dart';
 import 'scan_screen.dart';
 import 'weather_screen.dart';
-import 'watch_wifi_screen.dart';
 import 'memo_insights.dart';
-import 'piano_song_screen.dart';
-import 'assistant_screen.dart';
-import 'messages_screen.dart';
+import 'apps_screen.dart';
 import 'emulator_screen.dart';
-import 'look_screen.dart';
-import 'sound_alerts_screen.dart';
-import 'photo_face_screen.dart';
+import 'assistant_screen.dart';
+import '../widgets/emulator_card.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
 
-/// Dashboard: the watch, what's linked, today's numbers, shortcuts.
+/// Home: the watch (real or emulated), what needs attention, today, shortcuts.
+/// Every feature is in the Apps tab, every option in Settings.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -83,10 +75,15 @@ class HomeScreen extends ConsumerWidget {
                       busy: true,
                     ),
                   ],
-                  const _MemoBrief(),
                   if (ble.isConnected) ...[
                     const SizedBox(height: 12),
                     const _QuickActions(),
+                  ] else ...[
+                    const SizedBox(height: 12),
+                    const EmulatorCard(compact: true),
+                  ],
+                  const _MemoBrief(),
+                  if (ble.isConnected) ...[
                     const SectionLabel('Today'),
                     _TodayRow(link: link),
                     if (link.media != null && link.mediaTitle.isNotEmpty) ...[
@@ -94,97 +91,14 @@ class HomeScreen extends ConsumerWidget {
                       _NowPlayingCard(link: link),
                     ],
                   ],
-                  const SectionLabel('Phone link'),
-                  _LinkGroup(connected: ble.isConnected),
-                  const SectionLabel('More'),
-                  RowGroup(
-                    children: [
-                      NavRow(
-                        icon: Icons.graphic_eq_rounded,
-                        color: AppColors.accent3,
-                        title: 'Voice memos',
-                        subtitle: 'Recordings, transcripts and summaries',
-                        onTap: () => TabSwitcher.open(context, 1),
-                      ),
-                      NavRow(
-                        icon: Icons.contacts_outlined,
-                        color: AppColors.accent2,
-                        title: 'Contacts',
-                        subtitle: 'Choose who is on the watch',
-                        onTap: ble.isConnected ? () => _push(context, const ContactsScreen()) : null,
-                      ),
-                      NavRow(
-                        icon: Icons.wifi_rounded,
-                        color: AppColors.success,
-                        title: 'Watch Wi-Fi',
-                        subtitle: 'Set up and check the watch\'s network',
-                        onTap: ble.isConnected ? () => _push(context, const WatchWifiScreen()) : null,
-                      ),
-                      NavRow(
-                        icon: Icons.folder_outlined,
-                        color: AppColors.warning,
-                        title: 'Send files',
-                        subtitle: 'Saved to the watch SD card',
-                        onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
-                      ),
-                      NavRow(
-                        icon: Icons.mic_rounded,
-                        color: AppColors.accent,
-                        title: 'Assistant',
-                        subtitle: 'Ask out loud - the same as on the watch',
-                        onTap: () => _push(context, const AssistantScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.visibility_outlined,
-                        color: AppColors.success,
-                        title: 'Look',
-                        subtitle: 'What is it? Read or translate text from a photo',
-                        onTap: () => _push(context, const LookScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.hearing_rounded,
-                        color: AppColors.warning,
-                        title: 'Sound alerts',
-                        subtitle: 'Doorbell, smoke alarm, baby crying - on your watch',
-                        onTap: () => _push(context, const SoundAlertsScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.forum_outlined,
-                        color: AppColors.accent2,
-                        title: 'Messages',
-                        subtitle: 'Catch me up, translate, smart replies',
-                        onTap: () => _push(context, const MessagesScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.portrait_rounded,
-                        color: AppColors.accent,
-                        title: 'Photo face',
-                        subtitle: 'Your photo as the watch face, the time behind its subject',
-                        onTap: () => _push(context, const PhotoFaceScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.watch_outlined,
-                        color: AppColors.accent3,
-                        title: 'Watch emulator',
-                        subtitle: 'The watch\'s firmware, running on this phone',
-                        onTap: () => _push(context, const EmulatorScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.piano,
-                        color: AppColors.accent,
-                        title: 'Piano Tiles songs',
-                        subtitle: 'Hum a tune or pick a MIDI file',
-                        onTap: () => _push(context, const PianoSongScreen()),
-                      ),
-                      NavRow(
-                        icon: Icons.sports_esports_outlined,
-                        color: AppColors.accent3,
-                        title: 'Game controller',
-                        subtitle: 'Use the phone as a gamepad',
-                        onTap: ble.isConnected ? () => _push(context, const ControllerScreen()) : null,
-                      ),
-                    ],
+                  SectionLabel(
+                    'Shortcuts',
+                    trailing: TextButton(
+                      onPressed: () => TabSwitcher.open(context, TabSwitcher.apps),
+                      child: const Text('All apps'),
+                    ),
                   ),
+                  _Shortcuts(connected: ble.isConnected),
                 ],
               ),
             ),
@@ -315,7 +229,11 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
 
     String status;
     Color statusColor;
-    if (connected) {
+    final emulated = connected && ref.read(bleServiceProvider).isVirtual;
+    if (emulated) {
+      status = 'Emulator · on this phone';
+      statusColor = AppColors.accent3;
+    } else if (connected) {
       status = link.linkActive ? 'Connected · linked' : 'Connected';
       statusColor = AppColors.success;
     } else if (ble.isConnecting || _searching) {
@@ -371,7 +289,9 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch',
+                  emulated
+                      ? 'Emulated watch'
+                      : (ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: AppColors.text, fontSize: 19, fontWeight: FontWeight.w700),
@@ -390,6 +310,12 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
                           )
                         : const Icon(Icons.bluetooth_searching_rounded, size: 18),
                     label: Text(_searching ? 'Searching' : 'Connect'),
+                  )
+                else if (emulated)
+                  FilledButton.tonalIcon(
+                    onPressed: () => _push(context, const EmulatorScreen()),
+                    icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                    label: const Text('Open'),
                   )
                 else if (connected && link.watchCharging)
                   const Text('Charging', style: TextStyle(color: AppColors.success, fontSize: 13))
@@ -419,7 +345,7 @@ class _QuickActions extends ConsumerWidget {
       children: [
         _QuickButton(
           icon: Icons.vibration_rounded,
-          label: 'Find watch',
+          label: 'Find',
           onTap: () async {
             await ref.read(companionProvider.notifier).findWatch();
             if (context.mounted) showSnack(context, 'Your watch is buzzing');
@@ -434,6 +360,8 @@ class _QuickActions extends ConsumerWidget {
             if (context.mounted) showSnack(context, 'Watch clock synced');
           },
         ),
+        const SizedBox(width: 10),
+        _QuickButton(icon: Icons.mic_rounded, label: 'Ask', onTap: () => _push(context, const AssistantScreen())),
         const SizedBox(width: 10),
         _QuickButton(
           icon: link.findingPhone ? Icons.volume_off_rounded : Icons.cloud_sync_rounded,
@@ -605,80 +533,51 @@ class _NowPlayingCard extends ConsumerWidget {
   }
 }
 
-// ---- phone link -----------------------------------------------------------------------
+// ---- shortcuts ---------------------------------------------------------------------
 
-class _LinkGroup extends ConsumerWidget {
+/// The features used most, a tap away; everything else is in Apps.
+class _Shortcuts extends StatelessWidget {
   final bool connected;
-  const _LinkGroup({required this.connected});
+  const _Shortcuts({required this.connected});
+
+  static const _titles = ['Assistant', 'Look', 'Messages', 'Photo face', 'Notifications & calls', 'Search memos'];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(settingsProvider);
-    final link = ref.watch(companionProvider);
-    return RowGroup(
-      children: [
-        NavRow(
-          icon: Icons.notifications_active_outlined,
-          color: AppColors.accent,
-          title: 'Notifications & calls',
-          subtitle: s.forwardNotifications
-              ? (link.forwardedToday > 0 ? '${link.forwardedToday} sent to the watch today' : 'Forwarding to the watch')
-              : 'Off - tap to set up',
-          onTap: () => _push(context, const NotificationsScreen()),
-        ),
-        NavRow(
-          icon: Icons.music_note_outlined,
-          color: AppColors.accent3,
-          title: 'Music controls',
-          subtitle: s.mediaToWatch ? 'Control phone music from the watch' : 'Off',
-          onTap: () => _push(context, const MediaScreen()),
-        ),
-        NavRow(
-          icon: Icons.wb_cloudy_outlined,
-          color: AppColors.warning,
-          title: 'Weather',
-          subtitle: link.weather != null
-              ? '${link.weather!.condition} · updated ${_ago(link.weather!.fetchedAt)}'
-              : (s.weatherAuto ? 'Automatic, from your location' : 'Manual'),
-          onTap: () => _push(context, const WeatherScreen()),
-        ),
-        NavRow(
-          icon: Icons.calendar_month_rounded,
-          color: AppColors.accent2,
-          title: 'Calendar',
-          subtitle: !link.calendarAllowed
-              ? 'Agenda and reminders on the watch - tap to set up'
-              : link.nextEvent != null
-              ? 'Next: ${link.nextEvent!.title}'
-              : 'Nothing in the next two days',
-          onTap: () => _push(context, const CalendarScreen()),
-        ),
-        ToggleRow(
-          icon: Icons.navigation_rounded,
-          color: AppColors.success,
-          title: 'Navigation',
-          subtitle: 'Google Maps directions on the watch',
-          value: s.navigationToWatch,
-          onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(navigationToWatch: v)),
-        ),
-        NavRow(
-          icon: Icons.directions_run_rounded,
-          color: AppColors.success,
-          title: 'Activity',
-          subtitle: 'Steps counted by the watch',
-          onTap: () => _push(context, const ActivityScreen()),
-        ),
-      ],
+  Widget build(BuildContext context) {
+    final all = [for (final g in appGroups) ...g.items];
+    final items = [for (final t in _titles) all.firstWhere((f) => f.title == t)];
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = (c.maxWidth - 20) / 3;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in items)
+              SizedBox(
+                width: w,
+                child: Panel(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                  onTap: () => openFeature(context, f),
+                  child: Column(
+                    children: [
+                      IconChip(f.icon, color: f.color, size: 38),
+                      const SizedBox(height: 8),
+                      Text(
+                        f.title == 'Notifications & calls' ? 'Notifications' : f.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.text, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
-}
-
-String _ago(DateTime t) {
-  final d = DateTime.now().difference(t);
-  if (d.inMinutes < 1) return 'just now';
-  if (d.inMinutes < 60) return '${d.inMinutes} min ago';
-  if (d.inHours < 24) return '${d.inHours} h ago';
-  return '${d.inDays} d ago';
 }
 
 class _Banner extends StatelessWidget {
@@ -809,7 +708,7 @@ class _MemoBrief extends ConsumerWidget {
                 color: AppColors.accent2,
                 value: '$today',
                 label: 'today',
-                onTap: () => TabSwitcher.open(context, 1),
+                onTap: () => TabSwitcher.open(context, TabSwitcher.memos),
               ),
             ),
           ],
