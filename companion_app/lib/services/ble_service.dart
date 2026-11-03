@@ -45,8 +45,34 @@ class BleService {
   /// Messages from the watch on the phone link (e.g. {"e":"med","a":"next"}).
   Stream<Map<String, dynamic>> get linkEvents => _linkController.stream;
 
-  bool get isConnected => _ready && (_device?.isConnected ?? false);
-  bool get hasPhoneLink => isConnected && _linkChar != null;
+  bool get _realConnected => _ready && (_device?.isConnected ?? false);
+  bool get isConnected => _realConnected || isVirtual;
+  bool get hasPhoneLink => (_realConnected && _linkChar != null) || isVirtual;
+
+  // ---- the in-app watch emulator (screens/emulator_screen.dart) -------------------
+  // While it's open and no real watch is connected, it is "the watch": the
+  // phone link and weather / fitness go to it, its messages come back on
+  // linkEvents - everything above this service works unchanged.
+  VirtualWatch? _virtual;
+  bool get isVirtual => _virtual != null && !_realConnected;
+
+  /// False when a real watch is connected (that one stays the watch).
+  bool attachVirtual(VirtualWatch v) {
+    if (_realConnected) return false;
+    _virtual = v;
+    _connectionController.add(true);
+    return true;
+  }
+
+  void detachVirtual(VirtualWatch v) {
+    if (_virtual != v) return;
+    final was = isVirtual;
+    _virtual = null;
+    if (was) _connectionController.add(false);
+  }
+
+  /// A message from the emulated watch, as if it came over Bluetooth.
+  void virtualIncoming(Map<String, dynamic> msg) => _linkController.add(msg);
   /// The watch firmware supports updates over Bluetooth.
   bool get supportsOta => isConnected && _otaChar != null;
 
@@ -393,6 +419,10 @@ class BleService {
   /// Sends one JSON message to the watch. Messages are queued so the
   /// chunks of two messages never interleave.
   Future<void> sendLink(Map<String, dynamic> msg) {
+    if (isVirtual) {
+      _virtual!.deliver(jsonEncode(msg));
+      return Future.value();
+    }
     final next = _linkQueue.then((_) async {
       final c = _linkChar;
       if (c == null || !isConnected) return;
@@ -621,11 +651,13 @@ class BleService {
   }
 
   Future<void> sendWeather(WeatherData weather) async {
+    if (isVirtual) return _virtual!.deliverData(2, jsonEncode(weather.toJson()));
     if (_fileChar == null) return;
     await _fileChar!.write(BleProtocol.encodeWeather(weather));
   }
 
   Future<void> sendFitness(FitnessData fitness) async {
+    if (isVirtual) return _virtual!.deliverData(3, jsonEncode(fitness.toJson()));
     if (_fileChar == null) return;
     await _fileChar!.write(BleProtocol.encodeFitness(fitness));
   }
@@ -920,4 +952,11 @@ class BleService {
     _otaController.close();
     _pairingController.close();
   }
+}
+
+/// Something that stands in for the watch on the phone link (the in-app
+/// emulator): gets what would go over Bluetooth.
+abstract class VirtualWatch {
+  void deliver(String json);              // a phone-link message
+  void deliverData(int kind, String json); // 2 weather, 3 fitness
 }

@@ -705,6 +705,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
   }
 
   Future<void> syncFromWatch() async {
+    if (_ble.isVirtual) return; // the in-app emulator has no recordings to sync
     if (!_ble.isConnected) {
       state = state.copyWith(error: 'Watch not connected');
       return;
@@ -980,7 +981,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
   /// file list, when known). One at a time, when the Bluetooth link is free.
   /// Returns a message about the last one, or null if nothing was sent.
   Future<String?> _flushPending({Set<String>? onWatch}) async {
-    if (_flushing || !_ble.isConnected) return null;
+    // The in-app emulator has no SD card to copy memos to: they wait for the real watch.
+    if (_flushing || !_ble.isConnected || _ble.isVirtual) return null;
     _flushing = true;
     String? msg;
     var sentAny = false;

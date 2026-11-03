@@ -25,11 +25,22 @@
 #include "app_notifications.h"
 #include "app_assistant.h"
 #include "sim_state.h"
+#include "hal_nvs.h"
+#include "dnd.h"
+#include "complications.h"
+#include <string>
+#include <sys/stat.h>
 #include <time.h>
 #include <string.h>
 
 HostSerial Serial;
-void sim_touch_track(int x, int y, bool down);   // sim_stubs.cpp: swipes
+// sim_stubs.cpp
+void sim_touch_track(int x, int y, bool down);
+void sim_link(const char *json);
+bool sim_link_pop(std::string &out);
+void sim_set_weather(const char *json);
+void sim_set_fitness(const char *json);
+void sim_prefs_enable(const char *path);
 
 // ---- time: the real clock ------------------------------------------------------------
 static uint64_t now_us() {
@@ -76,14 +87,20 @@ void display_force_full_refresh() {}
 extern "C" {
 
 __attribute__((visibility("default"))) int emu_init(const char *dir) {
-    (void)dir;   // files (SD card, settings) arrive with phase 2
     if (s_t0) return 1;
     s_t0 = now_us();
     g_sim.live = true;
-    g_sim.phone = false;    // no phone link yet
-    g_app_settings.onboarding_complete = true;
-    g_app_settings.smooth_fonts = true;
-    ui_fonts_set_smooth(true);
+    g_sim.phone = false;    // until the app attaches (emu_set_connected)
+    // The watch's NVS: settings, quick replies, watchface slots... in a file
+    if (dir && dir[0]) {
+        mkdir(dir, 0755);
+        sim_prefs_enable((std::string(dir) + "/nvs.bin").c_str());
+    }
+    nvs_load_settings(g_app_settings);
+    quick_replies_load();
+    comp_load();
+    g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
+    ui_fonts_set_smooth(g_app_settings.smooth_fonts);
     ui_init(nullptr);
     watchface_registry_init();
     ui_push(watchface_get(0)->screen);
@@ -152,6 +169,38 @@ __attribute__((visibility("default"))) void emu_button(int which, int event) {
         if (ui_top_panel_is_open()) ui_top_panel_close();
         if (!ui_screen_on_top(&assistant_screen)) ui_push(&assistant_screen);
     }
+}
+
+// ---- the phone link, in-process (phase 2) ----------------------------------------------
+// The app attaches as the watch's phone: its messages arrive as if over
+// Bluetooth, the watch's come back through emu_link_pop.
+__attribute__((visibility("default"))) void emu_set_connected(int on) { g_sim.phone = on != 0; }
+
+__attribute__((visibility("default"))) void emu_link_push(const char *json) { if (json) sim_link(json); }
+
+// The next message from the watch into buf (NUL-terminated); its length,
+// 0 when there's none, or -needed when buf is too small (it stays queued).
+static std::string s_pending;
+static bool s_has_pending = false;
+__attribute__((visibility("default"))) int emu_link_pop(char *buf, int cap) {
+    if (!s_has_pending) {
+        if (!sim_link_pop(s_pending)) return 0;
+        s_has_pending = true;
+    }
+    int n = (int)s_pending.size();
+    if (n + 1 > cap) return -(n + 1);
+    memcpy(buf, s_pending.data(), n);
+    buf[n] = 0;
+    s_has_pending = false;
+    return n;
+}
+
+// kind 2 = weather, 3 = fitness: the JSON the app sends on the file
+// characteristic after its prefix byte.
+__attribute__((visibility("default"))) void emu_set_data(int kind, const char *json) {
+    if (!json) return;
+    if (kind == 2) sim_set_weather(json);
+    else if (kind == 3) sim_set_fitness(json);
 }
 
 }  // extern "C"

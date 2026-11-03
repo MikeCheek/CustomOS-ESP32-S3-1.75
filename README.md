@@ -53,6 +53,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   the last day's notifications, what needs an answer first, and translates a message into your language.
 - **Watch emulator** - the app runs the watch's own firmware code (screens, apps, games) on the phone:
   swipe and tap it like the watch, BOOT and PWR buttons below (Android; `tools/watch_sim/emu_main.cpp`).
+  With no real watch connected it's linked to the app like one: notifications, music, weather, assistant
+  answers, smart replies and Catch me up reach it; its settings are kept between runs.
 - **Everything from the phone too** - the app has the same Assistant (answers out loud with the installed
   voice), Messages (catch me up, translate, smart replies you can send), voice memos recorded on the phone,
   who-said-what and Piano Tiles songs.

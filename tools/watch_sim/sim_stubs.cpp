@@ -99,12 +99,25 @@ bool ble_is_connected() { return g_sim.phone; }
 bool ble_enable() { return true; }
 void ble_disable() {}
 bool ble_link_encrypted() { return true; }
-bool ble_link_send(const char *) { return true; }
-// Phone-link messages queued by sim_link() - the same JSON the app sends.
+// Phone-link messages queued by sim_link() - the same JSON the app sends -
+// and, in the emulator, the watch's own messages for the app (sim_link_pop).
 #include <deque>
+#include <map>
 #include <string>
-static std::deque<std::string> s_link_q;
+static std::deque<std::string> s_link_q, s_out_q;
 void sim_link(const char *json) { s_link_q.push_back(json); }
+bool ble_link_send(const char *json) {
+    if (!g_sim.live) return true;
+    if (!g_sim.phone) return false;
+    if (s_out_q.size() < 64) s_out_q.push_back(json);
+    return true;
+}
+bool sim_link_pop(std::string &out) {
+    if (s_out_q.empty()) return false;
+    out.swap(s_out_q.front());
+    s_out_q.pop_front();
+    return true;
+}
 bool ble_link_recv(char *out, int cap) {
     if (s_link_q.empty()) return false;
     snprintf(out, cap, "%s", s_link_q.front().c_str());
@@ -121,10 +134,69 @@ void ble_fold_utf8(char *) {}
 bool ble_get_notification(BleNotification &) { return false; }
 bool ble_get_contacts(const char **, int *) { return false; }
 void ble_consume_contacts() {}
-bool ble_get_fitness(const char **, int *) { return false; }
+// Weather / fitness: a fixed sample for the screenshots, what the app sent
+// in the emulator (sim_set_weather / sim_set_fitness).
+static std::string s_weather, s_fitness;
+void sim_set_weather(const char *json) { s_weather = json; }
+void sim_set_fitness(const char *json) { s_fitness = json; }
+bool ble_get_fitness(const char **d, int *n) {
+    if (s_fitness.empty()) return false;
+    *d = s_fitness.c_str(); *n = (int)s_fitness.size(); return true;
+}
 bool ble_get_weather(const char **d, int *n) {
+    if (g_sim.live) {
+        if (s_weather.empty()) return false;
+        *d = s_weather.c_str(); *n = (int)s_weather.size(); return true;
+    }
     static const char W[] = "{\"tempC\":19,\"condition\":\"Rain\",\"humidity\":80}";
     *d = W; *n = sizeof(W) - 1; return true;
+}
+
+// ---- NVS (shim/Preferences.h): a store saved to a file, emulator only -----------------
+static std::map<std::string, std::string> s_prefs;
+static std::string s_prefs_path;
+bool sim_prefs_live() { return !s_prefs_path.empty(); }
+bool sim_prefs_get(const std::string &k, std::string &out) {
+    auto it = s_prefs.find(k);
+    if (it == s_prefs.end()) return false;
+    out = it->second;
+    return true;
+}
+void sim_prefs_put(const std::string &k, const void *v, size_t n) { s_prefs[k].assign((const char *)v, n); }
+void sim_prefs_erase(const std::string &k) { s_prefs.erase(k); }
+void sim_prefs_clear_ns(const std::string &ns) {
+    for (auto it = s_prefs.begin(); it != s_prefs.end();)
+        it = it->first.compare(0, ns.size() + 1, ns + "/") == 0 ? s_prefs.erase(it) : std::next(it);
+}
+// file: repeated  key length (u32), key, value length (u32), value
+void sim_prefs_save() {
+    if (s_prefs_path.empty()) return;
+    std::string tmp = s_prefs_path + ".tmp";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) return;
+    for (auto &e : s_prefs) {
+        uint32_t a = (uint32_t)e.first.size(), b = (uint32_t)e.second.size();
+        fwrite(&a, 4, 1, f); fwrite(e.first.data(), 1, a, f);
+        fwrite(&b, 4, 1, f); fwrite(e.second.data(), 1, b, f);
+    }
+    fclose(f);
+    rename(tmp.c_str(), s_prefs_path.c_str());
+}
+void sim_prefs_enable(const char *path) {
+    s_prefs_path = path;
+    s_prefs.clear();
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    for (;;) {
+        uint32_t a, b;
+        if (fread(&a, 4, 1, f) != 1 || a > 4096) break;
+        std::string k(a, 0);
+        if (fread(&k[0], 1, a, f) != a || fread(&b, 4, 1, f) != 1 || b > 1 << 20) break;
+        std::string v(b, 0);
+        if (b && fread(&v[0], 1, b, f) != b) break;
+        s_prefs[k] = v;
+    }
+    fclose(f);
 }
 bool ble_get_watchface_data(const char **, int *) { return false; }
 bool ble_watchface_ready() { return false; }

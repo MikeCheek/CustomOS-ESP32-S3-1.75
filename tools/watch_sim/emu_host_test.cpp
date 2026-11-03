@@ -14,6 +14,10 @@ uint32_t emu_frame_seq();
 void emu_frame_rgba(uint8_t *);
 void emu_touch(int, int, int);
 void emu_button(int, int);
+void emu_set_connected(int);
+void emu_link_push(const char *);
+int emu_link_pop(char *, int);
+void emu_set_data(int, const char *);
 }
 
 static void wait_ms(int ms) {
@@ -47,5 +51,17 @@ int main(int argc, char **argv) {
     emu_button(0, 3);   // BOOT long: home
     run(600);
     snprintf(p, sizeof(p), "%s/emu_home.ppm", out); save(p);
+
+    // phase 2: the app as the watch's phone, in-process
+    emu_set_connected(1);
+    emu_set_data(2, "{\"tempC\":23,\"condition\":\"Clear\",\"humidity\":40}");
+    emu_link_push("{\"t\":\"hi\"}");
+    emu_link_push("{\"t\":\"ntf\",\"id\":7,\"ap\":\"Chat\",\"ti\":\"Luca\",\"tx\":\"Dinner at 8?\",\"rp\":1}");
+    run(500);
+    char buf[2048];
+    int got = 0, n;
+    while ((n = emu_link_pop(buf, sizeof(buf))) > 0) { printf("watch -> app: %s\n", buf); got++; }
+    snprintf(p, sizeof(p), "%s/emu_link.ppm", out); save(p);
+    if (!got) { printf("FAIL: no message from the watch\n"); return 1; }
     return emu_frame_seq() > 0 ? 0 : 1;
 }
