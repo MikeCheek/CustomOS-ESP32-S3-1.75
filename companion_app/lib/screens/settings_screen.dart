@@ -19,6 +19,7 @@ import 'media_screen.dart';
 import 'notifications_screen.dart';
 import 'scan_screen.dart';
 import 'weather_screen.dart';
+import 'safety_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -148,6 +149,13 @@ class SettingsScreen extends ConsumerWidget {
                 s.quickReplies.isEmpty ? 'default replies' : '${s.quickReplies.length} replies',
               ].join(' · '),
               onTap: () => push(const DndRepliesScreen()),
+            ),
+            NavRow(
+              icon: Icons.health_and_safety_outlined,
+              color: AppColors.danger,
+              title: 'Safety',
+              subtitle: 'Emergency contact for fall alerts',
+              onTap: () => push(const SafetyScreen()),
             ),
             ToggleRow(
               icon: Icons.navigation_rounded,

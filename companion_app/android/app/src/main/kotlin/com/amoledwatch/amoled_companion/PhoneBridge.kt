@@ -25,6 +25,7 @@ import android.net.Uri
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.telephony.SmsManager
 import android.app.NotificationManager
 import androidx.core.content.FileProvider
 import java.io.File
@@ -104,6 +105,22 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     }
                     "mediaCommand" -> result.success(media.command(call.argument<String>("cmd") ?: ""))
                     "findPhone" -> { findPhone(call.argument<Boolean>("on") ?: false); result.success(true) }
+                    "sendSms" -> {
+                        // Only for the fall alert's emergency text (app_fall on the watch).
+                        if (app.checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                            result.error("permission", "SEND_SMS not granted", null)
+                        } else {
+                            try {
+                                val sms = if (Build.VERSION.SDK_INT >= 31) app.getSystemService(SmsManager::class.java)
+                                          else @Suppress("DEPRECATION") SmsManager.getDefault()
+                                val parts = sms.divideMessage(call.argument<String>("text") ?: "")
+                                sms.sendMultipartTextMessage(call.argument<String>("to") ?: "", null, parts, null, null)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("sms", e.message, null)
+                            }
+                        }
+                    }
                     "getBattery" -> result.success(batteryNow())
                     "getLocation" -> result.success(lastLocation())
                     "getContacts" -> {

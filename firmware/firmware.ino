@@ -7,6 +7,7 @@
 
 #include "app_assistant.h"
 #include "voice_sr.h"
+#include "app_fall.h"
 #include <Wire.h>
 #include "complications.h"
 #include "dnd.h"
@@ -702,7 +703,8 @@ void loop() {
     imu_steps_poll();            // hardware pedometer + midnight rollover
     calendar_update();           // event reminders (works without the phone)
     assistant_timer_update();
-    voice_update();              // the wake word, awake or asleep    // the assistant's timer rings, awake or asleep
+    voice_update();              // the wake word, awake or asleep
+    fall_update();               // fall detection, awake or asleep    // the assistant's timer rings, awake or asleep
 #if FEATURE_AUDIO
     power_set_screen_off(asleep && !audio_is_playing());   // MP3 decode needs the clock
 #else
@@ -804,7 +806,7 @@ void loop() {
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
         bool keep_awake = ota_active() || fwup_busy() || aod_sending();
 #if FEATURE_AUDIO
-        keep_awake = keep_awake || audio_is_playing() || audio_is_recording() || voice_wake_keeps_awake();
+        keep_awake = keep_awake || audio_is_playing() || audio_is_recording() || voice_wake_keeps_awake() || fall_alert_active();
 #endif
 #if FEATURE_GPS
         keep_awake = keep_awake || gps_is_enabled();

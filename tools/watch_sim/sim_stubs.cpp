@@ -36,6 +36,8 @@ WatchTime rtc_now() {
     return { 2026, 10, 8, g_sim.hour, g_sim.minute + (int)(s / 60) % 60, (int)(s % 60), 4, true };
 }
 ImuSample imu_read() { return { true, 0, 0, 1, 0, 0, 0, 25 }; }
+bool imu_fifo_enable(bool) { return true; }
+int imu_fifo_read(float *, int) { return 0; }
 void imu_get_calibrated_tilt(const ImuSample &, float &x, float &y) { x = y = 0; }
 uint32_t imu_get_step_count() { return g_sim.steps; }
 void imu_step_counter_update(const ImuSample &) {}

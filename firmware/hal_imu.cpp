@@ -100,6 +100,31 @@ ImuSample imu_read() {
     return s;
 }
 
+// ---- FIFO ----------------------------------------------------------------------------
+static bool s_fifo = false;
+
+bool imu_fifo_enable(bool on) {
+    if (!s_ok || on == s_fifo) return s_ok;
+    bool ok = s_imu.configFIFO(on ? SensorQMI8658::FIFO_MODE_STREAM : SensorQMI8658::FIFO_MODE_BYPASS,
+                               SensorQMI8658::FIFO_SAMPLES_128);
+    s_imu.enableAccelerometer();    // configFIFO() switches it off while it reconfigures
+    s_fifo = on && ok;
+    DEBUG_PRINTF("[imu] FIFO %s%s\n", on ? "on" : "off", ok ? "" : " (failed)");
+    return ok;
+}
+
+int imu_fifo_read(float *xyz, int max_samples) {
+    if (!s_ok || !s_fifo || max_samples <= 0) return 0;
+    static IMUdata buf[128];
+    int n = s_imu.readFromFifo(buf, max_samples < 128 ? max_samples : 128, nullptr, 0);
+    for (int i = 0; i < n; i++) {
+        xyz[i * 3] = buf[i].x;
+        xyz[i * 3 + 1] = buf[i].y;
+        xyz[i * 3 + 2] = buf[i].z;
+    }
+    return n;
+}
+
 // ---- steps ----------------------------------------------------------------------------
 
 static void save_steps(uint32_t steps) {

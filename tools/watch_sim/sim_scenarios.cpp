@@ -19,7 +19,8 @@ void sim_tap(int x, int y);
 void sim_link(const char *json);
 
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
-    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen;
+    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
+    fall_alert_screen;
 void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
@@ -108,6 +109,9 @@ void sim_scenarios() {
     sim_run(1500);
     sim_save("assistant_answer");
     g_sim.recording = false;
+
+    // Fall detection asking
+    shot(&fall_alert_screen, "fall_alert", 8000);
 
     // Piano Tiles: song list, a song's card, a song under way, the result
     shot(&piano_screen, "piano_menu");

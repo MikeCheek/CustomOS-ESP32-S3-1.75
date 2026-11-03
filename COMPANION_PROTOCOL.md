@@ -81,6 +81,7 @@ Watch → phone (`"e"` = event):
 | `{"e":"call","a":"answer"\|"decline","id":456}` | answer / decline / hang up |
 | `{"e":"ntf","a":"dismiss","id":123}` | dismiss on the phone |
 | `{"e":"ntf","a":"reply","id":123,"tx":"On my way"}` | quick reply through the notification's reply action |
+| `{"e":"fall"}` / `{"e":"fall","ok":1}` | fall detection (fw 3.5+): nobody answered "Did you fall?" in 30 s - the phone rings and texts the emergency contact with its location; `ok` = the person answered afterwards (stop ringing) |
 
 Text is UTF-8. The watch keeps Latin-1 letters (its smooth fonts draw them) and folds everything else
 (`ble_fold_utf8`).

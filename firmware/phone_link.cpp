@@ -288,6 +288,13 @@ bool phone_link_notif_reply(uint32_t id, const char *text) {
     return send_doc(doc);
 }
 
+bool phone_link_fall(bool ok) {
+    JsonDocument doc;
+    doc["e"] = "fall";
+    if (ok) doc["ok"] = 1;
+    return send_doc(doc);
+}
+
 void phone_link_request_state() {
     JsonDocument doc;
     doc["e"] = "req";

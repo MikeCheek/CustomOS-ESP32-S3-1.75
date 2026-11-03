@@ -97,6 +97,7 @@ struct AppSettings {
     bool voice_wake_asleep = false;          // ...also with the screen off
     bool voice_clean = true;                 // noise suppression + auto gain on voice recordings
     char wake_model[24] = "";                // folder in /srmodels, "" = the first one there
+    bool fall_detect = false;                // app_fall.h: ask "Did you fall?", then alert the phone
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced

@@ -74,6 +74,10 @@ class NativeService {
 
   Future<void> findPhone(bool on) => _call('findPhone', {'on': on});
 
+  /// Sends a text from the phone (fall alert only). Needs SEND_SMS; throws
+  /// PlatformException when it couldn't.
+  Future<void> sendSms(String to, String text) => _method.invokeMethod('sendSms', {'to': to, 'text': text});
+
   /// {lat, lon} from the last known location, or null.
   Future<Map<String, double>?> lastLocation() async {
     final m = await _call<Map<dynamic, dynamic>>('getLocation');

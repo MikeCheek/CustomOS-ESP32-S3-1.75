@@ -20,6 +20,7 @@ import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
+import '../services/safety.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -434,6 +435,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         final id = (e['id'] as num?)?.toInt() ?? 0;
         await _native.notificationAction(id, e['a'] == 'answer' ? 'answer' : 'decline');
         break;
+      case 'fall':
+        unawaited(_onFall(e['ok'] == 1));
+        break;
       case 'ntf':
         final id = (e['id'] as num?)?.toInt() ?? 0;
         if (e['a'] == 'reply') {
@@ -785,6 +789,24 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       try {
         if (tmp != null && await tmp.exists()) await tmp.delete();
       } catch (_) {}
+    }
+  }
+
+  /// The watch asked "Did you fall?" and got no answer: ring this phone and
+  /// text the emergency contact (Settings > Safety). ok: it was fine after all.
+  Future<void> _onFall(bool ok) async {
+    if (ok) {
+      await _native.findPhone(false);
+      return;
+    }
+    await _native.findPhone(true);
+    final c = await Safety.contact();
+    if (c.phone.isEmpty) return;
+    try {
+      final loc = await _native.lastLocation();
+      await _native.sendSms(c.phone, Safety.alertText(DateTime.now(), lat: loc?['lat'], lon: loc?['lon']));
+    } catch (e) {
+      print('[Companion] fall alert text failed: $e');
     }
   }
 

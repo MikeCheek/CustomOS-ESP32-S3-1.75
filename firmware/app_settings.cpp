@@ -294,10 +294,18 @@ static SettingsRow ROWS_BATTERY[] = {
     { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
 };
 
+static bool get_fall() { return g_app_settings.fall_detect; }
+static void tap_fall() {
+    g_app_settings.fall_detect = !g_app_settings.fall_detect;
+    nvs_save_settings(g_app_settings);
+    if (g_app_settings.fall_detect) ui_show_toast("Set an emergency contact in the app (Settings > Safety)", 3000);
+}
+
 static SettingsRow ROWS_WAKE[] = {
     { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
     { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
+    { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
 };
 
 static SettingsRow ROWS_SYSTEM[] = {
@@ -315,7 +323,7 @@ static SettingsRow ROWS_ROOT[] = {
     { "Connections", "Bluetooth, WiFi, GPS", ROW_SUBSCREEN, nullptr, nullptr, &settings_connect_screen, ICON_BLUETOOTH },
     { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
     // desc: the battery mode, live (page_draw)
-    { "Wake & quiet", "Raise to wake, tap to wake, bedtime", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "Wake & quiet", "Raise to wake, bedtime, fall detection", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
     { "System", "USB, updates, diagnostics", ROW_SUBSCREEN, nullptr, nullptr, &settings_system_screen, ICON_POWER },
 };
 

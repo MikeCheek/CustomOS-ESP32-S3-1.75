@@ -58,6 +58,8 @@ bool phone_link_finding_phone();
 // ---- Notifications (actions on items in app_notifications) ---------------
 void phone_link_notif_dismiss(uint32_t id);
 bool phone_link_notif_reply(uint32_t id, const char *text);   // false = not sent
+// A fall wasn't answered on the watch (ok = false), or the person said it's fine after all.
+bool phone_link_fall(bool ok);
 
 // Ask the phone to resend its state (battery, media) - e.g. when a screen
 // that shows it opens.

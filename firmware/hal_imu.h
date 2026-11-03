@@ -17,6 +17,13 @@ struct ImuSample {
 bool imu_init();
 ImuSample imu_read();
 
+// The accelerometer's 128-sample FIFO (2 s at 62.5 Hz), for code that
+// needs every sample even when the loop only runs every 150 ms (fall
+// detection). imu_fifo_read() fills xyz with x,y,z triples in g and
+// returns how many samples; 0 when the FIFO is off or empty.
+bool imu_fifo_enable(bool on);
+int  imu_fifo_read(float *xyz, int max_samples);
+
 // Applies the axis-mapping calibration from AppSettings (see
 // app_settings_state.h) to a raw sample, producing logical tilt values
 // that mean the same thing ("tilt right" = positive tilt_x, "tilt up" =
