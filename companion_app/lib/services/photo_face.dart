@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_subject_segmentation/google_mlkit_subject_segmentation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -57,6 +58,7 @@ class PhotoFaceGlyphs {
 class PhotoFace {
   static const size = 466;
   static const chars = '0123456789:';
+  static const _segment = MethodChannel('com.amoledwatch.segment');
 
   /// The photo's centre square (moved by [focusY], 0 = top .. 1 = bottom
   /// for tall photos), scaled to 466 x 466, as RGBA.
@@ -82,14 +84,30 @@ class PhotoFace {
   }
 
   /// The subject: per pixel 0..255 (null when there's none or it can't
-  /// run - Android only; the first time, Google Play services downloads
-  /// the model).
+  /// run). Android: ML Kit (the first time, Google Play services downloads
+  /// the model). iPhone: Apple's Vision foreground mask (iOS 17+,
+  /// ios/AmoledNative/Classes/Segmenter.swift).
   static Future<Uint8List?> subjectMask(Uint8List rgba) async {
-    if (!Platform.isAndroid) return null;
+    if (!Platform.isAndroid && !Platform.isIOS) return null;
     final png = await _png(rgba);
     final dir = await getTemporaryDirectory();
     final f = File('${dir.path}/photo_face_in.png');
     await f.writeAsBytes(png);
+    if (Platform.isIOS) {
+      try {
+        final m = await _segment.invokeMethod<Uint8List>('mask', {'path': f.path});
+        if (m == null || m.length != size * size) return null;
+        var any = 0;
+        for (final v in m) {
+          if (v > 128) any++;
+        }
+        return any > 200 ? m : null;
+      } finally {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+    }
     final seg = SubjectSegmenter(
       options: SubjectSegmenterOptions(
         enableForegroundBitmap: false,

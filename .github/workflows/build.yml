@@ -307,6 +307,28 @@ jobs:
           name: app
           path: companion_app/AmoledWatch-*.apk
 
+  # The iPhone app: built without signing (an App Store / TestFlight build
+  # needs an Apple developer account and its certificates - not set up),
+  # so this checks that the Swift code, the pods and the watch emulator's
+  # C++ (ios/WatchEmu, fetched by the Podfile) all compile.
+  app-ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: companion_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build for iOS (no signing)
+        run: flutter build ios --release --no-codesign
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [firmware, app]

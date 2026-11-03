@@ -69,7 +69,7 @@ class _EmulatorCardState extends ConsumerState<EmulatorCard> {
     final String status;
     final Color color;
     if (!available) {
-      status = 'Android only';
+      status = 'Not available on this phone';
       color = AppColors.textFaint;
     } else if (!on) {
       status = 'Off';

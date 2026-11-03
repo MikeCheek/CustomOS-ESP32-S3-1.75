@@ -45,5 +45,36 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>AmoledWatch talks to your watch over Bluetooth: notifications, music, voice memos and updates.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>AmoledWatch talks to your watch over Bluetooth.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>To record voice memos and questions for the assistant on the phone, and for the watch emulator.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>To take a photo for Look (what is it, read or translate) and for photo watch faces.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>To pick a photo for Look and for photo watch faces.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>To get the weather for where you are and send it to the watch.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>To show your agenda on the watch and add the reminders you ask the assistant for.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>To show your agenda on the watch and add the reminders you ask the assistant for.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>To add the reminders you ask the assistant for.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>To choose which contacts are on the watch.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>The watch emulator tilts with the phone (games, fall detection, sleep).</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>audio</string>
+	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

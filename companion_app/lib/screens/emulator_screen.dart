@@ -109,7 +109,7 @@ class _EmulatorScreenState extends ConsumerState<EmulatorScreen> with SingleTick
               child: Padding(
                 padding: EdgeInsets.all(32),
                 child: Text(
-                  'The emulator runs on Android only for now.',
+                  'The emulator couldn\'t start on this phone.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.textDim),
                 ),

@@ -41,14 +41,27 @@ class WatchEmulator implements VirtualWatch {
 
   static WatchEmulator? _instance;
 
-  /// Null where there's no native library (anything but Android for now).
+  /// Null where there's no native library: Android (libwatchemu.so, CMake)
+  /// and iPhone (WatchEmu.framework, ios/WatchEmu) have it.
   static WatchEmulator? get instance {
     if (_instance != null) return _instance;
-    if (!Platform.isAndroid) return null;
+    if (!Platform.isAndroid && !Platform.isIOS) return null;
     try {
-      return _instance = WatchEmulator._(DynamicLibrary.open('libwatchemu.so'));
+      return _instance = WatchEmulator._(_open());
     } catch (_) {
       return null;
+    }
+  }
+
+  static DynamicLibrary _open() {
+    if (!Platform.isIOS) return DynamicLibrary.open('libwatchemu.so');
+    try {
+      return DynamicLibrary.open('WatchEmu.framework/WatchEmu');
+    } catch (_) {
+      // The framework is linked into the app and already loaded: look it up there.
+      final p = DynamicLibrary.process();
+      p.lookup<NativeFunction<Void Function()>>('emu_step'); // throws if it isn't
+      return p;
     }
   }
 
