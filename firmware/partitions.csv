@@ -1,0 +1,15 @@
+# Two 6 MB app slots (over-the-air updates write the other one) and a
+# 3.9 MB data partition nothing uses yet. nvs stays where it was, so a
+# watch keeps its settings when this table is flashed over USB.
+# Until 3.5 the table was 3 MB + 3 MB + a 9.9 MB FAT nothing used: an
+# over-the-air update can't change the table, so a watch on the old one
+# needs one USB flash (README, Building).
+# The Arduino IDE uses this file because it's in the sketch folder
+# (Partition Scheme: Custom); PlatformIO through platformio.ini.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x600000,
+app1,     app,  ota_1,   0x610000, 0x600000,
+ffat,     data, fat,     0xC10000, 0x3E0000,
+coredump, data, coredump,0xFF0000, 0x10000,

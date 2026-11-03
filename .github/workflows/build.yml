@@ -19,7 +19,7 @@ on:
 
 env:
   ESP32_CORE: "3.3.10"
-  FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc"
+  FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=custom,CDCOnBoot=cdc"
 
 jobs:
   # The release firmware: PlatformIO (pioarduino) with power management,
@@ -196,6 +196,10 @@ jobs:
           arduino-cli compile -b "$FQBN" --libraries firmware/libraries \
             --warnings default --build-path build firmware 2>&1 | tee compile.log
           grep -E "Sketch uses|Global variables" compile.log >> "$GITHUB_STEP_SUMMARY"
+          # "Custom" lets the IDE allow up to 16 MB: the real limit is the 6 MB app slot in firmware/partitions.csv
+          size=$(stat -c %s build/firmware.ino.bin)
+          echo "App image: $size of 6291456 bytes (6 MB slot)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt 6291456 ]; then echo "::error::firmware.ino.bin ($size bytes) doesn't fit the 6 MB app slot"; exit 1; fi
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw-arduino.bin"
 

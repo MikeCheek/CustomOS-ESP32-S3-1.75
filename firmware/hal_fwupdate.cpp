@@ -202,7 +202,7 @@ static FwupState do_download() {
     uint32_t total = (uint32_t)len;
     uint32_t image = s_asset_signed ? total - SIG_TRAILER : total;
     const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
-    if (total <= (uint32_t)SIG_TRAILER + 1024 || !slot || image > slot->size) { http.end(); return download_fail("Firmware file doesn't fit"); }
+    if (total <= (uint32_t)SIG_TRAILER + 1024 || !slot || image > slot->size) { http.end(); return download_fail("Too big for this watch's layout: flash it once over USB"); }
     if (!Update.begin(image, U_FLASH)) {
         char why[48];
         snprintf(why, sizeof(why), "Can't start update (%s)", Update.errorString());

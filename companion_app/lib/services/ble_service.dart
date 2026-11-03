@@ -25,7 +25,7 @@ class BleService {
   final _otaController = StreamController<List<int>>.broadcast();
   StreamSubscription<BluetoothConnectionState>? _connStateSub;
   final List<StreamSubscription<List<int>>> _valueSubs = [];
-  bool _ready = false;       // connected AND characteristics discovered
+  bool _ready = false; // connected AND characteristics discovered
   /// Reconnect by itself when the watch drops (out of range, reboot).
   bool autoReconnect = true;
   bool _settingUp = false;
@@ -82,6 +82,7 @@ class BleService {
 
   /// A message from the emulated watch, as if it came over Bluetooth.
   void virtualIncoming(Map<String, dynamic> msg) => _linkController.add(msg);
+
   /// The watch firmware supports updates over Bluetooth.
   bool get supportsOta => isConnected && _otaChar != null;
 
@@ -128,15 +129,15 @@ class BleService {
     if (d == null || !Platform.isAndroid) return;
     try {
       await d.requestConnectionPriority(
-          connectionPriorityRequest: high ? ConnectionPriority.high : ConnectionPriority.balanced);
+        connectionPriorityRequest: high ? ConnectionPriority.high : ConnectionPriority.balanced,
+      );
     } catch (_) {}
   }
+
   BluetoothDevice? get device => _device;
 
   Future<void> startScan() async {
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 10),
-    );
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
   }
 
   Future<void> stopScan() async {
@@ -231,9 +232,11 @@ class BleService {
           } catch (e) {
             print('[BLE] battery notify: $e');
           }
-          _valueSubs.add(char.onValueReceived.listen((value) {
-            if (value.isNotEmpty) _batteryController.add(value[0]);
-          }));
+          _valueSubs.add(
+            char.onValueReceived.listen((value) {
+              if (value.isNotEmpty) _batteryController.add(value[0]);
+            }),
+          );
           try {
             final v = await char.read();
             if (v.isNotEmpty && v[0] > 0) _batteryController.add(v[0]);
@@ -261,9 +264,11 @@ class BleService {
         } else if (u == BleProtocol.otaUuid) {
           _otaChar = char;
           await _notify(char);
-          _valueSubs.add(char.onValueReceived.listen((v) {
-            if (v.isNotEmpty) _otaController.add(v);
-          }));
+          _valueSubs.add(
+            char.onValueReceived.listen((v) {
+              if (v.isNotEmpty) _otaController.add(v);
+            }),
+          );
         }
       }
       break;
@@ -305,7 +310,7 @@ class BleService {
     }
     final bonded = await device.bondState.first == BluetoothBondState.bonded;
     try {
-      await bat.read();   // works: old firmware (open link) or a good existing bond
+      await bat.read(); // works: old firmware (open link) or a good existing bond
       return;
     } catch (_) {
       // "insufficient authentication/encryption": firmware 3.0, pair now
@@ -490,8 +495,12 @@ class BleService {
   /// [onProgress] gets bytes confirmed written on the watch. Throws a
   /// readable message on failure. [cancel] returning true aborts.
   /// [signature]: 64-byte ECDSA signature from a *.signed.bin (fw 3.0+).
-  Future<void> sendFirmware(Uint8List image,
-      {Uint8List? signature, void Function(int written, int total)? onProgress, bool Function()? cancel}) async {
+  Future<void> sendFirmware(
+    Uint8List image, {
+    Uint8List? signature,
+    void Function(int written, int total)? onProgress,
+    bool Function()? cancel,
+  }) async {
     final c = _otaChar;
     if (c == null || !isConnected) throw Exception('This watch firmware can\'t be updated over Bluetooth');
     final total = image.length;
@@ -535,7 +544,9 @@ class BleService {
         case 0:
           break;
         case 2:
-          throw Exception('The file is too big for the watch');
+          throw Exception(
+            'Too big for the watch\'s app slot. A watch on the old 3 MB layout needs one USB flash of firmware 3.5 or later',
+          );
         case 3:
           throw Exception('Watch battery too low - charge it to 20% or plug it in');
         default:
@@ -650,8 +661,14 @@ class BleService {
   /// occasional dropped packet just means state holds until the next
   /// real change, not a stuck/missed input.
   Future<void> sendController({
-    bool up = false, bool down = false, bool left = false, bool right = false,
-    bool a = false, bool b = false, bool x = false, bool y = false,
+    bool up = false,
+    bool down = false,
+    bool left = false,
+    bool right = false,
+    bool a = false,
+    bool b = false,
+    bool x = false,
+    bool y = false,
   }) async {
     if (_controllerChar == null) return;
     await _controllerChar!.write(
@@ -750,8 +767,7 @@ class BleService {
   }
 
   /// [onProgress] gets the number of bytes sent so far.
-  Future<void> sendFileWithProgress(String name, Uint8List data,
-      {void Function(int)? onProgress}) async {
+  Future<void> sendFileWithProgress(String name, Uint8List data, {void Function(int)? onProgress}) async {
     if (isVirtual) {
       await _virtual!.receiveFile(name, data);
       onProgress?.call(data.length);

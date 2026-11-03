@@ -150,8 +150,9 @@ One release (tag `vX.Y.Z`) carries both the firmware and the app.
 | | |
 |---|---|
 | **Firmware** | **PlatformIO** (recommended, what releases use): `pio run -t upload` - same sources, plus ESP-IDF power management and Bluetooth modem sleep, so the watch light-sleeps with the phone connected. The first build compiles the core's libraries and takes a while. |
-| **Arduino IDE** | Also builds, without the power management: core **esp32 3.3.10**, board *ESP32S3 Dev Module*, PSRAM *OPI*, flash 16 MB, partitions *16M Flash (3MB APP/9.9MB FATFS)*, USB CDC on boot. Libraries pinned in [`scripts/arduino-libraries.txt`](scripts/arduino-libraries.txt); three more are vendored in `firmware/libraries/`. |
-| **CLI** | `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc --libraries firmware/libraries firmware` |
+| **Arduino IDE** | Also builds, without the power management: core **esp32 3.3.10**, board *ESP32S3 Dev Module*, PSRAM *OPI*, flash 16 MB, partitions *Custom* (it uses [`firmware/partitions.csv`](firmware/partitions.csv): two 6 MB app slots), USB CDC on boot. Libraries pinned in [`scripts/arduino-libraries.txt`](scripts/arduino-libraries.txt); three more are vendored in `firmware/libraries/`. |
+| **CLI** | `arduino-cli compile -b esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=custom,CDCOnBoot=cdc --libraries firmware/libraries firmware` |
+| **Partitions** | Since 3.5 the app slots are 6 MB (were 3 MB). A watch on the old table needs **one USB flash** of a 3.5+ build (PlatformIO `pio run -t upload`, or the IDE with partitions *Custom*): an over-the-air update can't change the table, and once the firmware outgrows 3 MB the watch says it doesn't fit. Settings are kept (NVS doesn't move). |
 | **App** | `cd companion_app && flutter pub get && flutter run` |
 | **Screenshots** | `tools/watch_sim/run.sh` - compiles the UI for the PC and renders `docs/screenshots/` |
 | **CI** | every push builds the firmware (PlatformIO, and the Arduino IDE build as a check) and the APK; a `v*` tag publishes a release |
