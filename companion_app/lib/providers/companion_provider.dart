@@ -22,6 +22,7 @@ import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
 import '../services/notif_ai.dart';
+import '../services/memo_embeddings.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -980,7 +981,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case IntentKind.memos:
         final kb = _ref.read(knowledgeProvider);
         final q = intent.text ?? heard;
-        final ctx = kb.contextFor(q);
+        final ctx = await MemoEmbeddings.instance.contextFor(kb, q);
         if (ctx.isEmpty) return (answer: t('I couldn\'t find anything about that in your memos.', 'Non ho trovato niente nei tuoi memo.'), timer: null);
         await thinking();
         final ans = await gemma.ask(q, [for (final c in ctx) c.$2]);

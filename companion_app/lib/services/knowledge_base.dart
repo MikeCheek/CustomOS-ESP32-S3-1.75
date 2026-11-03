@@ -462,14 +462,11 @@ class KnowledgeBase {
   /// Excerpts for answering a question: the best matching memos, as text.
   List<(RecordingEntry, String)> contextFor(String question, {int n = 5}) {
     final hits = search(question, limit: n);
-    return [
-      for (final h in hits)
-        (
-          h.entry,
-          '${h.entry.displayTitle}'
-              '${h.entry.recordedAt != null ? ' (${h.entry.recordedAt!.day}/${h.entry.recordedAt!.month})' : ''}: '
-              '${h.entry.summary} ${h.entry.transcript.length > 700 ? '${h.entry.transcript.substring(0, 700)}…' : h.entry.transcript}'
-        )
-    ];
+    return [for (final h in hits) (h.entry, excerpt(h.entry))];
   }
+
+  /// A memo as the text Ask AI reads.
+  static String excerpt(RecordingEntry e) => '${e.displayTitle}'
+      '${e.recordedAt != null ? ' (${e.recordedAt!.day}/${e.recordedAt!.month})' : ''}: '
+      '${e.summary} ${e.transcript.length > 700 ? '${e.transcript.substring(0, 700)}…' : e.transcript}';
 }

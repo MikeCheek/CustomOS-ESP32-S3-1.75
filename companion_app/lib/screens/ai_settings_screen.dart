@@ -3,6 +3,7 @@ import 'package:whisper_ggml/whisper_ggml.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
 import '../services/tts_service.dart';
+import '../services/memo_embeddings.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -34,6 +35,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _diar = DiarizationService.instance;
   bool _diarInstalled = false, _diarOn = true, _diarBusy = false;
   double _diarProgress = 0;
+
+  final _emb = MemoEmbeddings.instance;
+  bool _embInstalled = false, _embBusy = false;
+  double _embProgress = 0;
 
   final _tts = TtsService.instance;
   final Map<String, bool> _voiceInstalled = {};
@@ -69,6 +74,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       _voiceInstalled[v.id] = await _tts.isInstalled(v);
     }
     _ttsOn = await _tts.enabled();
+    _embInstalled = await _emb.isInstalled();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -110,6 +116,25 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _diarBusy = false);
+    }
+  }
+
+  Future<void> _installEmb() async {
+    await _llm.setHfToken(_tokenCtrl.text);
+    setState(() {
+      _embBusy = true;
+      _embProgress = 0;
+    });
+    try {
+      await _emb.install(onProgress: (p) {
+        if (mounted) setState(() => _embProgress = p);
+      });
+      _embInstalled = true;
+      if (mounted) showSnack(context, 'Memo search and Ask AI now also find memos by meaning');
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _embBusy = false);
     }
   }
 
@@ -283,6 +308,23 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                       setState(() => _diarOn = v);
                     },
                   ),
+                const SectionLabel('Search by meaning'),
+                _ModelCard(
+                  title: 'EmbeddingGemma (4-bit)',
+                  subtitle: 'Finds memos by what they mean, not only their words - in search, Ask AI and the '
+                      'assistant. Gated: needs the Hugging Face token below · ${_size(MemoEmbeddings.sizeBytes)}',
+                  selected: true,
+                  installed: _embInstalled,
+                  busy: _embBusy,
+                  progress: _embProgress,
+                  onInstall: _embBusy ? null : _installEmb,
+                  onSelect: () {},
+                  onDelete: () async {
+                    await _emb.delete();
+                    setState(() => _embInstalled = false);
+                  },
+                ),
+                const SizedBox(height: 10),
                 const SectionLabel('Spoken answers (text to speech)'),
                 for (final v in TtsService.voices) ...[
                   _ModelCard(

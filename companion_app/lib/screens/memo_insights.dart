@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/knowledge_provider.dart';
@@ -8,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import 'recording_detail.dart';
+import '../services/memo_embeddings.dart';
 
 // Knowledge views over the voice memos: Insights dashboard, theme
 // collections, search with relevance scores, questions to the on-device AI.
@@ -661,9 +663,26 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
   bool _asking = false;
   String? _answer;
   List<RecordingEntry> _sources = const [];
+  // search by meaning (memo_embeddings.dart), for the query it was made for
+  String _meaningFor = '';
+  List<(RecordingEntry, double)> _meaning = const [];
+  Timer? _meaningTimer;
+
+  void _queueMeaning() {
+    _meaningTimer?.cancel();
+    final q = _q.text.trim();
+    if (q.length < 3) return;
+    _meaningTimer = Timer(const Duration(milliseconds: 700), () async {
+      try {
+        final r = await MemoEmbeddings.instance.rank(q, ref.read(knowledgeProvider).entries);
+        if (mounted && _q.text.trim() == q) setState(() { _meaning = r; _meaningFor = q; });
+      } catch (_) {}
+    });
+  }
 
   @override
   void dispose() {
+    _meaningTimer?.cancel();
     _q.dispose();
     super.dispose();
   }
@@ -676,7 +695,7 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
       _asking = true;
       _answer = null;
     });
-    final ctx = ref.read(knowledgeProvider).contextFor(question);
+    final ctx = await MemoEmbeddings.instance.contextFor(ref.read(knowledgeProvider), question);
     String? answer;
     try {
       answer = ctx.isEmpty ? null : await GemmaService.instance.ask(question, ctx.map((c) => c.$2).toList());
@@ -716,7 +735,10 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
           controller: _q,
           autofocus: widget.initialQuery.isEmpty && widget.initialTag == null,
           textInputAction: TextInputAction.search,
-          onChanged: (_) => setState(() => _answer = null),
+          onChanged: (_) {
+            setState(() => _answer = null);
+            _queueMeaning();
+          },
           onSubmitted: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: 'Search or ask your memos',
@@ -817,6 +839,16 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
                   ],
                 ),
               ),
+            // memos close in meaning that the words didn't find
+            if (query.length >= 3 && _meaningFor == query) ...[
+              for (final (e, sc) in _meaning.where((m) => m.$2 >= 0.35 && !hits.any((h) => h.entry.name == m.$1.name)))
+                MemoTile(
+                  e,
+                  trailing: ScoreBar(sc.clamp(0, 1).toDouble()),
+                  below: Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+                ),
+            ],
           ] else ...[
             const SectionLabel('Try'),
             Wrap(spacing: 8, runSpacing: 8, children: [
