@@ -92,6 +92,8 @@ struct AppSettings {
     uint16_t dnd_to_min = 7 * 60;            // bedtime end
     bool smooth_fonts = true;                // ui_font.h - smooth fonts with accents
     bool clock_24h = true;                   // clock_fmt.h - off: 9:05 PM
+    char photo_face[24] = "";                // the Photo face's current photo, "" = the first
+    uint8_t photo_rotate = 0;                // Photo face: 0 tap only, 1 every hour, 2 every day
 
     // ---- Voice (voice_sr.cpp) --------------------------------------------------
     bool voice_wake = false;                 // listen for the wake word (more battery)

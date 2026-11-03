@@ -32,6 +32,7 @@
 #include "watchface_registry.h"
 #include "sim_state.h"
 #include "hal_nvs.h"
+#include "hal_sleep.h"
 #include "dnd.h"
 #include "complications.h"
 #include <string>
@@ -163,6 +164,7 @@ __attribute__((visibility("default"))) void emu_touch(int x, int y, int down) {
     if (y < 0) y = 0;
     if (x >= LCD_WIDTH) x = LCD_WIDTH - 1;
     if (y >= LCD_HEIGHT) y = LCD_HEIGHT - 1;
+    sleep_register_activity();   // like firmware.ino: a touch keeps the screen at full frame rate
     sim_touch_track(x, y, down != 0);
     ui_handle_touch(x, y, down != 0);
 }
@@ -170,6 +172,7 @@ __attribute__((visibility("default"))) void emu_touch(int x, int y, int down) {
 // which: 0 = BOOT, 1 = PWR; event: 1 short, 2 double, 3 long - the same
 // meaning as on the watch (firmware.ino).
 __attribute__((visibility("default"))) void emu_button(int which, int event) {
+    sleep_register_activity();
     if (which == 1) {
         if (event == 1) s_screen_off = !s_screen_off;   // the screen sleeps / wakes
         else if (event == 2) ui_pop_screen();
@@ -258,22 +261,25 @@ __attribute__((visibility("default"))) void emu_set_playing(int on) { sim_set_pl
 __attribute__((visibility("default"))) void emu_set_mic_level(int pct) { sim_set_mic_level(pct); }
 
 // A few settings by name, for tests and tools ("fall", "sleep"): 1 on, 0 off.
-// "photoface": a new photo face file is on the SD card. "clock24": 0 = 12-hour clock.
+// "clock24": 0 = 12-hour clock.
 __attribute__((visibility("default"))) void emu_set_option(const char *name, int on) {
     if (!name) return;
     if (!strcmp(name, "fall")) g_app_settings.fall_detect = on != 0;
     else if (!strcmp(name, "sleep")) g_app_settings.sleep_track = on != 0;
     else if (!strcmp(name, "clock24")) g_app_settings.clock_24h = on != 0;
-    else if (!strcmp(name, "photoface")) {
-        // The app wrote <sd>/faces/photo.pwf ("pf:photo.pwf"): show it, like the watch does.
-        photo_face_reload();
-        if (on && photo_face_available()) {
-            for (int i = 0; i < watchface_count(); i++)
-                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
-            ui_go_home();
-            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
-        }
+}
+
+// The app wrote <sd>/faces/photos/<name>.pwf ("pf:<name>.pwf"): show it,
+// like the watch does after a transfer, and tell the app the new list.
+__attribute__((visibility("default"))) void emu_photo_face(const char *name) {
+    photo_face_reload();
+    if (name && photo_face_show(name) && photo_face_available()) {
+        for (int i = 0; i < watchface_count(); i++)
+            if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+        ui_go_home();
+        if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
     }
+    phone_link_send_photo_faces();
 }
 
 }  // extern "C"

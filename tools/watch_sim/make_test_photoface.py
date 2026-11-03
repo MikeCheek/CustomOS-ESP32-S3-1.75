@@ -4,7 +4,7 @@ for emu_host_test: a blue gradient "photo" with a red disc as the subject
 right where the time is, white digits. The test checks the disc stays in
 front of the time and the digits show around it.
 
-    python3 make_test_photoface.py <out.pwf>
+    python3 make_test_photoface.py <out.pwf> [green]   (green: a green subject)
 """
 import struct
 import sys
@@ -20,12 +20,13 @@ def rgb565(r, g, b):
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
-def main(out):
+def main(out, green=False):
+    subject = rgb565(0, 255, 0) if green else rgb565(255, 0, 0)
     photo = bytearray()
     for y in range(H):
         for x in range(W):
             inside = (x - CX) ** 2 + (y - CY) ** 2 <= R * R
-            c = rgb565(255, 0, 0) if inside else rgb565(0, 40 + y * 120 // H, 120 + x * 100 // W)
+            c = subject if inside else rgb565(0, 40 + y * 120 // H, 120 + x * 100 // W)
             photo += struct.pack("<H", c)
 
     try:
@@ -62,4 +63,4 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], len(sys.argv) > 2 and sys.argv[2] == "green")

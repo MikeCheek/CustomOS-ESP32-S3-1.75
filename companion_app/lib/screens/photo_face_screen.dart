@@ -6,19 +6,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../providers/ble_provider.dart';
+import '../providers/photo_faces_provider.dart';
 import '../services/photo_face.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-/// A photo as the watch face, the time behind its subject.
-class PhotoFaceScreen extends ConsumerStatefulWidget {
-  const PhotoFaceScreen({super.key});
+/// Makes one photo face: pick a photo, frame it, style the time, send it.
+/// The list of the watch's photo faces is PhotoFaceScreen (photo_faces_screen.dart).
+class PhotoFaceEditor extends ConsumerStatefulWidget {
+  const PhotoFaceEditor({super.key});
 
   @override
-  ConsumerState<PhotoFaceScreen> createState() => _PhotoFaceScreenState();
+  ConsumerState<PhotoFaceEditor> createState() => _PhotoFaceEditorState();
 }
 
-class _PhotoFaceScreenState extends ConsumerState<PhotoFaceScreen> {
+class _PhotoFaceEditorState extends ConsumerState<PhotoFaceEditor> {
   static const _colors = [
     Color(0xFFFFFFFF),
     Color(0xFF111111),
@@ -40,6 +42,13 @@ class _PhotoFaceScreenState extends ConsumerState<PhotoFaceScreen> {
   String? _status;
   double _progress = 0;
   int _job = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Straight to the gallery: that's why this screen was opened.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pick());
+  }
 
   @override
   void dispose() {
@@ -114,14 +123,20 @@ class _PhotoFaceScreenState extends ConsumerState<PhotoFaceScreen> {
       _status = 'Sending ${(bytes.length / 1024).round()} KB...';
     });
     try {
+      final name = PhotoFacesNotifier.newName();
       await ble.sendFileWithProgress(
-        'pf:photo.pwf',
+        'pf:$name.pwf',
         bytes,
         onProgress: (sent) {
           if (mounted) setState(() => _progress = sent / bytes.length);
         },
       );
-      if (mounted) showSnack(context, 'It\'s the watch face now');
+      final png = await _preview?.toByteData(format: ui.ImageByteFormat.png);
+      if (png != null) await PhotoFacesNotifier.saveThumb(name, png.buffer.asUint8List());
+      if (mounted) {
+        showSnack(context, 'It\'s the watch face now');
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       if (mounted) showSnack(context, 'Couldn\'t send it: $e');
     } finally {
@@ -143,7 +158,7 @@ class _PhotoFaceScreenState extends ConsumerState<PhotoFaceScreen> {
   Widget build(BuildContext context) {
     final ready = _rgba != null && _glyphs != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Photo face')),
+      appBar: AppBar(title: const Text('New photo face')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [

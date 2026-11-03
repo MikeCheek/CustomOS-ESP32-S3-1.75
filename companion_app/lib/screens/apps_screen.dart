@@ -19,7 +19,7 @@ import 'media_screen.dart';
 import 'memo_insights.dart';
 import 'messages_screen.dart';
 import 'notifications_screen.dart';
-import 'photo_face_screen.dart';
+import 'photo_faces_screen.dart';
 import 'piano_song_screen.dart';
 import 'safety_screen.dart';
 import 'sound_alerts_screen.dart';
@@ -131,7 +131,7 @@ final appGroups = <AppGroup>[
     ),
     AppFeature(
       'Photo face',
-      'Your photo, the time behind its subject',
+      'Your photos, the time behind their subject',
       Icons.portrait_rounded,
       AppColors.accent3,
       page: () => const PhotoFaceScreen(),

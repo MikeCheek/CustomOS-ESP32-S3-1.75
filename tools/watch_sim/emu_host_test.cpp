@@ -14,6 +14,7 @@ void emu_step();
 uint32_t emu_frame_seq();
 void emu_frame_rgba(uint8_t *);
 int emu_width();
+void emu_photo_face(const char *);
 int emu_height();
 void emu_touch(int, int, int);
 void emu_button(int, int);
@@ -110,7 +111,7 @@ int main(int argc, char **argv) {
 
     // The photo face (make_test_photoface.py wrote <out>/sd/faces/photo.pwf):
     // the red disc (the subject) in front of the white time, the time around it.
-    emu_set_option("photoface", 1);
+    emu_photo_face("test");
     run(1200);
     snprintf(p, sizeof(p), "%s/emu_photo.ppm", out); save(p);
     {
@@ -127,6 +128,20 @@ int main(int argc, char **argv) {
             }
         printf("photo face: subject in front %d, time pixels %d\n", subject_front, white);
         if (!subject_front || white < 300) { printf("FAIL: photo face\n"); return 1; }
+        // and the app heard about it: {"e":"pf","l":["test"],...}
+        bool listed = false;
+        char lb[1024];
+        while (emu_link_pop(lb, sizeof(lb)) > 0) listed |= strstr(lb, "\"e\":\"pf\"") && strstr(lb, "\"test\"");
+        if (!listed) { printf("FAIL: no photo face list for the app\n"); return 1; }
+        // a tap on the face: the next photo (the green subject)
+        emu_touch(120, 380, 1); run(60); emu_touch(120, 380, 0);
+        run(400);
+        emu_frame_rgba(f);
+        const uint8_t *g2 = f + (200 * w + 233) * 4;
+        bool next = g2[1] > 240 && g2[0] < 16;
+        printf("photo face: tap shows the next photo %d\n", next);
+        snprintf(p, sizeof(p), "%s/emu_photo_next.ppm", out); save(p);
+        if (!next) { printf("FAIL: tap didn't change the photo\n"); return 1; }
     }
     // 12-hour clock: "9:05" and AM/PM beside it
     emu_set_option("clock24", 0);

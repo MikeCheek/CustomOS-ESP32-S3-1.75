@@ -214,6 +214,14 @@ static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
 static bool get_wx_fx() { return g_app_settings.weather_fx; }
 static void tap_wx_fx() { g_app_settings.weather_fx = !g_app_settings.weather_fx; nvs_save_settings(g_app_settings); }
 
+static void tap_photo_rotate() {
+    g_app_settings.photo_rotate = (g_app_settings.photo_rotate + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_photo_rotate() {
+    static const char *const M[] = {"Tap the face for the next photo", "A new photo every hour", "A new photo every day"};
+    return M[g_app_settings.photo_rotate % 3];
+}
 static bool get_clock24() { return g_app_settings.clock_24h; }
 static void tap_clock24() { g_app_settings.clock_24h = !g_app_settings.clock_24h; nvs_save_settings(g_app_settings); }
 
@@ -224,6 +232,7 @@ static SettingsRow ROWS_DISPLAY[] = {
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
     { "24-hour clock", "Off: 9:05 PM", ROW_TOGGLE, get_clock24, tap_clock24, nullptr, nullptr },
+    { "Photo face", "", ROW_ACTION, nullptr, tap_photo_rotate, nullptr, nullptr, nullptr, nullptr, desc_photo_rotate },
     { "Smooth fonts", "Sharper text with accented letters", ROW_TOGGLE, get_smooth_fonts, tap_smooth_fonts, nullptr, nullptr },
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
 };

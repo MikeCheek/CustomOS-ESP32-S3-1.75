@@ -43,7 +43,9 @@ Built on Arduino + Arduino_GFX, no LVGL.
 - **Photo face with depth** - pick a photo in the app (Photo face): the phone finds its subject (Google ML
   Kit subject segmentation, on the phone) and the watch draws the time behind it, so a person, pet or building
   stands in front of the clock. Framing, time position, size, weight and colour in the app; the photo, the
-  subject mask and the digits go to the SD card as one file (`firmware/app_photo_watchface.h`)
+  subject mask and the digits go to the SD card as one file (`firmware/app_photo_watchface.h`). Up to 20
+  photos: tap the face for the next one, or let it change every hour or every day; the app lists, shows and
+  deletes them
 - **Smooth UI** - slide transitions, edge-swipe back, kinetic lists, a pull-down quick panel (brightness,
   volume, radios, DND, torch, battery modes), smooth fonts with accents, auto-rotate.
 - **3D effects** - software-rendered on the watch: a particle power-on sequence, lock/unlock that tilt the real

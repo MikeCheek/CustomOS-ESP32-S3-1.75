@@ -53,6 +53,8 @@ void phone_link_call_decline();
 
 // ---- Find my phone -------------------------------------------------------
 void phone_link_find_phone(bool on);
+// {"e":"pf"}: the photo faces on the card (after a change, or when the app asks)
+void phone_link_send_photo_faces();
 bool phone_link_finding_phone();
 
 // ---- Notifications (actions on items in app_notifications) ---------------

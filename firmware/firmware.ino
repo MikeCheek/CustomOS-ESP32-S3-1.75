@@ -151,22 +151,17 @@ static void check_file_transfer() {
         return;
     }
     if (st == BLE_FILE_COMPLETE && photo_face) {
-        int len = ble_file_bytes_received();
-        bool ok = false;
-#if FEATURE_SD_CARD
-        if (sd_is_mounted() && !usb_msc_host_active() && len > 40 && !strcmp(ble_file_name() + 3, "photo.pwf")) {
-            SD.mkdir("/faces");
-            SD.remove("/faces/photo.pwf");
-            File f = SD.open("/faces/photo.pwf", FILE_WRITE);
-            if (f) {
-                ok = f.write(ble_file_data(), len) == (size_t)len;
-                f.close();
-                if (!ok) SD.remove("/faces/photo.pwf");
-            }
+        // "pf:<name>.pwf" -> /faces/photos/<name>.pwf, then it's the face
+        char name[PHOTO_FACE_NAME_MAX + 1] = "";
+        const char *fn = ble_file_name() + 3;
+        int l = strlen(fn);
+        if (l > 4 && l - 4 <= PHOTO_FACE_NAME_MAX && !strcmp(fn + l - 4, ".pwf")) {
+            memcpy(name, fn, l - 4);
+            name[l - 4] = 0;
         }
-#endif
+        bool ok = !usb_msc_host_active() && photo_face_save(name, ble_file_data(), ble_file_bytes_received());
+        bool full = !ok && photo_face_count() >= PHOTO_FACE_MAX;
         ble_consume_file();
-        photo_face_reload();
         if (ok && photo_face_available()) {
             for (int i = 0; i < watchface_count(); i++)
                 if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
@@ -174,8 +169,9 @@ static void check_file_transfer() {
             if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
             ui_show_toast("New photo watch face", 2000);
         } else {
-            ui_show_toast("Couldn't save the photo face", 2000);
+            ui_show_toast(full ? "Photo faces full: delete one in the app" : "Couldn't save the photo face", 2500);
         }
+        phone_link_send_photo_faces();
         return;
     }
 

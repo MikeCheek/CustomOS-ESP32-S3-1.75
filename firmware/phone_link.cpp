@@ -1,3 +1,5 @@
+#include "app_photo_watchface.h"
+#include "watchface_registry.h"
 #include "app_assistant.h"
 #include "phone_link.h"
 #include "complications.h"
@@ -184,6 +186,22 @@ static void handle(const char *msg) {
         uint32_t n = doc["n"] | 0u;
         if (doc["st"].is<const char *>()) assistant_on_status(n, doc["st"]);
         else assistant_on_result(n, doc["q"] | "", doc["a"] | "", doc["do"] | "", doc["s"] | 0, doc["err"] | "");
+    } else if (!strcmp(t, "pf")) {
+        // Photo faces: {"a":"list"} / {"a":"show","n":..} / {"a":"del","n":..} / {"a":"rot","m":0|1|2}
+        const char *a = doc["a"] | "list";
+        const char *n = doc["n"] | "";
+        if (!strcmp(a, "show") && photo_face_show(n)) {
+            for (int i = 0; i < watchface_count(); i++)
+                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+            ui_go_home();
+            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
+        } else if (!strcmp(a, "del")) {
+            photo_face_delete(n);
+        } else if (!strcmp(a, "rot")) {
+            int m = doc["m"] | 0;
+            if (m >= 0 && m <= 2) { g_app_settings.photo_rotate = (uint8_t)m; nvs_save_settings(g_app_settings); }
+        }
+        phone_link_send_photo_faces();
     } else if (!strcmp(t, "crash")) {
         // Crash report + status text for the app's Diagnostics page.
         if (doc["clr"] | 0) diag_clear_crash();
@@ -203,6 +221,18 @@ static void handle(const char *msg) {
             heap_caps_free(status);
         }
     }
+}
+
+// The photo faces on the card, which one is shown and how they change.
+void phone_link_send_photo_faces() {
+    JsonDocument doc;
+    doc["e"] = "pf";
+    JsonArray l = doc["l"].to<JsonArray>();
+    for (int i = 0; i < photo_face_count(); i++) l.add(photo_face_name(i));
+    doc["cur"] = photo_face_current();
+    doc["rot"] = g_app_settings.photo_rotate;
+    doc["max"] = PHOTO_FACE_MAX;
+    send_doc(doc);
 }
 
 void phone_link_update() {

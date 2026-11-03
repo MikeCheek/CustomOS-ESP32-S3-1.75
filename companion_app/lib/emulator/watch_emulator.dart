@@ -35,9 +35,7 @@ class WatchEmulator implements VirtualWatch {
       ),
       _playing = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_playing'),
       _micLevel = _lib.lookupFunction<Void Function(Int32), void Function(int)>('emu_set_mic_level'),
-      _option = _lib.lookupFunction<Void Function(Pointer<Utf8>, Int32), void Function(Pointer<Utf8>, int)>(
-        'emu_set_option',
-      ),
+      _photoFace = _lib.lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>('emu_photo_face'),
       width = _lib.lookupFunction<Int32 Function(), int Function()>('emu_width')(),
       height = _lib.lookupFunction<Int32 Function(), int Function()>('emu_height')();
 
@@ -71,7 +69,7 @@ class WatchEmulator implements VirtualWatch {
   final int Function(Pointer<Utf8>, int) _event;
   final void Function(int) _playing;
   final void Function(int) _micLevel;
-  final void Function(Pointer<Utf8>, int) _option;
+  final void Function(Pointer<Utf8>) _photoFace;
 
   /// Its SD card: a folder in the app's storage (set by start()).
   String sdRoot = '';
@@ -155,15 +153,6 @@ class WatchEmulator implements VirtualWatch {
 
   void setMicLevel(int pct) => _micLevel(pct.clamp(0, 100));
 
-  void _setOption(String name, int on) {
-    final n = name.toNativeUtf8();
-    try {
-      _option(n, on);
-    } finally {
-      malloc.free(n);
-    }
-  }
-
   /// While the phone records for the watch: readRecording() waits for it.
   set recordingDone(Future<void> f) => _recordingDone = f;
 
@@ -192,7 +181,7 @@ class WatchEmulator implements VirtualWatch {
     } else if (name.startsWith('say:')) {
       rel = 'Recordings/_say.wav';
     } else if (name.startsWith('pf:')) {
-      rel = 'faces/photo.pwf'; // the photo watch face: shown once it's written
+      rel = 'faces/photos/${name.substring(3).split('/').last}'; // a photo watch face: shown once it's written
     } else if (name.startsWith('wn:')) {
       return; // wake word models: ESP-SR isn't in the emulator
     } else {
@@ -202,7 +191,14 @@ class WatchEmulator implements VirtualWatch {
     await f.parent.create(recursive: true);
     await f.writeAsBytes(data);
     if (name.startsWith('say:')) onSay?.call(f.path);
-    if (name.startsWith('pf:')) _setOption('photoface', 1);
+    if (name.startsWith('pf:')) {
+      final n = name.substring(3).split('/').last.replaceAll('.pwf', '').toNativeUtf8();
+      try {
+        _photoFace(n);
+      } finally {
+        malloc.free(n);
+      }
+    }
   }
 
   List<Map<String, dynamic>> _drain(int Function(Pointer<Utf8>, int) take) {
