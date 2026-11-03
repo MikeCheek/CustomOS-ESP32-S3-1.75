@@ -69,7 +69,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 - Pair, reconnect automatically and keep the link alive in the background; home-screen widget.
 - Forward notifications (per app), calls, media, calendar, navigation and weather to the watch.
 - **Voice memos** - sync recordings (Bluetooth or fast Wi-Fi), or record one on the spot with the phone's mic
-  (it's copied to the watch too); transcribe with Whisper and summarize with Gemma / Qwen, all on the phone. Topics, to-dos, people, insights, search and "Ask AI" over your memos.
+  (it's copied to the watch too); transcribe with Whisper and summarize with Gemma / Qwen, all on the phone. Topics, to-dos, people, insights, search and "Ask AI" over your memos. Conversations are
+  split by speaker ("who said what", sherpa-onnx on the phone; name the voices, tap a line to play from there).
 - Watch face designer and library, complication slots, quick replies, DND and bedtime.
 - Activity history, contacts and files to the watch, the phone as a gamepad, watch Wi-Fi setup, diagnostics and crash reports.
 - **Updates** - checks GitHub for a new app and watch firmware, and installs both.

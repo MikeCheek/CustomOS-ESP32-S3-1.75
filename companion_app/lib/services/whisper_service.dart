@@ -3,6 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
+import 'speaker_merge.dart';
+
+/// A transcript and, when asked for, its timed pieces.
+class TimedTranscript {
+  final String text;
+  final List<TimedText> pieces;
+  const TimedTranscript(this.text, this.pieces);
+}
 
 /// On-device speech-to-text with whisper.cpp (whisper_ggml).
 ///
@@ -150,13 +158,28 @@ class WhisperService {
 
   /// Transcribes a WAV recording. Throws with a readable message on failure.
   /// [lang]: force this language (ISO code) instead of the setting.
-  Future<String> transcribe(String wavPath, {void Function(double)? onProgress, String? lang}) {
-    final run = _queue.then((_) => _transcribe(wavPath, onProgress: onProgress, lang: lang));
+  Future<String> transcribe(String wavPath, {void Function(double)? onProgress, String? lang}) async =>
+      (await transcribeTimed(wavPath, onProgress: onProgress, lang: lang)).text;
+
+  /// Like [transcribe], with the time of each piece of text when [timed]
+  /// (for "who said what"). [withAudio] is then called with the 16 kHz mono
+  /// WAV it transcribed, before that temporary file is deleted.
+  Future<TimedTranscript> transcribeTimed(String wavPath,
+      {void Function(double)? onProgress,
+      String? lang,
+      bool timed = false,
+      Future<void> Function(String mono16kPath)? withAudio}) {
+    final run = _queue.then((_) =>
+        _transcribe(wavPath, onProgress: onProgress, lang: lang, timed: timed, withAudio: withAudio));
     _queue = run.then((_) {}, onError: (_) {});
     return run;
   }
 
-  Future<String> _transcribe(String wavPath, {void Function(double)? onProgress, String? lang}) async {
+  Future<TimedTranscript> _transcribe(String wavPath,
+      {void Function(double)? onProgress,
+      String? lang,
+      bool timed = false,
+      Future<void> Function(String mono16kPath)? withAudio}) async {
     await loadPrefs();
     if (!await isDownloaded()) {
       throw Exception('Speech model not downloaded - open AI settings');
@@ -173,10 +196,16 @@ class WhisperService {
         model: _model,
         audioPath: prepared.path,
         lang: (lang == null || lang.isEmpty) ? _language : lang,
+        withSegments: timed,
         onProgress: onProgress == null ? null : (p) => onProgress(p / 100.0),
       );
       if (result == null) throw Exception('Transcription failed');
-      return result.transcription.text.trim();
+      final pieces = [
+        for (final s in result.transcription.segments ?? const [])
+          TimedText(s.fromTs.inMilliseconds / 1000.0, s.toTs.inMilliseconds / 1000.0, s.text),
+      ];
+      if (withAudio != null) await withAudio(prepared.path);
+      return TimedTranscript(result.transcription.text.trim(), pieces);
     } finally {
       if (prepared.path != input.path && await prepared.exists()) {
         await prepared.delete();

@@ -12,6 +12,8 @@ import '../services/whisper_service.dart';
 import '../services/gemma_service.dart';
 import '../services/wifi_transfer.dart';
 import '../services/text_insights.dart';
+import '../services/diarization_service.dart';
+import '../services/speaker_merge.dart';
 import 'ble_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
@@ -1139,12 +1141,14 @@ class NotesNotifier extends StateNotifier<NotesState> {
   }
 
   Future<void> _storeResult(String filename, Map<String, dynamic> result,
-      {String? transcript, String? language, bool? languageSet, bool? noSpeech}) async {
+      {String? transcript, String? language, bool? languageSet, bool? noSpeech, List<SpeakerLine>? speakers}) async {
     final entries = await NotesStorage.loadAll();
     final idx = entries.indexWhere((e) => e.name == filename);
     if (idx < 0) return;
     var e = _apply(entries[idx], result, transcript: transcript)
         .copyWith(language: language, languageSet: languageSet, noSpeech: noSpeech);
+    // A new split numbers the voices afresh: the old names no longer fit.
+    if (speakers != null) e = e.copyWith(speakers: speakers, speakerNames: const {});
     if (e.durationSec == 0) {
       final secs = await _audioSeconds(await _localFile(filename));
       if (secs > 0) e = e.copyWith(durationSec: secs);
@@ -1170,15 +1174,32 @@ class NotesNotifier extends StateNotifier<NotesState> {
       processingProgress: -1,
       error: null,
     );
-    final transcript = await WhisperService.instance.transcribe(
+    // Who said what: speaker turns from the same audio Whisper reads.
+    final splitSpeakers = await DiarizationService.instance.ready();
+    var turns = <SpeakerTurn>[];
+    final timed = await WhisperService.instance.transcribeTimed(
       wav.path,
       lang: forced,
+      timed: splitSpeakers,
       onProgress: (p) {
         if (mounted) {
           state = state.copyWith(processingStage: 'Transcribing ${(p * 100).round()}%', processingProgress: p);
         }
       },
+      withAudio: !splitSpeakers
+          ? null
+          : (mono) async {
+              if (mounted) state = state.copyWith(processingStage: 'Finding who spoke...', processingProgress: -1);
+              try {
+                turns = await DiarizationService.instance.run(mono);
+              } catch (e) {
+                print('[Notes] speaker split failed: $e'); // the memo is still fine without it
+              }
+            },
     );
+    final transcript = timed.text;
+    var speakers = mergeSpeakers(timed.pieces, turns);
+    if (speakerCount(speakers) < 2) speakers = const []; // one voice: nothing to split
     if (transcript.isEmpty || _isNonSpeech(transcript)) {
       // Remember it, so "Process everything" doesn't retry it every time.
       final all = await NotesStorage.loadAll();
@@ -1196,10 +1217,15 @@ class NotesNotifier extends StateNotifier<NotesState> {
     final language = (forced != null && forced.isNotEmpty) ? forced : detected;
 
     if (mounted) state = state.copyWith(processingStage: 'Summarizing...', processingProgress: -1);
-    final result = await GemmaService.instance
-        .summarizeAndOrganize(transcript, language: language.isEmpty ? null : WhisperService.languageName(language));
+    final result = await GemmaService.instance.summarizeAndOrganize(
+        speakers.isEmpty ? transcript : labeledTranscript(speakers, const {}),
+        language: language.isEmpty ? null : WhisperService.languageName(language));
     await _storeResult(filename, result,
-        transcript: transcript, language: language, languageSet: forced != null && forced.isNotEmpty, noSpeech: false);
+        transcript: transcript,
+        language: language,
+        languageSet: forced != null && forced.isNotEmpty,
+        noSpeech: false,
+        speakers: speakers);
 
     // The watch keeps a .txt next to the recording.
     if (_ble.isConnected) {
@@ -1235,6 +1261,22 @@ class NotesNotifier extends StateNotifier<NotesState> {
     }
   }
 
+  /// Names a voice in a split memo ("Speaker 2" -> "Luca"); '' clears it.
+  Future<void> renameSpeaker(String filename, int speaker, String name) async {
+    final entries = await NotesStorage.loadAll();
+    final idx = entries.indexWhere((e) => e.name == filename);
+    if (idx < 0) return;
+    final names = Map<String, String>.from(entries[idx].speakerNames);
+    if (name.trim().isEmpty) {
+      names.remove('$speaker');
+    } else {
+      names['$speaker'] = name.trim();
+    }
+    entries[idx] = entries[idx].copyWith(speakerNames: names);
+    await NotesStorage.saveAll(entries);
+    if (mounted) state = state.copyWith(recordings: List.from(entries));
+  }
+
   /// Re-runs only the summary (e.g. after installing a model).
   Future<void> resummarize(String filename) async {
     if (state.processingTranscript || state.pipelineRunning) return;
@@ -1252,8 +1294,9 @@ class NotesNotifier extends StateNotifier<NotesState> {
     if (e == null || e.transcript.isEmpty) return;
     state = state.copyWith(processingTranscript: true, processingName: filename, processingStage: 'Summarizing...', processingProgress: -1);
     final lang = e.language.isNotEmpty ? e.language : TextInsights.detectLanguage(e.transcript).code;
-    final result = await GemmaService.instance
-        .summarizeAndOrganize(e.transcript, language: lang.isEmpty ? null : WhisperService.languageName(lang));
+    final result = await GemmaService.instance.summarizeAndOrganize(
+        e.speakers.isEmpty ? e.transcript : labeledTranscript(e.speakers, e.speakerNames),
+        language: lang.isEmpty ? null : WhisperService.languageName(lang));
     await _storeResult(filename, result, language: lang);
   }
 

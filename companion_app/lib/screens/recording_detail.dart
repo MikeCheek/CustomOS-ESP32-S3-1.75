@@ -10,6 +10,8 @@ import '../theme/app_theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/memo_player_bar.dart';
+import '../widgets/conversation_view.dart';
+import '../services/speaker_merge.dart';
 import '../services/memo_player.dart';
 import '../services/whisper_service.dart';
 import '../services/text_insights.dart';
@@ -103,7 +105,8 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
             color: AppColors.surfaceLight,
             onSelected: (v) async {
               if (v == 'copy') {
-                await Clipboard.setData(ClipboardData(text: e.transcript));
+                await Clipboard.setData(ClipboardData(
+                    text: e.speakers.isNotEmpty ? labeledTranscript(e.speakers, e.speakerNames) : e.transcript));
                 if (context.mounted) showSnack(context, 'Transcript copied');
               } else if (v == 'resum') {
                 ref.read(notesProvider.notifier).resummarize(e.name);
@@ -274,9 +277,11 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                 ),
             ]),
           ],
-          const SectionLabel('Transcript'),
+          SectionLabel(e.speakers.isNotEmpty ? 'Conversation · ${speakerCount(e.speakers)} voices' : 'Transcript'),
           Panel(
-            child: e.transcript.isNotEmpty
+            child: e.speakers.isNotEmpty
+                ? ConversationView(entry: e)
+                : e.transcript.isNotEmpty
                 ? FollowAlongTranscript(name: e.name, text: e.transcript)
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

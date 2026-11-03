@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'speaker_merge.dart';
 
 class BleProtocol {
   static final serviceUuid = Guid('19B10000-E8F2-537E-4F6C-D104768A1214');
@@ -330,6 +331,8 @@ class RecordingEntry {
   String language;        // ISO code of the speech ('' = unknown)
   bool languageSet;       // chosen by the user (else detected)
   bool noSpeech;          // transcription found no speech: skipped by "Process everything"
+  List<SpeakerLine> speakers;        // who said what (speaker_merge.dart), [] = one voice / not split
+  Map<String, String> speakerNames;  // "0" -> "Luca": names given to the speakers
 
   RecordingEntry({
     required this.name,
@@ -349,6 +352,8 @@ class RecordingEntry {
     this.language = '',
     this.languageSet = false,
     this.noSpeech = false,
+    this.speakers = const [],
+    this.speakerNames = const {},
   });
 
   /// Title to show: the AI title, else a cleaned-up file name.
@@ -377,6 +382,8 @@ class RecordingEntry {
     String? language,
     bool? languageSet,
     bool? noSpeech,
+    List<SpeakerLine>? speakers,
+    Map<String, String>? speakerNames,
   }) =>
       RecordingEntry(
         name: name,
@@ -396,6 +403,8 @@ class RecordingEntry {
         language: language ?? this.language,
         languageSet: languageSet ?? this.languageSet,
         noSpeech: noSpeech ?? this.noSpeech,
+        speakers: speakers ?? this.speakers,
+        speakerNames: speakerNames ?? this.speakerNames,
       );
 
   Map<String, dynamic> toJson() => {
@@ -416,6 +425,8 @@ class RecordingEntry {
     if (language.isNotEmpty) 'language': language,
     if (languageSet) 'languageSet': true,
     if (noSpeech) 'noSpeech': true,
+    if (speakers.isNotEmpty) 'speakers': speakers.map((l) => l.toJson()).toList(),
+    if (speakerNames.isNotEmpty) 'speakerNames': speakerNames,
   };
 
   static List<String> _strings(dynamic v) => (v as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
@@ -438,5 +449,11 @@ class RecordingEntry {
     language: json['language'] ?? '',
     languageSet: json['languageSet'] == true,
     noSpeech: json['noSpeech'] == true,
+    speakers: (json['speakers'] as List<dynamic>?)
+            ?.whereType<Map<String, dynamic>>()
+            .map(SpeakerLine.fromJson)
+            .toList() ??
+        const [],
+    speakerNames: (json['speakerNames'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())) ?? const {},
   );
 }

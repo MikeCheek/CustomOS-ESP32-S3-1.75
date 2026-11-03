@@ -19,6 +19,14 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // Several native plugins (whisper.cpp, LiteRT, sherpa-onnx) may each
+    // bring the same C++ runtime: keep one copy instead of failing the merge.
+    packaging {
+        jniLibs {
+            pickFirsts += listOf("**/libc++_shared.so", "**/libonnxruntime.so")
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.amoledwatch.amoled_companion"

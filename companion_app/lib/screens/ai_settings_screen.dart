@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
+import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
@@ -29,6 +30,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _tokenCtrl = TextEditingController();
   bool _loading = true;
 
+  final _diar = DiarizationService.instance;
+  bool _diarInstalled = false, _diarOn = true, _diarBusy = false;
+  double _diarProgress = 0;
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +56,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     }
     _llmSelected = await _llm.selectedKey();
     _tokenCtrl.text = await _llm.hfToken();
+    _diarInstalled = await _diar.isInstalled();
+    _diarOn = await _diar.enabled();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -74,6 +81,24 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _speechBusy = null);
+    }
+  }
+
+  Future<void> _installDiar() async {
+    setState(() {
+      _diarBusy = true;
+      _diarProgress = 0;
+    });
+    try {
+      await _diar.install(onProgress: (p) {
+        if (mounted) setState(() => _diarProgress = p);
+      });
+      _diarInstalled = true;
+      if (mounted) showSnack(context, 'New memos with several voices are split by speaker');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Download failed: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _diarBusy = false);
     }
   }
 
@@ -198,6 +223,37 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     ],
                   ),
                 ),
+                const SectionLabel('Who said what (speaker split)'),
+                _ModelCard(
+                  title: 'Speakers in memos',
+                  subtitle: 'Splits conversations by voice: "Speaker 1 / Speaker 2", name them in the memo. '
+                      'sherpa-onnx, pyannote + CAM++ · ${_size(DiarizationService.sizeBytes)}',
+                  selected: _diarOn,
+                  installed: _diarInstalled,
+                  busy: _diarBusy,
+                  progress: _diarProgress,
+                  onInstall: _diarBusy ? null : _installDiar,
+                  onSelect: () async {
+                    await _diar.setEnabled(true);
+                    setState(() => _diarOn = true);
+                  },
+                  onDelete: () async {
+                    await _diar.delete();
+                    setState(() => _diarInstalled = false);
+                  },
+                ),
+                if (_diarInstalled)
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    title: const Text('Split new memos by speaker', style: TextStyle(color: AppColors.text, fontSize: 14)),
+                    subtitle: const Text('For older memos: "Transcribe again" in the memo',
+                        style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                    value: _diarOn,
+                    onChanged: (v) async {
+                      await _diar.setEnabled(v);
+                      setState(() => _diarOn = v);
+                    },
+                  ),
                 const SectionLabel('Summaries (on-device LLM)'),
                 for (final m in GemmaService.models) ...[
                   _ModelCard(
