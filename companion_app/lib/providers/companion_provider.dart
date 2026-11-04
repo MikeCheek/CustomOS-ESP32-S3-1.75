@@ -527,6 +527,12 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case 'life':
         _ref.read(lifeProvider.notifier).onWatch(e);
         break;
+      case 'lh':
+        _ref.read(lifeProvider.notifier).onHistory(e);
+        break;
+      case 'fh':
+        _ref.read(fitnessProvider.notifier).onHistory(e);
+        break;
       case 'usage':
         _ref.read(usageProvider.notifier).onPart(e);
         break;

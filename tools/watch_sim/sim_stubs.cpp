@@ -168,6 +168,7 @@ void ble_consume_contacts() {}
 // in the emulator (sim_set_weather / sim_set_fitness).
 static std::string s_weather, s_fitness;
 void sim_set_weather(const char *json) { s_weather = json; }
+void ble_restore_weather(const char *json, int len) { if (s_weather.empty() && len > 0) s_weather.assign(json, len); }
 void sim_set_fitness(const char *json) { s_fitness = json; }
 bool ble_get_fitness(const char **d, int *n) {
     if (s_fitness.empty()) return false;
@@ -353,6 +354,8 @@ int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
 bool sd_is_mounted() { return true; }
 // The SD card (shim/FS.h): a folder in the emulator, nothing for the screenshots.
 SDFS SD;
+#include "FFat.h"
+FFatFS FFat;
 std::string &sim_sd_root() { static std::string r; return r; }
 void sim_sd_enable(const char *dir) {
     sim_sd_root() = dir;

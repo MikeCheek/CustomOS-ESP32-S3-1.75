@@ -12,6 +12,7 @@
 #include <esp_heap_caps.h>
 #include <string.h>
 #include <stddef.h>
+#include "store.h"
 #if FEATURE_SD_CARD
 #include "hal_sd.h"
 #include <SD.h>
@@ -32,9 +33,11 @@ struct Pass {
 static Pass s_pass[WALLET_MAX];
 
 // ---- storage ------------------------------------------------------------------------------
-static const char *WAL_DIR = "/wallet";
-static void path_for(char *b, int n, int i) { snprintf(b, n, "%s/%d.wal", WAL_DIR, i); }
+// In the store (store.h: the SD card, else the watch's flash) as
+// "wallet/<slot>": [magic]["Pass" up to bits][the modules]. Passes from
+// before (the SD card's /wallet/<slot>.wal) are read once and moved.
 static const uint32_t MAGIC = 0x314C4157;   // "WAL1"
+static const size_t HEAD = offsetof(Pass, bits);
 
 static void free_slot(int i) {
     if (s_pass[i].bits) heap_caps_free(s_pass[i].bits);
@@ -42,51 +45,63 @@ static void free_slot(int i) {
 }
 
 static void save_slot(int i) {
-#if FEATURE_SD_CARD
-    if (!sd_is_mounted()) return;
-    SD.mkdir(WAL_DIR);
-    char p[32];
-    path_for(p, sizeof(p), i);
-    SD.remove(p);
+    char name[16];
+    snprintf(name, sizeof(name), "wallet/%d", i);
     const Pass &x = s_pass[i];
-    if (!x.bits) return;
-    File f = SD.open(p, FILE_WRITE);
-    if (!f) return;
-    f.write((const uint8_t *)&MAGIC, 4);
-    f.write((const uint8_t *)&x, offsetof(Pass, bits));
-    f.write(x.bits, x.nbytes);
-    f.close();
-#else
-    (void)i;
-#endif
+    if (!x.bits) { store_remove(name); return; }
+    size_t n = 4 + HEAD + x.nbytes;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) return;
+    memcpy(buf, &MAGIC, 4);
+    memcpy(buf + 4, &x, HEAD);
+    memcpy(buf + 4 + HEAD, x.bits, x.nbytes);
+    store_write(name, buf, n);
+    heap_caps_free(buf);
+}
+
+// a file's bytes -> slot i (false: not a pass)
+static bool load_from(int i, const uint8_t *buf, int n) {
+    uint32_t m;
+    Pass x;
+    if (n < (int)(4 + HEAD)) return false;
+    memcpy(&m, buf, 4);
+    memcpy(&x, buf + 4, HEAD);
+    if (m != MAGIC || !x.nbytes || x.nbytes > MAX_BYTES || !x.w || !x.h || (uint32_t)x.w * x.h > (uint32_t)x.nbytes * 8 ||
+        n < (int)(4 + HEAD + x.nbytes))
+        return false;
+    x.bits = (uint8_t *)heap_caps_malloc(x.nbytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!x.bits) return false;
+    memcpy(x.bits, buf + 4 + HEAD, x.nbytes);
+    x.name[sizeof(x.name) - 1] = x.sub[sizeof(x.sub) - 1] = x.kind[sizeof(x.kind) - 1] = 0;
+    s_pass[i] = x;
+    return true;
 }
 
 void wallet_init() {
-#if FEATURE_SD_CARD
-    if (!sd_is_mounted()) return;
+    const int MAXF = 4 + HEAD + MAX_BYTES;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(MAXF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) return;
     for (int i = 0; i < WALLET_MAX; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "wallet/%d", i);
+        int n = store_read(name, buf, MAXF);
+        if (n > 0 && load_from(i, buf, n)) continue;
+#if FEATURE_SD_CARD
+        // the first Wallet kept them in /wallet on the card: move them
+        if (!sd_is_mounted()) continue;
         char p[32];
-        path_for(p, sizeof(p), i);
+        snprintf(p, sizeof(p), "/wallet/%d.wal", i);
         File f = SD.open(p, FILE_READ);
         if (!f) continue;
-        uint32_t m = 0;
-        Pass x;
-        memset(&x, 0, sizeof(x));
-        bool ok = f.read((uint8_t *)&m, 4) == 4 && m == MAGIC &&
-                  f.read((uint8_t *)&x, offsetof(Pass, bits)) == (int)offsetof(Pass, bits) && x.nbytes > 0 &&
-                  x.nbytes <= MAX_BYTES && x.w > 0 && x.h > 0 && (uint32_t)x.w * x.h <= (uint32_t)x.nbytes * 8;
-        if (ok) {
-            x.bits = (uint8_t *)heap_caps_malloc(x.nbytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            ok = x.bits && f.read(x.bits, x.nbytes) == x.nbytes;
-            if (!ok && x.bits) heap_caps_free(x.bits);
-        }
+        n = (int)f.read(buf, MAXF);
         f.close();
-        if (ok) {
-            x.name[sizeof(x.name) - 1] = x.sub[sizeof(x.sub) - 1] = x.kind[sizeof(x.kind) - 1] = 0;
-            s_pass[i] = x;
+        if (n > 0 && load_from(i, buf, n)) {
+            save_slot(i);
+            SD.remove(p);
         }
-    }
 #endif
+    }
+    heap_caps_free(buf);
 }
 
 void wallet_send() {

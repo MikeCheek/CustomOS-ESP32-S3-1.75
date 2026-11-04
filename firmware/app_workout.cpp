@@ -1,6 +1,7 @@
 // Workout app - see app_workout.h.
 #include "haptics.h"
 #include "app_workout.h"
+#include "store.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui_font.h"
@@ -70,25 +71,42 @@ struct WoRecord {
     uint16_t kcal;
     uint8_t  type, flags;   // bit 0: sent, bit 1: GPS
 };
-static const int MAX_REC = 20;
+// oldest first: 100 in the store (store.h), the last 20 in NVS when there's nowhere else
+static const int MAX_REC = 100, NVS_REC = 20;
 static WoRecord s_rec[MAX_REC];
 static int s_rec_n = 0;
 
 static void save_records() {
+    if (store_ok() && store_write("workouts", s_rec, sizeof(WoRecord) * s_rec_n)) {
+        Preferences p;
+        if (p.begin("wo", false)) {
+            if (p.isKey("r")) { p.remove("r"); p.remove("n"); }   // moved: frees NVS
+            p.end();
+        }
+        return;
+    }
     Preferences p;
     if (!p.begin("wo", false)) return;
-    p.putUChar("n", (uint8_t)s_rec_n);
-    p.putBytes("r", s_rec, sizeof(WoRecord) * s_rec_n);
+    int skip = s_rec_n > NVS_REC ? s_rec_n - NVS_REC : 0;
+    p.putUChar("n", (uint8_t)(s_rec_n - skip));
+    p.putBytes("r", s_rec + skip, sizeof(WoRecord) * (s_rec_n - skip));
     p.end();
 }
 
 void workout_init() {
+    int sz = store_size("workouts");
+    if (sz >= 0 && sz % (int)sizeof(WoRecord) == 0) {
+        int n = store_read("workouts", s_rec, sizeof(s_rec));
+        s_rec_n = n > 0 ? n / (int)sizeof(WoRecord) : 0;
+        return;
+    }
     Preferences p;
     if (!p.begin("wo", true)) return;
     s_rec_n = p.getUChar("n", 0);
-    if (s_rec_n > MAX_REC || (s_rec_n && p.getBytes("r", s_rec, sizeof(WoRecord) * s_rec_n) != sizeof(WoRecord) * s_rec_n))
+    if (s_rec_n > NVS_REC || (s_rec_n && p.getBytes("r", s_rec, sizeof(WoRecord) * s_rec_n) != sizeof(WoRecord) * s_rec_n))
         s_rec_n = 0;
     p.end();
+    if (s_rec_n && store_ok()) save_records();   // the ones from before move to the store
 }
 
 static bool send_record(const WoRecord &r) {

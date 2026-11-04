@@ -44,7 +44,8 @@ uint16_t fitness_move_goal();
 uint16_t fitness_exercise_goal();
 uint8_t  fitness_stand_goal();
 // The days before today, newest first (n <= 7).
-int fitness_history(FitDay *out, int max);
+int fitness_history(FitDay *out, int max);   // newest first, up to 90 days
+void fitness_send_history();                 // the days past the status report's 7, to the phone
 
 // Three rings centred on (cx, cy): outer radius r, each `thick` wide.
 void fitness_draw_rings(int cx, int cy, int r, int thick, float grow = 1.0f);

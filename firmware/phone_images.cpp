@@ -12,6 +12,7 @@
 #include "hal_ble.h"
 #include "media_decode.h"
 #include "fx3d.h"
+#include "store.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
@@ -116,6 +117,12 @@ void phone_images_update() {
         s->used = s_stamp++;
         DEBUG_PRINTF("[img] %s %08lx %dx%d (%lu bytes)\n", icon ? "icon" : "art", (unsigned long)s->hash,
                      img.w, img.h, (unsigned long)s_ready_len);
+        // app icons are kept (store.h): after a restart they're there without the phone
+        if (icon) {
+            char name[24];
+            snprintf(name, sizeof(name), "img/i%08lx", (unsigned long)s_ready_hash);
+            if (!store_exists(name)) store_write(name, s_ready, s_ready_len);
+        }
     } else {
         DEBUG_PRINTF("[img] couldn't decode %08lx (%lu bytes)\n", (unsigned long)s_ready_hash,
                      (unsigned long)s_ready_len);
@@ -136,10 +143,39 @@ static void request(char kind, uint32_t hash) {
     ble_link_send(msg);
 }
 
+// An icon kept from before: decoded into the cache (once per hash a boot).
+static bool load_kept_icon(uint32_t hash) {
+    static uint32_t tried[48];
+    static int tried_n = 0;
+    for (int i = 0; i < tried_n; i++)
+        if (tried[i] == hash) return false;
+    tried[tried_n % 48] = hash;
+    if (tried_n < 48) tried_n++;
+    char name[24];
+    snprintf(name, sizeof(name), "img/i%08lx", (unsigned long)hash);
+    int sz = store_size(name);
+    if (sz <= 0 || sz > IMG_MAX_BYTES) return false;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) return false;
+    bool ok = false;
+    DecodedImage img;
+    if (store_read(name, buf, sz) == sz && img_decode_jpeg_mem(buf, sz, PHONE_ICON_SIZE, PHONE_ICON_SIZE, true, &img)) {
+        Slot *s = victim(s_icons, ICON_SLOTS);
+        img_free(&s->img);
+        s->img = img;
+        s->hash = hash;
+        s->used = s_stamp++;
+        ok = true;
+    }
+    heap_caps_free(buf);
+    return ok;
+}
+
 const uint16_t *phone_icon(uint32_t hash) {
     if (!hash) return nullptr;
     Slot *s = find(s_icons, ICON_SLOTS, hash);
     if (s) { s->used = s_stamp++; return s->img.px; }
+    if (load_kept_icon(hash)) return phone_icon(hash);
     request('i', hash);
     return nullptr;
 }

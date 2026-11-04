@@ -1,5 +1,6 @@
 // Life: habits, nudges, Breathe and Stretch - see app_life.h.
 #include "app_life.h"
+#include "store.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui_font.h"
@@ -40,8 +41,13 @@ struct LifeDay {
     uint8_t water, stretch, mind, train, meals, social, wind, score;
 };
 static LifeDay s_today = {};
-static LifeDay s_hist[7];
+// The days before today, newest first: 90 in the store (store.h), 7 in NVS
+// when there's nowhere else.
+static const int HIST_MAX = 90;
+static LifeDay s_hist[HIST_MAX];
 static int s_hist_n = 0;
+static bool s_hist_dirty = false;
+static int hist_cap() { return store_ok() ? HIST_MAX : 7; }
 static uint16_t s_last_water = 0, s_last_stretch = 0;   // minute of day (or the last nudge)
 
 static uint32_t today_date() {
@@ -61,8 +67,17 @@ static void save_day() {
     Preferences p;
     if (!p.begin("life", false)) return;
     p.putBytes("today", &s_today, sizeof(s_today));
-    p.putUChar("hn", (uint8_t)s_hist_n);
-    p.putBytes("hist", s_hist, sizeof(LifeDay) * s_hist_n);
+    if (store_ok()) {
+        if (s_hist_dirty && store_write("life_hist", s_hist, sizeof(LifeDay) * s_hist_n)) {
+            s_hist_dirty = false;
+            if (p.isKey("hist")) { p.remove("hist"); p.remove("hn"); }   // moved: frees NVS
+        }
+    } else {
+        int n = s_hist_n < 7 ? s_hist_n : 7;
+        p.putUChar("hn", (uint8_t)n);
+        p.putBytes("hist", s_hist, sizeof(LifeDay) * n);
+        s_hist_dirty = false;
+    }
     p.end();
 }
 static void save_plan() {
@@ -79,9 +94,17 @@ void life_init() {
     if (p.getBytesLength("plan") == sizeof(s_plan)) p.getBytes("plan", &s_plan, sizeof(s_plan));
     if (p.getBytesLength("meals") == sizeof(s_meal)) p.getBytes("meals", s_meal, sizeof(s_meal));
     if (p.getBytesLength("today") == sizeof(s_today)) p.getBytes("today", &s_today, sizeof(s_today));
-    s_hist_n = p.getUChar("hn", 0);
-    if (s_hist_n > 7 || (s_hist_n && p.getBytes("hist", s_hist, sizeof(LifeDay) * s_hist_n) != sizeof(LifeDay) * s_hist_n))
-        s_hist_n = 0;
+    int sz = store_size("life_hist");
+    if (sz > 0 && sz % (int)sizeof(LifeDay) == 0) {
+        int n = store_read("life_hist", s_hist, sizeof(s_hist));
+        s_hist_n = n > 0 ? n / (int)sizeof(LifeDay) : 0;
+    } else {
+        // the history from before (NVS): moved to the store at the next save
+        s_hist_n = p.getUChar("hn", 0);
+        if (s_hist_n > 7 || (s_hist_n && p.getBytes("hist", s_hist, sizeof(LifeDay) * s_hist_n) != sizeof(LifeDay) * s_hist_n))
+            s_hist_n = 0;
+        s_hist_dirty = s_hist_n > 0 && store_ok();
+    }
     p.end();
 }
 
@@ -135,9 +158,11 @@ static void roll_day() {
     uint32_t d = today_date();
     if (!d || d == s_today.date) return;
     if (s_today.date) {
-        memmove(&s_hist[1], &s_hist[0], sizeof(LifeDay) * 6);
+        int cap = hist_cap();
+        memmove(&s_hist[1], &s_hist[0], sizeof(LifeDay) * (cap - 1));
         s_hist[0] = s_today;
-        if (s_hist_n < 7) s_hist_n++;
+        if (s_hist_n < cap) s_hist_n++;
+        s_hist_dirty = true;
     }
     s_today = {};
     s_today.date = d;
@@ -170,9 +195,17 @@ void life_send(bool history) {
     d["sc"] = s_today.score;
     if (history) {
         JsonArray h = d["h"].to<JsonArray>();
-        for (int i = 0; i < s_hist_n; i++) day_json(h.add<JsonArray>(), s_hist[i]);
+        for (int i = 0; i < s_hist_n && i < 7; i++) day_json(h.add<JsonArray>(), s_hist[i]);
     }
     phone_link_send(d);
+    // the older days, 15 a message: {"e":"lh","h":[[...],...]}
+    for (int o = 7; history && o < s_hist_n; o += 15) {
+        JsonDocument x;
+        x["e"] = "lh";
+        JsonArray h = x["h"].to<JsonArray>();
+        for (int i = o; i < s_hist_n && i < o + 15; i++) day_json(h.add<JsonArray>(), s_hist[i]);
+        phone_link_send(x);
+    }
 }
 
 static void logged() {

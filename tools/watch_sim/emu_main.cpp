@@ -13,6 +13,9 @@
 //
 // Not here (yet): the phone link (phase 2), sensors and sound (phase 3),
 // ESP-SR (chip-only libraries).
+#include "store.h"
+#include "app_weather.h"
+#include "app_wallet.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include "config.h"
@@ -125,12 +128,15 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     nvs_load_settings(g_app_settings);
     quick_replies_load();
     comp_load();
+    store_begin();                                         // files: the emulator's SD folder
     clock_init();                                          // alarms, world clock cities
     reminders_init();                                      // to-dos from the phone
     fitness_init();                                        // activity rings
     workout_init();                                        // saved workouts
     life_init();                                           // Life: plan and today
     usage_init();                                          // usage stats for Diagnostics
+    wallet_init();
+    weather_init();
     g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
     // the phone in your hand is held upright: "lower wrist to sleep" would
     // put the emulated watch to sleep every few seconds
@@ -153,6 +159,7 @@ __attribute__((visibility("default"))) void emu_step() {
     look_update();
     life_update();               // Life: the day's nudges
     usage_update();              // how the watch is used (Diagnostics)
+    weather_update();
     low_power_update();
     fitness_update();
     workout_update();
@@ -319,6 +326,16 @@ __attribute__((visibility("default"))) int emu_ask_recorded(int ms) {
     if (n > (int)(sizeof(pcm) / 2)) n = sizeof(pcm) / 2;
     for (int i = 0; i < n; i++) pcm[i] = (int16_t)(8000 * sin(2 * M_PI * 220 * i / 16000.0));
     return assistant_ask_recorded(pcm, n, 16000) ? 1 : 0;
+}
+
+// The store (store.h) writes and reads back a file - for emu_host_test.
+__attribute__((visibility("default"))) int emu_store_selftest() {
+    const char msg[] = "kept across a restart";
+    char back[64] = {0};
+    bool ok = store_ok() && store_write("test/roundtrip", msg, sizeof(msg)) &&
+              store_read("test/roundtrip", back, sizeof(back)) == (int)sizeof(msg) && !strcmp(back, msg);
+    store_remove("test/roundtrip");
+    return ok ? 1 : 0;
 }
 
 }  // extern "C"

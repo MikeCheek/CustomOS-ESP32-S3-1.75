@@ -21,6 +21,7 @@ int emu_height();
 void emu_touch(int, int, int);
 void emu_button(int, int);
 void emu_set_connected(int);
+int emu_store_selftest();
 void emu_link_push(const char *);
 int emu_link_pop(char *, int);
 void emu_set_data(int, const char *);
@@ -83,7 +84,13 @@ int main(int argc, char **argv) {
         if (strstr(buf, "\"e\":\"usage\"")) { parts++; printf("usage part: %.90s...\n", buf); }
     }
     printf("usage parts: %d\n", parts);
-    if (parts != 4) { printf("FAIL: usage report\n"); return 1; }   // battery, hours, apps, what kept it awake
+    if (parts != 5) { printf("FAIL: usage report\n"); return 1; }   // battery, hours, apps, what kept it awake, the week
+    // files that outlive a restart (store.h): on the emulator's SD folder
+    {
+        int ok = emu_store_selftest();
+        printf("store: %d\n", ok);
+        if (!ok) { printf("FAIL: store\n"); return 1; }
+    }
 
     // phase 3: a fall on the phone's accelerometer (62.5 Hz), then the alert's beeps
     auto acc = [](float x, float y, float z, float secs) {

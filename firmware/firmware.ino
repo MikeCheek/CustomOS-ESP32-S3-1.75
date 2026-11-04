@@ -39,6 +39,8 @@
 #include "usage_stats.h"
 #include "home_gestures.h"
 #include "app_wallet.h"
+#include "store.h"
+#include "app_weather.h"
 #include "app_tips.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
@@ -632,6 +634,7 @@ void setup() {
 
 #if FEATURE_SD_CARD
     sd_init();
+    store_begin();               // histories, weather, icons: on the SD card, else the watch's flash
 #endif
     // USB Mode from Settings (charging only / firmware / file storage /
     // media remote) - after sd_init(), File storage serves that card.
@@ -648,6 +651,7 @@ void setup() {
     life_init();                                           // Life: plan and today
     usage_init();                                          // usage stats for Diagnostics
     wallet_init();                                         // passes on the SD card
+    weather_init();                                        // the last weather, from before a restart
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
@@ -768,6 +772,7 @@ void loop() {
     look_update();               // the app's Faces tab follows changes made here
     life_update();               // Life: the day's nudges
     usage_update();              // how the watch is used (Diagnostics)
+    weather_update();            // keeps a new weather push across restarts
     home_update();               // the app's Faces tab follows gesture changes made here
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder

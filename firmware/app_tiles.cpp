@@ -97,6 +97,12 @@ static void draw_weather(int cx) {
     snprintf(b, sizeof(b), "%d\xC2\xB0", t);
     ui_text_center(cx, CY + 52, COLOR_TEXT, b, 4);
     center(cx, CY + 106, COLOR_TEXT_DIM, cond, 2);
+    int age = weather_age_min();
+    if (age >= 60) {
+        char a[32];
+        snprintf(a, sizeof(a), "updated %d h ago", age / 60);
+        ui_text_center(cx, CY + 136, COLOR_WARN, a, 1);
+    }
 }
 
 static void draw_next(int cx) {

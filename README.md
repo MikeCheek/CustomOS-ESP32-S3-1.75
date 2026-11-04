@@ -58,6 +58,8 @@ Every gesture on the face can be changed - on the watch (Settings > Home gesture
 | ![](docs/screenshots/tile_activity.png) | ![](docs/screenshots/tile_music.png) | ![](docs/screenshots/tile_timer.png) | ![](docs/screenshots/settings_home.png) |
 | Tiles: Activity | Tiles: Music | Tiles: Timer | Settings > Home gestures |
 
+**What the watch keeps:** histories (90 days of activity and Life, 100 workouts, last night's sleep), the last weather (with how old it is), the last 50 notifications, app icons, Wallet passes and the usage stats live in files - on the SD card when one is in at start-up, else on a 3.9 MB part of the watch's own flash - so a restart loses nothing and the small settings store stays free.
+
 **Wallet:** boarding passes, tickets and loyalty cards on the watch. In the app (Wallet), pick a screenshot or a photo of the code, or type it in; the watch shows it full screen at full brightness until you tap it. QR, Aztec, PDF417, Data Matrix, Code 128, EAN, UPC, Code 39.
 
 | | | | |

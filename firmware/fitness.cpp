@@ -1,6 +1,8 @@
 // Activity rings - see fitness.h.
 #include "haptics.h"
 #include "fitness.h"
+#include "store.h"
+#include "phone_link.h"
 #include "config.h"
 #include "board_pins.h"
 #include "app_settings_state.h"
@@ -22,8 +24,13 @@ static uint32_t s_stand_mask = 0;      // bit h: hour h counted
 static uint16_t s_hour_move_s = 0;     // moving this hour so far
 static int      s_hour = -1;
 static uint32_t s_date = 0;            // yyyymmdd of the values above
-static FitDay   s_hist[7];
+// The days before today, newest first: 90 in the store (store.h), 7 in NVS
+// when there's nowhere else.
+static const int HIST_MAX = 90;
+static FitDay   s_hist[HIST_MAX];
 static int      s_hist_n = 0;
+static bool     s_hist_dirty = false;
+static int hist_cap() { return store_ok() ? HIST_MAX : 7; }
 static bool     s_dirty = false;
 static uint32_t s_saved_ms = 0;
 static bool     s_workout = false;
@@ -44,6 +51,22 @@ int fitness_history(FitDay *out, int max) {
     return n;
 }
 
+// The days beyond the status report's 7, 15 a message (phone link "hi"):
+// {"e":"fh","h":[[yyyymmdd, kcal, exercise min, stand h, steps],...]}
+void fitness_send_history() {
+    for (int o = 7; o < s_hist_n; o += 15) {
+        JsonDocument d;
+        d["e"] = "fh";
+        JsonArray h = d["h"].to<JsonArray>();
+        for (int i = o; i < s_hist_n && i < o + 15; i++) {
+            JsonArray r = h.add<JsonArray>();
+            r.add(s_hist[i].date); r.add(s_hist[i].move_kcal); r.add(s_hist[i].exercise_min);
+            r.add(s_hist[i].stand_hours); r.add(s_hist[i].steps);
+        }
+        phone_link_send(d);
+    }
+}
+
 static void save() {
     Preferences p;
     if (!p.begin("fit", false)) return;
@@ -52,8 +75,18 @@ static void save() {
     p.putUInt("ex", s_ex_s);
     p.putUInt("stand", s_stand_mask);
     p.putUChar("closed", s_closed);
-    p.putUChar("hn", (uint8_t)s_hist_n);
-    p.putBytes("hist", s_hist, sizeof(FitDay) * s_hist_n);
+    if (store_ok()) {
+        // the history is only written when a day ends; NVS keeps today
+        if (s_hist_dirty && store_write("fit_hist", s_hist, sizeof(FitDay) * s_hist_n)) {
+            s_hist_dirty = false;
+            if (p.isKey("hist")) { p.remove("hist"); p.remove("hn"); }   // moved: frees NVS
+        }
+    } else {
+        int n = s_hist_n < 7 ? s_hist_n : 7;
+        p.putUChar("hn", (uint8_t)n);
+        p.putBytes("hist", s_hist, sizeof(FitDay) * n);
+        s_hist_dirty = false;
+    }
     p.end();
     s_dirty = false;
     s_saved_ms = millis();
@@ -67,9 +100,17 @@ void fitness_init() {
     s_ex_s = p.getUInt("ex", 0);
     s_stand_mask = p.getUInt("stand", 0);
     s_closed = p.getUChar("closed", 0);
-    s_hist_n = p.getUChar("hn", 0);
-    if (s_hist_n > 7 || (s_hist_n && p.getBytes("hist", s_hist, sizeof(FitDay) * s_hist_n) != sizeof(FitDay) * s_hist_n))
-        s_hist_n = 0;
+    int sz = store_size("fit_hist");
+    if (sz > 0 && sz % (int)sizeof(FitDay) == 0) {
+        int n = store_read("fit_hist", s_hist, sizeof(s_hist));
+        s_hist_n = n > 0 ? n / (int)sizeof(FitDay) : 0;
+    } else {
+        // the history from before (NVS): moved to the store at the next save
+        s_hist_n = p.getUChar("hn", 0);
+        if (s_hist_n > 7 || (s_hist_n && p.getBytes("hist", s_hist, sizeof(FitDay) * s_hist_n) != sizeof(FitDay) * s_hist_n))
+            s_hist_n = 0;
+        s_hist_dirty = s_hist_n > 0 && store_ok();
+    }
     p.end();
 }
 
@@ -78,10 +119,12 @@ static uint32_t date_of(const WatchTime &t) { return (uint32_t)t.year * 10000 + 
 // A new day: yesterday goes to the history, the rings start empty.
 static void roll(uint32_t today) {
     if (s_date && s_date != today) {
-        memmove(&s_hist[1], &s_hist[0], sizeof(FitDay) * 6);
+        int cap = hist_cap();
+        memmove(&s_hist[1], &s_hist[0], sizeof(FitDay) * (cap - 1));
         s_hist[0] = {(uint16_t)s_kcal, (uint16_t)(s_ex_s / 60), (uint8_t)__builtin_popcount(s_stand_mask), 0,
                      imu_get_step_count(), s_date};
-        if (s_hist_n < 7) s_hist_n++;
+        if (s_hist_n < cap) s_hist_n++;
+        s_hist_dirty = true;
         s_kcal = 0;
         s_ex_s = 0;
         s_stand_mask = 0;

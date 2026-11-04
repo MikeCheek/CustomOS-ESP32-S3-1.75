@@ -1,5 +1,6 @@
 // How the watch is used - see usage_stats.h.
 #include "usage_stats.h"
+#include "store.h"
 #include "config.h"
 #include "ui.h"
 #include "diag.h"
@@ -45,9 +46,53 @@ static const char *const AW_KEYS[AW_N] = {"build", "setting", "wakeword", "aod",
 static uint32_t s_aw[AW_N];
 static uint32_t s_off_s = 0;   // seconds with the screen off today (unplugged)
 
+// The last 7 days, newest first (part 4): kept with the rest in the store.
+struct DaySum { uint32_t date; uint16_t on_min, wakes; uint8_t drop, charges; uint16_t pad; };
+static DaySum s_week[7];
+static uint8_t s_drop_today = 0, s_charges_today = 0;   // battery % used unplugged, times put on charge
+static uint32_t s_date_today = 0;                        // yyyymmdd
+
+// everything above, as one file in the store (store.h)
+struct UsageFile {
+    uint32_t magic;
+    uint8_t bat[BAT_N], chg[BAT_N];
+    uint16_t on[24], ony[24];
+    uint8_t wk[24];
+    AppTime apps[APP_N];
+    uint32_t wakes, disc, ntf;
+    int16_t day;
+    uint8_t drop, charges;
+    uint32_t date;
+    DaySum week[7];
+};
+static const uint32_t USAGE_MAGIC = 0x31475355;   // "USG1"
+
 void usage_count_notification() { s_ntf++; }
 
 static void save() {
+    s_last_save_ms = millis();
+    if (store_ok()) {
+        UsageFile *f = (UsageFile *)heap_caps_malloc(sizeof(UsageFile), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (f) {
+            f->magic = USAGE_MAGIC;
+            memcpy(f->bat, s_bat, sizeof(s_bat)); memcpy(f->chg, s_chg, sizeof(s_chg));
+            memcpy(f->on, s_on, sizeof(s_on)); memcpy(f->ony, s_on_y, sizeof(s_on_y));
+            memcpy(f->wk, s_wk, sizeof(s_wk)); memcpy(f->apps, s_apps, sizeof(s_apps));
+            f->wakes = s_wakes; f->disc = s_disc; f->ntf = s_ntf; f->day = (int16_t)s_day;
+            f->drop = s_drop_today; f->charges = s_charges_today; f->date = s_date_today;
+            memcpy(f->week, s_week, sizeof(s_week));
+            bool ok = store_write("usage", f, sizeof(UsageFile));
+            heap_caps_free(f);
+            if (ok) {
+                Preferences p;
+                if (p.begin("usage", false)) {
+                    if (p.isKey("bat")) p.clear();   // moved: frees NVS
+                    p.end();
+                }
+                return;
+            }
+        }
+    }
     Preferences p;
     if (!p.begin("usage", false)) return;
     p.putBytes("bat", s_bat, sizeof(s_bat));
@@ -61,11 +106,26 @@ static void save() {
     p.putUInt("ntf", s_ntf);
     p.putShort("day", (int16_t)s_day);
     p.end();
-    s_last_save_ms = millis();
 }
 
 void usage_init() {
     memset(s_bat, 255, sizeof(s_bat));
+    if (store_size("usage") == (int)sizeof(UsageFile)) {
+        UsageFile *f = (UsageFile *)heap_caps_malloc(sizeof(UsageFile), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (f && store_read("usage", f, sizeof(UsageFile)) == (int)sizeof(UsageFile) && f->magic == USAGE_MAGIC) {
+            memcpy(s_bat, f->bat, sizeof(s_bat)); memcpy(s_chg, f->chg, sizeof(s_chg));
+            memcpy(s_on, f->on, sizeof(s_on)); memcpy(s_on_y, f->ony, sizeof(s_on_y));
+            memcpy(s_wk, f->wk, sizeof(s_wk)); memcpy(s_apps, f->apps, sizeof(s_apps));
+            s_wakes = f->wakes; s_disc = f->disc; s_ntf = f->ntf; s_day = f->day;
+            s_drop_today = f->drop; s_charges_today = f->charges; s_date_today = f->date;
+            memcpy(s_week, f->week, sizeof(s_week));
+            for (auto &a : s_apps) a.name[sizeof(a.name) - 1] = 0;
+            heap_caps_free(f);
+            s_bat[BAT_N - 1] = 255;   // the time powered off isn't known: mark the gap
+            return;
+        }
+        if (f) heap_caps_free(f);
+    }
     Preferences p;
     if (!p.begin("usage", true)) return;
     if (p.getBytesLength("bat") == sizeof(s_bat)) p.getBytes("bat", s_bat, sizeof(s_bat));
@@ -110,6 +170,15 @@ static void add_app_time(const char *name) {
 }
 
 static void new_day() {
+    // yesterday into the week
+    if (s_date_today) {
+        uint32_t on = 0;
+        for (int h = 0; h < 24; h++) on += s_on[h];
+        memmove(&s_week[1], &s_week[0], sizeof(DaySum) * 6);
+        s_week[0] = {s_date_today, (uint16_t)(on / 60), (uint16_t)(s_wakes > 65535 ? 65535 : s_wakes), s_drop_today,
+                     s_charges_today, 0};
+    }
+    s_drop_today = s_charges_today = 0;
     memcpy(s_on_y, s_on, sizeof(s_on));
     memset(s_on, 0, sizeof(s_on));
     memset(s_wk, 0, sizeof(s_wk));
@@ -128,6 +197,7 @@ void usage_update() {
         if (s_day >= 0) new_day();
         s_day = t.day;
     }
+    if (t.valid) s_date_today = (uint32_t)t.year * 10000 + t.month * 100 + t.day;
     int h = t.valid ? t.hour : 0;
     bool asleep = sleep_is_asleep();
     if (!asleep) {
@@ -172,6 +242,10 @@ void usage_update() {
         memmove(s_chg, s_chg + 1, BAT_N - 1);
         s_bat[BAT_N - 1] = pct < 0 ? 255 : (uint8_t)pct;
         s_chg[BAT_N - 1] = power_is_charging() ? 1 : 0;
+        // today's totals for the week
+        uint8_t a = s_bat[BAT_N - 2], b = s_bat[BAT_N - 1];
+        if (a != 255 && b != 255 && !s_chg[BAT_N - 1] && !s_chg[BAT_N - 2] && b < a && s_drop_today < 250) s_drop_today += a - b;
+        if (s_chg[BAT_N - 1] && !s_chg[BAT_N - 2] && s_charges_today < 255) s_charges_today++;
     }
     if (ms - s_last_save_ms > 3600000UL) save();
 }
@@ -253,6 +327,18 @@ void usage_send() {
         JsonObject aw = d["aw"].to<JsonObject>();
         for (int i = 0; i < AW_N; i++)
             if (s_aw[i]) aw[AW_KEYS[i]] = s_aw[i];
+        phone_link_send(d);
+    }
+    {
+        // the last 7 days: [yyyymmdd, screen-on min, wake-ups, battery % used unplugged, charges]
+        JsonDocument d;
+        d["e"] = "usage"; d["p"] = 4;
+        JsonArray w = d["wk"].to<JsonArray>();
+        for (auto &x : s_week) {
+            if (!x.date) continue;
+            JsonArray r = w.add<JsonArray>();
+            r.add(x.date); r.add(x.on_min); r.add(x.wakes); r.add(x.drop); r.add(x.charges);
+        }
         phone_link_send(d);
     }
 }

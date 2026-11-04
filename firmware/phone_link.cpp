@@ -121,6 +121,7 @@ static void handle(const char *msg) {
         look_send();              // the app's Faces tab shows what the watch shows
         home_send();              // ...and what each gesture on the face does
         wallet_send();            // the passes the watch has (the app sends what's missing)
+        fitness_send_history();   // the rings' older days (the status report has the last 7)
         life_send(true);          // the Life screen: today and the last days
     } else if (!strcmp(t, "bat")) {
         s_active = true;

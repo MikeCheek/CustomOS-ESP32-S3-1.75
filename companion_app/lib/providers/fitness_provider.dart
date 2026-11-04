@@ -158,6 +158,29 @@ class FitnessNotifier extends StateNotifier<FitnessState> {
     await p.setStringList(_kGoals, ['${state.moveGoal}', '${state.exerciseGoal}', '${state.standGoal}']);
   }
 
+  /// The watch's older days ({"e":"fh"}, after "hi"): merged by date.
+  void onHistory(Map<String, dynamic> e) {
+    final h = e['h'];
+    if (h is! List) return;
+    final byDate = {for (final d in state.days) d.date: d};
+    for (final row in h) {
+      if (row is! List || row.length < 5) continue;
+      final ymd = (row[0] as num).toInt();
+      final date = DateTime(ymd ~/ 10000, ymd ~/ 100 % 100, ymd % 100);
+      byDate[date] = RingDay(
+        date,
+        (row[1] as num).toInt(),
+        (row[2] as num).toInt(),
+        (row[3] as num).toInt(),
+        (row[4] as num).toInt(),
+      );
+    }
+    final t = state.today;
+    if (t != null) byDate.remove(t.date);
+    state = state.copyWith(days: byDate.values.toList()..sort((a, b) => b.date.compareTo(a.date)));
+    _save();
+  }
+
   /// The watch's status report: today's rings, goals, and (on "hi") its last days.
   void onReport(Map<String, dynamic> e) {
     if (!e.containsKey('mv')) return; // older firmware

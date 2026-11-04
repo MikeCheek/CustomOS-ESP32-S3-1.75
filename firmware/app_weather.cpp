@@ -6,6 +6,8 @@
 #include "clock_fmt.h"
 #include "hal_ble.h"
 #include "hal_rtc.h"
+#include "app_calendar.h"
+#include "store.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <math.h>
@@ -14,6 +16,7 @@
 static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 
 struct Hour { int8_t h; int8_t t; uint8_t code; };
+static void save_hours();
 static Hour s_hours[12];
 static int  s_hour_n = 0;
 static int  s_hi = -999, s_lo = -999;
@@ -47,6 +50,75 @@ void weather_on_hourly(JsonDocument &doc) {
         s_hours[s_hour_n++] = {(int8_t)(a[0] | 0), (int8_t)lroundf(a[1] | 0.0f), (uint8_t)(a[2] | 0)};
     }
     s_hourly_ms = millis();
+    save_hours();
+}
+
+// ---- kept across restarts (store.h) -----------------------------------------------------
+// "weather_now": [epoch u32][the phone's JSON]; "weather_hours": HoursFile.
+struct HoursFile { uint32_t epoch; Hour h[12]; int32_t n, hi, lo; char place[32]; };
+static uint32_t s_now_epoch = 0, s_now_hash = 0;
+
+static uint32_t hash_of(const char *d, int n) {
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < n; i++) h = (h ^ (uint8_t)d[i]) * 16777619u;
+    return h;
+}
+
+static void save_hours() {
+    HoursFile f;
+    memset(&f, 0, sizeof(f));
+    f.epoch = calendar_now();
+    memcpy(f.h, s_hours, sizeof(s_hours));
+    f.n = s_hour_n; f.hi = s_hi; f.lo = s_lo;
+    strlcpy(f.place, s_place, sizeof(f.place));
+    store_write("weather_hours", &f, sizeof(f));
+}
+
+void weather_init() {
+    HoursFile f;
+    if (store_read("weather_hours", &f, sizeof(f)) == (int)sizeof(f) && f.n >= 0 && f.n <= 12) {
+        memcpy(s_hours, f.h, sizeof(s_hours));
+        s_hour_n = f.n; s_hi = f.hi; s_lo = f.lo;
+        f.place[sizeof(f.place) - 1] = 0;
+        strlcpy(s_place, f.place, sizeof(s_place));
+    }
+    int sz = store_size("weather_now");
+    if (sz > 4 && sz < 4096) {
+        char *buf = (char *)malloc(sz);
+        if (buf && store_read("weather_now", buf, sz) == sz) {
+            memcpy(&s_now_epoch, buf, 4);
+            ble_restore_weather(buf + 4, sz - 4);
+            s_now_hash = hash_of(buf + 4, sz - 4);
+        }
+        free(buf);
+    }
+}
+
+// loop(): a new push from the phone is saved, with when it came
+void weather_update() {
+    static uint32_t last = 0;
+    uint32_t ms = millis();
+    if (ms - last < 2000) return;
+    last = ms;
+    const char *d;
+    int n;
+    if (!ble_get_weather(&d, &n) || n <= 0) return;
+    uint32_t h = hash_of(d, n);
+    if (h == s_now_hash) return;
+    s_now_hash = h;
+    s_now_epoch = calendar_now();
+    char *buf = (char *)malloc(n + 4);
+    if (!buf) return;
+    memcpy(buf, &s_now_epoch, 4);
+    memcpy(buf + 4, d, n);
+    store_write("weather_now", buf, n + 4);
+    free(buf);
+}
+
+int weather_age_min() {
+    uint32_t now = calendar_now();
+    if (!s_now_epoch || !now || now < s_now_epoch) return -1;
+    return (int)((now - s_now_epoch) / 60);
 }
 
 // ---- symbols ---------------------------------------------------------------------------------------
@@ -136,6 +208,13 @@ static void wx_draw() {
     if (s_hi > -999) snprintf(b, sizeof(b), "H:%d\xC2\xB0  L:%d\xC2\xB0  -  %d%% humidity", s_hi, s_lo, d["humidity"] | 0);
     else snprintf(b, sizeof(b), "%d%% humidity", d["humidity"] | 0);
     ui_text_center(CX, y + 194, COLOR_TEXT_DIM, b, 1);
+    // kept from before (a restart, the phone away): say how old it is
+    int age = weather_age_min();
+    if (age >= 60) {
+        if (age < 48 * 60) snprintf(b, sizeof(b), "Updated %d h ago", age / 60);
+        else snprintf(b, sizeof(b), "Updated %d days ago", age / 1440);
+        ui_text_center(CX, y + 214, COLOR_WARN, b, 1);
+    }
 
     // the next hours
     y = 300 - off;

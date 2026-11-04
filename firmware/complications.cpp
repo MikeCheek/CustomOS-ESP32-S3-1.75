@@ -1,4 +1,5 @@
 #include "complications.h"
+#include "app_weather.h"
 #include "fitness.h"
 #include "config.h"
 #include "board_pins.h"
@@ -81,6 +82,7 @@ bool comp_weather_now(int &temp, char *cond, int n) {
     const char *wdata = nullptr;
     int wlen = 0;
     if (!ble_get_weather(&wdata, &wlen) || wlen < 3) return false;
+    if (weather_age_min() > 24 * 60) return false;   // kept from before, but a day old: too stale to show
     JsonDocument d;
     if (deserializeJson(d, wdata, wlen)) return false;
     float t = d["tempC"] | -999.0f;

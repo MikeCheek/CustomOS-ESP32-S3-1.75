@@ -176,6 +176,40 @@ class WatchUsageSection extends ConsumerWidget {
             ),
           ),
         ],
+        if (u.week.isNotEmpty) ...[
+          const SectionLabel('Last 7 days, on the watch'),
+          Panel(
+            child: Column(
+              children: [
+                for (final d in u.week)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 54,
+                          child: Text(
+                            const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d.date.weekday - 1],
+                            style: const TextStyle(color: AppColors.textDim),
+                          ),
+                        ),
+                        Expanded(child: Text('${_dur(d.onMin * 60)} on screen')),
+                        SizedBox(width: 74, child: Text('${d.dropPct}% used', textAlign: TextAlign.right)),
+                        SizedBox(
+                          width: 70,
+                          child: Text(
+                            d.charges == 0 ? '' : '${d.charges}× charged',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(color: AppColors.textDim, fontSize: 12.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
         const SectionLabel('Issues & upkeep'),
         RowGroup(
           children: [

@@ -1,4 +1,5 @@
 #include "app_notifications.h"
+#include "store.h"
 #include "dnd.h"
 #include "config.h"
 #include "board_pins.h"
@@ -22,16 +23,63 @@
 // Allocated on first use, not by a global initialiser: those run before
 // PSRAM is up in some core builds (PlatformIO), leaving it null for good.
 static NotifHistoryItem *s_history_buf = nullptr;
-static NotifHistoryItem *history() {
-    if (!s_history_buf)
-        s_history_buf = (NotifHistoryItem *)heap_caps_calloc(NOTIF_HISTORY_SIZE, sizeof(NotifHistoryItem),
-                                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return s_history_buf;
-}
-#define s_history (history())
 static int s_history_count = 0;   // valid entries, caps at NOTIF_HISTORY_SIZE
 static int s_history_write = 0;   // next slot to write
 static uint32_t s_revision = 0;   // bumps on every change, screens re-read on change
+static uint32_t s_saved_rev = 0, s_changed_ms = 0;
+
+// In the store: [header][the ring]. Times are kept as "how long before the
+// save" plus the clock at the save, so "5 min ago" is still right after a
+// restart (millis() starts again from 0).
+struct NotifFile { uint32_t magic, count, write, saved_epoch, saved_ms, size; };
+static const uint32_t NOTIF_MAGIC = 0x3146544E;   // "NTF1"
+
+static void history_load(NotifHistoryItem *buf) {
+    int sz = store_size("notifications");
+    if (sz != (int)(sizeof(NotifFile) + sizeof(NotifHistoryItem) * NOTIF_HISTORY_SIZE)) return;
+    uint8_t *raw = (uint8_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!raw) return;
+    if (store_read("notifications", raw, sz) == sz) {
+        NotifFile h;
+        memcpy(&h, raw, sizeof(h));
+        if (h.magic == NOTIF_MAGIC && h.size == NOTIF_HISTORY_SIZE && h.count <= NOTIF_HISTORY_SIZE && h.write < NOTIF_HISTORY_SIZE) {
+            memcpy(buf, raw + sizeof(h), sizeof(NotifHistoryItem) * NOTIF_HISTORY_SIZE);
+            uint32_t now_epoch = calendar_now(), now = millis();
+            uint32_t off_ms = now_epoch > h.saved_epoch && h.saved_epoch ? (now_epoch - h.saved_epoch) * 1000UL : 0;
+            for (int i = 0; i < NOTIF_HISTORY_SIZE; i++) {
+                NotifHistoryItem &it = buf[i];
+                uint32_t age = h.saved_ms - it.received_ms + off_ms;   // how long ago, now
+                it.received_ms = now - age;                          // (mod 2^32: ages still come out right)
+                it.source[sizeof(it.source) - 1] = it.title[sizeof(it.title) - 1] = it.text[sizeof(it.text) - 1] = 0;
+            }
+            s_history_count = h.count;
+            s_history_write = h.write;
+        }
+    }
+    heap_caps_free(raw);
+}
+
+static void history_save(NotifHistoryItem *buf) {
+    size_t sz = sizeof(NotifFile) + sizeof(NotifHistoryItem) * NOTIF_HISTORY_SIZE;
+    uint8_t *raw = (uint8_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!raw) return;
+    NotifFile h = {NOTIF_MAGIC, (uint32_t)s_history_count, (uint32_t)s_history_write, calendar_now(), millis(),
+                   NOTIF_HISTORY_SIZE};
+    memcpy(raw, &h, sizeof(h));
+    memcpy(raw + sizeof(h), buf, sizeof(NotifHistoryItem) * NOTIF_HISTORY_SIZE);
+    store_write("notifications", raw, sz);
+    heap_caps_free(raw);
+}
+
+static NotifHistoryItem *history() {
+    if (!s_history_buf) {
+        s_history_buf = (NotifHistoryItem *)heap_caps_calloc(NOTIF_HISTORY_SIZE, sizeof(NotifHistoryItem),
+                                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_history_buf) history_load(s_history_buf);   // what was there before a restart
+    }
+    return s_history_buf;
+}
+#define s_history (history())
 
 static void copy_str(char *dst, size_t n, const char *src) {
     if (!src) src = "";
@@ -200,6 +248,16 @@ void notifications_clear_all() {
 }
 
 void notifications_update() {
+    // saved 20 s after the last change (a burst of messages is one write)
+    uint32_t ms = millis();
+    if (s_revision != s_saved_rev) {
+        if (!s_changed_ms) s_changed_ms = ms ? ms : 1;
+        else if (ms - s_changed_ms > 20000 && s_history_buf) {
+            history_save(s_history_buf);
+            s_saved_rev = s_revision;
+            s_changed_ms = 0;
+        }
+    }
     BleNotification n;
     // Legacy path: plain text, no id, no actions.
     while (ble_get_notification(n)) {

@@ -12,6 +12,9 @@
 #include <ArduinoJson.h>
 
 void weather_on_hourly(JsonDocument &doc);   // phone link "wxh"
+void weather_init();      // setup(): the last weather from before a restart (store.h)
+void weather_update();    // loop(): keeps a new push from the phone
+int  weather_age_min();   // how old the current weather is; -1: not known
 
 // A weather symbol for a condition ("Rain", "Partly cloudy"...), size r.
 void weather_draw_icon(int cx, int cy, int r, const char *condition, bool night = false);

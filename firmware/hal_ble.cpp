@@ -1148,6 +1148,15 @@ void ble_consume_weather() {
     s_weather_len = 0;
 }
 
+// The last weather from before a restart (app_weather.cpp keeps it in the
+// store): only if nothing newer came from the phone since.
+void ble_restore_weather(const char *json, int len) {
+    if (s_weather_len || len <= 0 || len >= BLE_WEATHER_MAX_LEN) return;
+    memcpy(s_weather_buf, json, len);
+    s_weather_buf[len] = '\0';
+    s_weather_len = len;
+}
+
 bool ble_get_fitness(const char **out_data, int *out_len) {
     if (s_fitness_len == 0) return false;
     *out_data = s_fitness_buf;
@@ -1355,6 +1364,7 @@ bool ble_get_watchface_data(const char **, int *) { return false; }
 void ble_consume_watchface() {}
 bool ble_get_weather(const char **, int *) { return false; }
 void ble_consume_weather() {}
+void ble_restore_weather(const char *, int) {}
 bool ble_get_fitness(const char **, int *) { return false; }
 void ble_consume_fitness() {}
 bool ble_consume_findme_request() { return false; }

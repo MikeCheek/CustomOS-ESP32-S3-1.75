@@ -2,6 +2,7 @@
  * app_sleep.cpp - sleep tracking and the smart alarm (see app_sleep.h)
  */
 #include "app_sleep.h"
+#include "store.h"
 #include "sleep_track.h"
 #include "config.h"
 #include "board_pins.h"
@@ -40,7 +41,27 @@ static SleepTracker *alloc_tracker() {
     return p ? new (p) SleepTracker() : nullptr;
 }
 
+// last night: in the store as [minutes u16][start u16][a byte a minute], else NVS
 static void save_last() {
+    if (store_ok()) {
+        int n = s_last->minutes();
+        uint8_t *buf = (uint8_t *)heap_caps_malloc(n + 4, MALLOC_CAP_SPIRAM);
+        if (buf) {
+            buf[0] = n & 255; buf[1] = n >> 8;
+            buf[2] = s_last_start_min & 255; buf[3] = s_last_start_min >> 8;
+            memcpy(buf + 4, s_last->raw(), n);
+            bool ok = store_write("sleep_last", buf, n + 4);
+            free(buf);
+            if (ok) {
+                Preferences p;
+                if (p.begin("sleep", false)) {
+                    if (p.isKey("raw")) { p.remove("raw"); p.remove("n"); p.remove("start"); }   // moved: frees NVS
+                    p.end();
+                }
+                return;
+            }
+        }
+    }
     Preferences p;
     if (!p.begin("sleep", false)) return;
     p.putUShort("n", (uint16_t)s_last->minutes());
@@ -51,6 +72,17 @@ static void save_last() {
 
 static void load_last() {
     if (!s_last) return;
+    int sz = store_size("sleep_last");
+    if (sz > 4 && sz <= SleepTracker::MAX_MIN + 4) {
+        uint8_t *buf = (uint8_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+        if (buf && store_read("sleep_last", buf, sz) == sz) {
+            int n = buf[0] | buf[1] << 8;
+            s_last_start_min = buf[2] | buf[3] << 8;
+            if (n > 0 && n + 4 <= sz) s_last->load(buf + 4, n);
+        }
+        free(buf);
+        return;
+    }
     Preferences p;
     if (!p.begin("sleep", true)) return;
     int n = p.getUShort("n", 0);

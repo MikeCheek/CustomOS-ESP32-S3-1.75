@@ -16,7 +16,7 @@
 // Call every loop() iteration - drains the legacy BLE queue into history.
 void notifications_update();
 
-#define NOTIF_HISTORY_SIZE 24
+#define NOTIF_HISTORY_SIZE 50   // kept across restarts in the store (store.h)
 
 struct NotifHistoryItem {
     uint32_t id;                  // phone-side id, 0 = legacy (no actions)

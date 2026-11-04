@@ -24,6 +24,10 @@ class WatchUsage {
   final int offS;
   final bool hasPowerManagement;
 
+  /// The last 7 days as the watch kept them (part 4, newest first): date,
+  /// screen-on minutes, wake-ups, battery % used unplugged, charges.
+  final List<UsageDay> week;
+
   const WatchUsage({
     required this.battery,
     required this.charging,
@@ -47,12 +51,13 @@ class WatchUsage {
     this.awake = const {},
     this.offS = 0,
     this.hasPowerManagement = true,
+    this.week = const [],
   });
 
   /// Puts the parts together (in any order); null until the first three
   /// are here (the fourth, what kept it awake, comes from newer firmware).
   static WatchUsage? fromParts(Map<int, Map<String, dynamic>> p, DateTime at) {
-    final a = p[0], b = p[1], c = p[2], d = p[3];
+    final a = p[0], b = p[1], c = p[2], d = p[3], wk = p[4];
     if (a == null || b == null || c == null) return null;
     final hex = a['bat'] as String? ?? '';
     final bat = <int?>[
@@ -94,6 +99,17 @@ class WatchUsage {
       },
       offS: (d?['off'] as num?)?.toInt() ?? 0,
       hasPowerManagement: (d?['pm'] as num?)?.toInt() != 0,
+      week: [
+        for (final r in (wk?['wk'] as List? ?? const []))
+          if (r is List && r.length >= 5)
+            UsageDay(
+              DateTime((r[0] as num).toInt() ~/ 10000, (r[0] as num).toInt() ~/ 100 % 100, (r[0] as num).toInt() % 100),
+              (r[1] as num).toInt(),
+              (r[2] as num).toInt(),
+              (r[3] as num).toInt(),
+              (r[4] as num).toInt(),
+            ),
+      ],
     );
   }
 
@@ -204,6 +220,13 @@ class WatchUsage {
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return out;
   }
+}
+
+/// One past day on the watch (usage part 4).
+class UsageDay {
+  final DateTime date;
+  final int onMin, wakes, dropPct, charges;
+  const UsageDay(this.date, this.onMin, this.wakes, this.dropPct, this.charges);
 }
 
 enum Severity { ok, info, warn, bad }

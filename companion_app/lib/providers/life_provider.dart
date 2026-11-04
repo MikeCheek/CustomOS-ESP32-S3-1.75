@@ -213,6 +213,21 @@ class LifeNotifier extends StateNotifier<LifeState> {
     await ble.sendLink({'t': 'meals', 'b': b, 'l': l, 'd': d});
   }
 
+  /// The watch's older days ({"e":"lh"}, after its "life" report): merged by date.
+  void onHistory(Map<String, dynamic> e) {
+    final h = e['h'];
+    if (h is! List) return;
+    final byDate = {for (final d in state.days) d.date: d};
+    for (final r in h) {
+      final d = r is List ? LifeDay.fromRow(r) : null;
+      if (d != null) byDate[d.date] = d;
+    }
+    final today = state.today;
+    if (today != null) byDate.remove(today.date);
+    state = state.copyWith(days: byDate.values.toList()..sort((a, b) => b.date.compareTo(a.date)));
+    _save();
+  }
+
   void onWatch(Map<String, dynamic> e) {
     final today = LifeDay.fromWatch(e);
     if (today != null && today.date == _today() && _day != _today()) unawaited(_checkDay());

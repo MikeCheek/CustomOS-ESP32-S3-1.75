@@ -32,6 +32,23 @@ WatchUsage _day() {
 }
 
 void main() {
+  test('the week from part 4', () {
+    final u = WatchUsage.fromParts({
+      0: {'bat': 'ff' * 144, 'chg': '0' * 144, 'iv': 10},
+      1: {'on': List.filled(24, 0), 'wk': List.filled(24, 0), 'ony': List.filled(24, 0)},
+      2: {'apps': [], 'rr': 'power on'},
+      4: {
+        'wk': [
+          [20261103, 95, 120, 38, 1],
+          [20261102, 60, 80, 25, 0],
+        ],
+      },
+    }, DateTime(2026, 11, 4))!;
+    expect(u.week.length, 2);
+    expect(u.week.first.date, DateTime(2026, 11, 3));
+    expect(u.week.first.dropPct, 38);
+  });
+
   test('what kept it awake: the fourth part, named with a fix', () {
     final base = {
       0: {'bat': 'ff' * 144, 'chg': '0' * 144, 'iv': 10},
