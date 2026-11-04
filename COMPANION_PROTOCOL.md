@@ -69,7 +69,7 @@ Watch → phone (`"e"` = event):
 
 | Message | Meaning |
 |---|---|
-| `{"e":"hi","bat":80,"chg":0,"st":1234,"fw":"2.5.0","rr":"power on","cr":0,"up":12}` / `{"e":"st",...}` | watch battery, charging, steps today; on connect, then every 5 min. `hi` adds firmware version, last reset reason, crash report id (0 = none) and uptime s |
+| `{"e":"hi","bat":80,"chg":0,"st":1234,"mv":120,"ex":18,"sd":4,"gm":300,"ge":30,"gs":10,"fw":"2.5.0","rr":"power on","cr":0,"up":12,"fh":[[20261007,350,41,11,9000]]}` / `{"e":"st",...}` | watch battery, charging, steps today, activity rings today (move kcal, exercise min, stand hours) and their goals (fw 3.5+); on connect, then every 5 min. `hi` adds firmware version, last reset reason, crash report id (0 = none), uptime s and the last days' rings `fh` ([yyyymmdd, kcal, min, hours, steps], newest first) |
 | `{"e":"wifi","st":"ready","ip":"192.168.1.20","port":8080,"k":"<key>"}` / `{"e":"wifi","st":"err","why":"..."}` / `{"e":"wifi","st":"off"}` | Wi-Fi transfer server state |
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
@@ -160,6 +160,10 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | watch → phone | `{"e":"pf","l":["p20261103154512",...],"cur":"<name>","rot":0,"max":20}` | the photo faces on the SD card, sorted, the one shown and the rotation; also sent after a `pf:` transfer |
 | phone → watch | `{"t":"qr","l":["OK","On my way",...]}` | quick replies (max 10, 38 chars each); `[]` = built-in presets. "Dictate" always stays first |
 | phone → watch | `{"t":"sr","id":123,"l":["Sure, see you at 8!","Can I tell you later?","What should I bring?"]}` | smart replies for notification `id` (app 3.5+): up to 3, 38 chars each, written by the phone's LLM; shown after "Dictate", before the quick replies. The watch keeps them for its last 6 messages |
+| phone → watch | `{"t":"tz","o":60}` | the phone's offset from UTC in minutes, sent after `hi` (fw 3.5+: the World clock) |
+| phone → watch | `{"t":"wxh","hi":21,"lo":12,"h":[[14,19.5,61],...]}` | today's high/low and the next 12 hours (hour, °C, WMO code) for the Weather app (fw 3.5+), after each weather push |
+| phone → watch | `{"t":"woack","st":<start>}` | a workout arrived (see `wo`); the watch stops resending it |
+| watch → phone | `{"e":"wo","ty":"Outdoor Run","st":<start>,"du":1800,"m":5230,"kc":310,"stp":4800,"gps":1}` | a finished workout (fw 3.5+): start in local epoch seconds, seconds, metres (0 = none), active kcal, steps, GPS distance. Sent again on every `hi` until acked |
 | phone → watch | `{"t":"tmr","s":600}` | a timer asked for on the phone's assistant (app 3.5+): set on the watch, `0` cancels |
 
 While DND (switch or bedtime) is on, the watch shows no notification popups and plays no reminder or navigation
@@ -171,6 +175,8 @@ sounds; incoming calls still ring.
 |---|---|---|
 | phone → watch | `{"t":"comp","s":["steps","next_event","battery"]}` | the 3 slots on the Default/Minimal faces, left to right |
 | phone → watch | `{"t":"todo","n":4,"top":"Call Marco"}` | open to-dos from the voice memos (for the `todos` complication) |
+| phone → watch | `{"t":"todos","r":1,"l":[{"k":"9f3a01bc","x":"Call Marco"},...]}` … `{"t":"todos","l":[...],"done":1}` | the open to-dos for the Reminders app (fw 3.5+), 7 per message; `r` starts a new list, `done` replaces the watch's. `k` = FNV-1a of the to-do's key, 8 hex digits |
+| watch → phone | `{"e":"todo","k":"9f3a01bc","d":1}` | ticked off on the watch; the phone marks it done and sends the list again |
 
 Keys: `none`, `steps`, `battery`, `phone_battery`, `next_event`, `weather`, `notifications`, `navigation`, `todos`,
 `seconds`. Custom watchface JSON: `{"type":"complication","dataSrc":"next_event","x":120,"y":330,"radius":42}`.

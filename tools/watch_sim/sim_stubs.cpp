@@ -116,6 +116,7 @@ GpsPresence gps_presence() { return GPS_PRESENT; }
 bool gps_is_enabled() { return false; }
 void gps_enable() {}
 void gps_disable() {}
+GpsFix gps_get_fix() { return GpsFix{}; }
 void display_set_brightness(uint8_t) {}
 void display_sleep() {}
 void display_wakeup() {}
@@ -175,7 +176,7 @@ bool ble_get_weather(const char **d, int *n) {
         if (s_weather.empty()) return false;
         *d = s_weather.c_str(); *n = (int)s_weather.size(); return true;
     }
-    static const char W[] = "{\"tempC\":19,\"condition\":\"Rain\",\"humidity\":80}";
+    static const char W[] = "{\"tempC\":19,\"condition\":\"Rain\",\"humidity\":80,\"forecast\":[{\"day\":\"Fri\",\"high\":22,\"low\":13,\"cond\":\"Partly cloudy\"},{\"day\":\"Sat\",\"high\":24,\"low\":14,\"cond\":\"Clear\"},{\"day\":\"Sun\",\"high\":18,\"low\":11,\"cond\":\"Storm\"}]}";
     *d = W; *n = sizeof(W) - 1; return true;
 }
 

@@ -1,4 +1,5 @@
 #include "complications.h"
+#include "fitness.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
@@ -17,10 +18,10 @@
 #include <string.h>
 
 static const char *const KEYS[COMP_COUNT] = {
-    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds",
+    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings",
 };
 static const char *const LABELS[COMP_COUNT] = {
-    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds",
+    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings",
 };
 
 const char *comp_key(CompId id) { return id < COMP_COUNT ? KEYS[id] : "none"; }
@@ -205,6 +206,11 @@ void comp_draw(Arduino_GFX *g, CompId id, int cx, int cy, int r, uint16_t accent
         if (s_todo_n < 0) snprintf(v, sizeof(v), "--");
         else snprintf(v, sizeof(v), "%d", s_todo_n);
         value_label(cx, cy, r, v, s_todo_n > 0 && s_todo_top[0] ? s_todo_top : "to-dos", COLOR_TEXT);
+        break;
+    }
+    case COMP_RINGS: {
+        int th = r / 5 > 4 ? r / 5 : 4;
+        fitness_draw_rings(cx, cy, r + 2, th);
         break;
     }
     case COMP_SECONDS: {

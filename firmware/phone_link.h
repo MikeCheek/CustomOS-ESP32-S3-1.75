@@ -9,6 +9,7 @@
  * JSON object per message. Full vocabulary in COMPANION_PROTOCOL.md.
  */
 #pragma once
+#include <ArduinoJson.h>
 #include <stdint.h>
 
 // Call every loop() iteration, awake or asleep.
@@ -69,3 +70,5 @@ bool phone_link_notif_translate(uint32_t id);
 // Ask the phone to resend its state (battery, media) - e.g. when a screen
 // that shows it opens.
 void phone_link_request_state();
+// Any watch -> phone event ({"e":...}); false when it couldn't be sent.
+bool phone_link_send(JsonDocument &doc);

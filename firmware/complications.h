@@ -24,6 +24,7 @@ enum CompId : uint8_t {
     COMP_NAV,
     COMP_TODOS,
     COMP_SECONDS,
+    COMP_RINGS,
     COMP_COUNT
 };
 

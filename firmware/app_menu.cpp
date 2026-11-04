@@ -12,6 +12,10 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include "app_settings_state.h"
+#include "app_clock.h"
+#include "app_weather.h"
+#include "app_reminders.h"
+#include "app_workout.h"
 
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
 
@@ -21,6 +25,7 @@ struct MenuEntry {
     void (*icon_fn)(Arduino_GFX *g, int cx, int cy, float br);
     Screen *screen;
     bool dev = false;   // only with Settings > System > Developer mode
+    uint16_t disc = 0;  // the icon's disc colour (0: taken from its drawing)
 };
 
 extern Screen settings_screen;
@@ -426,6 +431,87 @@ static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx - 3, cy - 6, 6, 3, IC(COLOR_TEXT));
 }
 
+static void icon_timer(Arduino_GFX *g, int cx, int cy, float br) {
+    // a stopwatch-style dial with a quarter swept
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx, cy + 3, 19, c);
+    g->fillCircle(cx, cy + 3, 15, IC(COLOR_PANEL));
+    g->fillTriangle(cx, cy + 3, cx, cy - 12, cx + 15, cy + 3, c);
+    g->fillRoundRect(cx - 5, cy - 22, 10, 5, 2, c);
+}
+
+static void icon_stopwatch(Arduino_GFX *g, int cx, int cy, float br) {
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx, cy + 3, 19, c);
+    g->fillCircle(cx, cy + 3, 15, IC(COLOR_PANEL));
+    g->drawLine(cx, cy + 3, cx + 8, cy - 7, c);
+    g->drawLine(cx + 1, cy + 3, cx + 9, cy - 7, c);
+    g->fillCircle(cx, cy + 3, 3, c);
+    g->fillRoundRect(cx - 4, cy - 22, 8, 6, 2, c);
+    g->fillRoundRect(cx + 13, cy - 17, 6, 6, 2, c);
+}
+
+static void icon_alarm(Arduino_GFX *g, int cx, int cy, float br) {
+    // an alarm clock: two bells on top, legs
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx - 14, cy - 15, 7, c);
+    g->fillCircle(cx + 14, cy - 15, 7, c);
+    g->fillCircle(cx, cy + 2, 18, c);
+    g->fillCircle(cx, cy + 2, 14, IC(COLOR_PANEL));
+    g->drawLine(cx, cy + 2, cx, cy - 8, c);
+    g->drawLine(cx, cy + 2, cx + 7, cy + 6, c);
+    g->drawLine(cx - 12, cy + 17, cx - 16, cy + 22, c);
+    g->drawLine(cx + 12, cy + 17, cx + 16, cy + 22, c);
+}
+
+static void icon_worldclock(Arduino_GFX *g, int cx, int cy, float br) {
+    // a globe: meridians and the equator
+    uint16_t c = IC(COLOR_ACCENT2);
+    g->fillCircle(cx, cy, 20, c);
+    g->fillCircle(cx, cy, 17, IC(COLOR_PANEL));
+    g->drawFastHLine(cx - 17, cy, 34, c);
+    g->drawFastHLine(cx - 14, cy - 9, 28, c);
+    g->drawFastHLine(cx - 14, cy + 9, 28, c);
+    g->drawFastVLine(cx, cy - 17, 34, c);
+    g->drawEllipse(cx, cy, 8, 17, c);
+}
+
+static void icon_weather(Arduino_GFX *g, int cx, int cy, float br) {
+    // the sun behind a cloud
+    g->fillCircle(cx - 6, cy - 7, 11, IC(COLOR_WARN));
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx - 8, cy + 6, 8, c);
+    g->fillCircle(cx + 3, cy + 1, 10, c);
+    g->fillCircle(cx + 12, cy + 7, 7, c);
+    g->fillRoundRect(cx - 15, cy + 6, 33, 9, 4, c);
+    // the disc colour comes from the saturated parts: make it a sky blue
+    g->fillCircle(cx + 17, cy - 15, 2, IC(COLOR_ACCENT2));
+    g->fillCircle(cx - 19, cy + 17, 2, IC(COLOR_ACCENT2));
+}
+
+static void icon_reminders(Arduino_GFX *g, int cx, int cy, float br) {
+    // three rows with a dot each
+    uint16_t c = IC(COLOR_ACCENT3);
+    for (int i = 0; i < 3; i++) {
+        int y = cy - 12 + i * 12;
+        g->fillCircle(cx - 12, y, 4, c);
+        g->fillRoundRect(cx - 4, y - 2, 20, 4, 2, IC(COLOR_TEXT));
+    }
+}
+
+static void icon_workout(Arduino_GFX *g, int cx, int cy, float br) {
+    // a runner in mid-stride
+    uint16_t c = IC(0x9F45);
+    g->fillCircle(cx + 5, cy - 16, 5, c);
+    g->fillTriangle(cx + 4, cy - 10, cx - 2, cy + 4, cx + 6, cy + 2, c);
+    g->drawLine(cx - 1, cy + 3, cx - 10, cy + 18, c);
+    g->drawLine(cx, cy + 3, cx - 9, cy + 18, c);
+    g->drawLine(cx + 2, cy + 3, cx + 12, cy + 10, c);
+    g->drawLine(cx + 12, cy + 10, cx + 9, cy + 19, c);
+    g->drawLine(cx + 3, cy - 7, cx + 14, cy - 2, c);
+    g->drawLine(cx + 3, cy - 7, cx - 8, cy - 4, c);
+}
+
 // In honeycomb order: the first one sits in the middle, the next six
 // around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
@@ -433,8 +519,15 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Music",         CAT_TOOLS, icon_music,         &music_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
     {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
+    {"Workout",       CAT_TOOLS, icon_workout,       &workout_screen},
+    {"Timer",         CAT_TOOLS, icon_timer,         &timer_screen, false, 0xFC60},
+    {"Weather",       CAT_TOOLS, icon_weather,       &weather_screen, false, 0x2A9F},
+    {"Alarms",        CAT_TOOLS, icon_alarm,         &alarms_screen, false, 0xFC60},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
+    {"Reminders",     CAT_TOOLS, icon_reminders,     &reminders_screen},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
+    {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},
+    {"World Clock",   CAT_TOOLS, icon_worldclock,    &worldclock_screen, false, 0x3A7F},
     {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
     {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
@@ -511,6 +604,7 @@ static void make_sprite(int i) {
     }
     int tr = 0x6E, tg = 0x5C, tb = 0xE6;   // no colour of its own: the accent violet
     if (sw > 0) { tr = sr / sw; tg = sg / sw; tb = sb / sw; }
+    if (MENU_ENTRIES[i].disc) rgb(MENU_ENTRIES[i].disc, tr, tg, tb);
     // a bit richer and never too dark, so white reads on it
     int mx = tr > tg ? (tr > tb ? tr : tb) : (tg > tb ? tg : tb);
     if (mx < 150 && mx > 0) { tr = tr * 150 / mx; tg = tg * 150 / mx; tb = tb * 150 / mx; }

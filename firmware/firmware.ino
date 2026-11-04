@@ -28,6 +28,10 @@
 #include "hal_audio.h"
 #include "hal_buttons.h"
 #include "app_face_nav.h"
+#include "app_clock.h"
+#include "app_reminders.h"
+#include "fitness.h"
+#include "app_workout.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
 #include "hal_vibrate.h"
@@ -629,6 +633,10 @@ void setup() {
     // rails to themselves while they're configured.
     quick_replies_load();                                  // dnd.cpp
     comp_load();                                           // watchface slots
+    clock_init();                                          // alarms, world clock cities
+    reminders_init();                                      // to-dos from the phone
+    fitness_init();                                        // activity rings
+    workout_init();                                        // saved workouts
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
@@ -741,6 +749,9 @@ void loop() {
     imu_steps_poll();            // hardware pedometer + midnight rollover
     calendar_update();           // event reminders (works without the phone)
     assistant_timer_update();    // the assistant's timer rings, awake or asleep
+    clock_update();              // alarms ring, awake or asleep
+    fitness_update();            // rings: new day, saving, stand reminder
+    workout_update();            // a running workout: steps, GPS distance
     voice_update();              // the wake word, awake or asleep
     motion_update();             // fall detection, activity, reps, flicks - awake or asleep
     sleeptrack_update();         // sleep tracking and the smart alarm

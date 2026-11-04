@@ -32,6 +32,10 @@
 #include "watchface_registry.h"
 #include "sim_state.h"
 #include "app_face_nav.h"
+#include "app_clock.h"
+#include "app_reminders.h"
+#include "fitness.h"
+#include "app_workout.h"
 #include "hal_nvs.h"
 #include "hal_sleep.h"
 #include "dnd.h"
@@ -116,6 +120,10 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     nvs_load_settings(g_app_settings);
     quick_replies_load();
     comp_load();
+    clock_init();                                          // alarms, world clock cities
+    reminders_init();                                      // to-dos from the phone
+    fitness_init();                                        // activity rings
+    workout_init();                                        // saved workouts
     g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
     audio_set_volume(g_app_settings.volume);
     ui_fonts_set_smooth(g_app_settings.smooth_fonts);
@@ -130,6 +138,9 @@ __attribute__((visibility("default"))) void emu_step() {
     phone_link_update();
     notifications_update();
     assistant_timer_update();
+    clock_update();
+    fitness_update();
+    workout_update();
     calendar_update();      // event reminders the app sent
     motion_update();        // fall detection, activity, reps, flicks - the phone's accelerometer
     sleeptrack_update();

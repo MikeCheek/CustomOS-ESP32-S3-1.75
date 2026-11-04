@@ -10,6 +10,11 @@
 #include "app_navigation.h"
 #include "app_notifications.h"
 #include "complications.h"
+#include "app_clock.h"
+#include "app_weather.h"
+#include "app_reminders.h"
+#include "app_workout.h"
+#include "fitness.h"
 #include "clock_fmt.h"
 #include "phone_link.h"
 #include "hal_power.h"
@@ -59,7 +64,7 @@ static void fit_text(char *out, int n, const char *in, int size, int w) {
 //  The Smart Stack
 // =========================================================================
 
-enum CardKind { CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_BATTERY };
+enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_BATTERY };
 struct Card {
     CardKind kind;
     Screen *open;          // tapping the card opens this (nullptr: nothing)
@@ -70,7 +75,7 @@ struct Card {
     float progress;        // < 0: no bar
 };
 
-static Card s_cards[8];
+static Card s_cards[14];
 static int  s_card_n = 0;
 static float s_scroll = 0, s_scroll_vel = 0;
 static bool  s_st_drag = false, s_st_moved = false;
@@ -99,11 +104,28 @@ static void build_cards() {
     bool has_ev = calendar_next(ev);
     bool ev_soon = has_ev && !ev.all_day && ev.start <= now + 3600;
 
+    if (workout_active()) {
+        Card &c = add(CARD_WORKOUT, &workout_live_screen, FIT_EXERCISE_COLOR, "WORKOUT");
+        uint32_t s = workout_elapsed_s();
+        snprintf(c.main, sizeof(c.main), "%lu:%02lu%s", (unsigned long)(s / 60), (unsigned long)(s % 60), workout_paused() ? " paused" : "");
+        float km = workout_km();
+        if (km > 0.01f) snprintf(c.sub, sizeof(c.sub), "%s - %.2f km", workout_type_name(), km);
+        else strlcpy(c.sub, workout_type_name(), sizeof(c.sub));
+    }
     if (assistant_timer_active()) {
         uint32_t left = assistant_timer_left_s();
-        Card &c = add(CARD_TIMER, &assistant_screen, COLOR_WARN, "TIMER");
-        snprintf(c.main, sizeof(c.main), "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
-        snprintf(c.sub, sizeof(c.sub), "left");
+        Card &c = add(CARD_TIMER, &timer_screen, 0xFC60, "TIMER");
+        if (left >= 3600) snprintf(c.main, sizeof(c.main), "%lu:%02lu:%02lu", (unsigned long)(left / 3600), (unsigned long)(left / 60 % 60), (unsigned long)(left % 60));
+        else snprintf(c.main, sizeof(c.main), "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
+        snprintf(c.sub, sizeof(c.sub), assistant_timer_paused() ? "paused" : "left");
+        uint32_t len = assistant_timer_length_s();
+        if (len) c.progress = 1.0f - (float)assistant_timer_left_ms() / (len * 1000.0f);
+    }
+    if (stopwatch_running()) {
+        Card &c = add(CARD_STOPWATCH, &stopwatch_screen, 0xFC60, "STOPWATCH");
+        uint32_t s = stopwatch_ms() / 1000;
+        snprintf(c.main, sizeof(c.main), "%02lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
+        snprintf(c.sub, sizeof(c.sub), "running");
     }
     if (navigation_active()) {
         Card &c = add(CARD_NAV, &navigation_screen, COLOR_GOOD, "DIRECTIONS");
@@ -137,20 +159,32 @@ static void build_cards() {
         }
     };
     if (ev_soon) event_card();
+    uint32_t alarm_in;
+    int ah, am;
+    if (clock_next_alarm(alarm_in, ah, am) && alarm_in <= 12 * 60) {
+        Card &c = add(CARD_ALARM, &alarms_screen, 0xFC60, "ALARM");
+        clock_hm_text(c.main, sizeof(c.main), ah, am);
+        if (alarm_in < 60) snprintf(c.sub, sizeof(c.sub), "in %lu min", (unsigned long)alarm_in);
+        else snprintf(c.sub, sizeof(c.sub), "in %luh %02lum", (unsigned long)(alarm_in / 60), (unsigned long)(alarm_in % 60));
+    }
     int t;
     char cond[32];
     if (comp_weather_now(t, cond, sizeof(cond))) {
-        Card &c = add(CARD_WEATHER, nullptr, COLOR_ACCENT2, "WEATHER");
+        Card &c = add(CARD_WEATHER, &weather_screen, COLOR_ACCENT2, "WEATHER");
         snprintf(c.main, sizeof(c.main), "%d\xC2\xB0" "C", t);
         strlcpy(c.sub, cond, sizeof(c.sub));
     }
     {
-        uint32_t st = imu_get_step_count(), goal = comp_step_goal();
-        Card &c = add(CARD_ACTIVITY, &activity_screen, COLOR_GOOD, "ACTIVITY");
-        snprintf(c.main, sizeof(c.main), "%lu steps", (unsigned long)st);
-        if (st >= goal) snprintf(c.sub, sizeof(c.sub), "Goal reached");
-        else snprintf(c.sub, sizeof(c.sub), "%lu to go", (unsigned long)(goal - st));
-        c.progress = goal ? (float)st / goal : 0;
+        Card &c = add(CARD_ACTIVITY, &activity_screen, FIT_MOVE_COLOR, "ACTIVITY");
+        snprintf(c.main, sizeof(c.main), "%d/%u kcal", (int)fitness_move_kcal(), (unsigned)fitness_move_goal());
+        snprintf(c.sub, sizeof(c.sub), "%lu min exercise - %d h stand - %lu steps", (unsigned long)fitness_exercise_min(),
+                 fitness_stand_hours(), (unsigned long)imu_get_step_count());
+    }
+    if (reminders_count() > 0) {
+        Card &c = add(CARD_REMINDERS, &reminders_screen, COLOR_ACCENT3, "REMINDERS");
+        strlcpy(c.main, reminders_first(), sizeof(c.main));
+        if (reminders_count() > 1) snprintf(c.sub, sizeof(c.sub), "and %d more", reminders_count() - 1);
+        else snprintf(c.sub, sizeof(c.sub), "Tap to tick it off");
     }
     int n = notifications_history_count();
     if (n > 0) {
@@ -181,7 +215,14 @@ static void stack_create() {
 static int card_y(int i) { return 92 + i * CARD_STEP - (int)s_scroll; }   // top of card i
 
 static void draw_card_icon(const Card &c, int cx, int cy) {
-    if (c.open) { menu_draw_app_icon(c.kind == CARD_MUSIC ? &music_screen : c.open, cx, cy, 24); return; }
+    if (c.kind == CARD_ACTIVITY) { fitness_draw_rings(cx, cy, 24, 6); return; }
+    if (c.kind == CARD_WEATHER) {
+        int t; char cond[32];
+        ui_gfx()->fillCircle(cx, cy, 24, 0x2A9F);
+        if (comp_weather_now(t, cond, sizeof(cond))) weather_draw_icon(cx, cy, 16, cond);
+        return;
+    }
+    if (c.open) { menu_draw_app_icon(c.kind == CARD_MUSIC ? &music_screen : c.kind == CARD_WORKOUT ? &workout_screen : c.open, cx, cy, 24); return; }
     // weather: a sun on a disc, like the app icons
     Arduino_GFX *g = ui_gfx();
     g->fillCircle(cx, cy, 24, COLOR_ACCENT2);

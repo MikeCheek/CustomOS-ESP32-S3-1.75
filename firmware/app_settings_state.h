@@ -96,6 +96,10 @@ struct AppSettings {
     uint8_t photo_rotate = 0;                // Photo face: 0 tap only, 1 every hour, 2 every day
     bool developer_mode = false;             // the app menu also shows tests and diagnostics
     bool menu_list = false;                  // the app menu as an A-Z list instead of the honeycomb
+    uint16_t move_goal = 300;                // fitness.h: active kcal a day
+    uint8_t exercise_goal = 30;              // minutes a day
+    uint8_t stand_goal = 10;                 // hours a day
+    bool stand_remind = true;                // at ten to the hour, if you haven't moved in it
 
     // ---- Voice (voice_sr.cpp) --------------------------------------------------
     bool voice_wake = false;                 // listen for the wake word (more battery)
@@ -108,7 +112,7 @@ struct AppSettings {
     bool sleep_track = true;                 // app_sleep.h: movement-based sleep tracking at night
     bool alarm_on = false;                   // the smart alarm
     uint16_t alarm_min = 7 * 60;             // its time, minutes after midnight
-    bool activity_track = false;             // app_activity.h: still / walking / running all day
+    bool activity_track = true;              // app_activity.h: still / walking / running all day
     bool flick_back = false;                 // two quick wrist flicks = back
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------

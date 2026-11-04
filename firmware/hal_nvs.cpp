@@ -65,6 +65,10 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUChar("pf_rot", s.photo_rotate);
     s_prefs.putBool("dev_mode", s.developer_mode);
     s_prefs.putBool("menu_list", s.menu_list);
+    s_prefs.putUShort("move_goal", s.move_goal);
+    s_prefs.putUChar("ex_goal", s.exercise_goal);
+    s_prefs.putUChar("st_goal", s.stand_goal);
+    s_prefs.putBool("st_remind", s.stand_remind);
     s_prefs.putBool("vw_on", s.voice_wake);
     s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
     s_prefs.putBool("v_clean", s.voice_clean);
@@ -145,6 +149,13 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.photo_rotate > 2) s.photo_rotate = 0;
     s.developer_mode = s_prefs.getBool("dev_mode", false);
     s.menu_list = s_prefs.getBool("menu_list", false);
+    s.move_goal = s_prefs.getUShort("move_goal", 300);
+    if (s.move_goal < 50 || s.move_goal > 2000) s.move_goal = 300;
+    s.exercise_goal = s_prefs.getUChar("ex_goal", 30);
+    if (s.exercise_goal < 5 || s.exercise_goal > 240) s.exercise_goal = 30;
+    s.stand_goal = s_prefs.getUChar("st_goal", 10);
+    if (s.stand_goal < 1 || s.stand_goal > 16) s.stand_goal = 10;
+    s.stand_remind = s_prefs.getBool("st_remind", true);
     s.voice_wake = s_prefs.getBool("vw_on", false);
     s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
     s.voice_clean = s_prefs.getBool("v_clean", true);
@@ -155,7 +166,7 @@ bool nvs_load_settings(AppSettings &s) {
     s.sleep_track = s_prefs.getBool("sleep_on", true);
     s.alarm_on = s_prefs.getBool("alarm_on", false);
     s.alarm_min = s_prefs.getUShort("alarm_min", 7 * 60) % 1440;
-    s.activity_track = s_prefs.getBool("act_on", false);
+    s.activity_track = s_prefs.getBool("act_on", true);
     s.flick_back = s_prefs.getBool("flick", false);
     s.battery_mode = s_prefs.getUChar("batt_mode", 1);
     s.saver_prev_wifi = s_prefs.getBool("sv_wifi", false);

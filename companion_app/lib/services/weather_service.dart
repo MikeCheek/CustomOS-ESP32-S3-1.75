@@ -10,6 +10,10 @@ class WeatherSnapshot {
   final int humidity;
   final List<WeatherForecast> forecast;
   final DateTime fetchedAt;
+  final double? todayHigh, todayLow;
+
+  /// The next 12 hours: (hour of day, °C, WMO code).
+  final List<(int, double, int)> hours;
 
   const WeatherSnapshot({
     required this.tempC,
@@ -18,14 +22,22 @@ class WeatherSnapshot {
     required this.humidity,
     required this.forecast,
     required this.fetchedAt,
+    this.todayHigh,
+    this.todayLow,
+    this.hours = const [],
   });
 
-  WeatherData toWatch() => WeatherData(
-        tempC: tempC,
-        condition: condition,
-        humidity: humidity,
-        forecast: forecast,
-      );
+  /// The watch's Weather app: today's high/low and the hours (phone link "wxh").
+  Map<String, dynamic> toWatchHours() => {
+    't': 'wxh',
+    if (todayHigh != null) 'hi': todayHigh!.round(),
+    if (todayLow != null) 'lo': todayLow!.round(),
+    'h': [
+      for (final (h, t, c) in hours.take(12)) [h, (t * 10).round() / 10, c],
+    ],
+  };
+
+  WeatherData toWatch() => WeatherData(tempC: tempC, condition: condition, humidity: humidity, forecast: forecast);
 }
 
 class WeatherService {
@@ -46,11 +58,14 @@ class WeatherService {
   static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   static Future<WeatherSnapshot> fetch(double lat, double lon) async {
-    final uri = Uri.parse('https://api.open-meteo.com/v1/forecast'
-        '?latitude=${lat.toStringAsFixed(3)}&longitude=${lon.toStringAsFixed(3)}'
-        '&current=temperature_2m,relative_humidity_2m,weather_code'
-        '&daily=weather_code,temperature_2m_max,temperature_2m_min'
-        '&timezone=auto&forecast_days=4');
+    final uri = Uri.parse(
+      'https://api.open-meteo.com/v1/forecast'
+      '?latitude=${lat.toStringAsFixed(3)}&longitude=${lon.toStringAsFixed(3)}'
+      '&current=temperature_2m,relative_humidity_2m,weather_code'
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min'
+      '&hourly=temperature_2m,weather_code&forecast_hours=13'
+      '&timezone=auto&forecast_days=4',
+    );
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     try {
       final req = await client.getUrl(uri);
@@ -70,14 +85,31 @@ class WeatherService {
       final forecast = <WeatherForecast>[];
       for (var i = 1; i < times.length && i < 4; i++) {
         final d = DateTime.tryParse(times[i]);
-        forecast.add(WeatherForecast(
-          day: d == null ? times[i] : _days[d.weekday - 1],
-          high: hi[i],
-          low: lo[i],
-          condition: describe(codes[i]),
-        ));
+        forecast.add(
+          WeatherForecast(
+            day: d == null ? times[i] : _days[d.weekday - 1],
+            high: hi[i],
+            low: lo[i],
+            condition: describe(codes[i]),
+          ),
+        );
+      }
+      final hours = <(int, double, int)>[];
+      final hourly = j['hourly'] as Map<String, dynamic>?;
+      if (hourly != null) {
+        final ht = (hourly['time'] as List).cast<String>();
+        final htemp = hourly['temperature_2m'] as List;
+        final hcode = hourly['weather_code'] as List;
+        for (var i = 0; i < ht.length && hours.length < 12; i++) {
+          final d = DateTime.tryParse(ht[i]);
+          if (d == null || htemp[i] == null) continue;
+          hours.add((d.hour, (htemp[i] as num).toDouble(), (hcode[i] as num?)?.toInt() ?? 0));
+        }
       }
       return WeatherSnapshot(
+        todayHigh: hi.isEmpty ? null : hi[0],
+        todayLow: lo.isEmpty ? null : lo[0],
+        hours: hours,
         tempC: (cur['temperature_2m'] as num).toDouble(),
         condition: describe(code),
         code: code,

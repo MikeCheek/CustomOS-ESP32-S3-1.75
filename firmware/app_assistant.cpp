@@ -51,18 +51,35 @@ static void fail(const char *why) {
 
 // ---- timer -----------------------------------------------------------------------------
 static uint32_t s_timer_end_ms = 0, s_timer_len_s = 0;
+static uint32_t s_timer_paused_left_ms = 0;   // > 0: paused with this much left
 extern Screen timer_alert_screen;
 
 void assistant_timer_set(uint32_t seconds) {
     s_timer_len_s = seconds;
+    s_timer_paused_left_ms = 0;
     s_timer_end_ms = seconds ? millis() + seconds * 1000UL : 0;
     if (!s_timer_end_ms && seconds) s_timer_end_ms = 1;   // millis() wrapped to 0
 }
-bool assistant_timer_active() { return s_timer_end_ms != 0; }
-uint32_t assistant_timer_left_s() {
+bool assistant_timer_active() { return s_timer_end_ms != 0 || s_timer_paused_left_ms != 0; }
+bool assistant_timer_paused() { return s_timer_paused_left_ms != 0; }
+uint32_t assistant_timer_length_s() { return s_timer_len_s; }
+uint32_t assistant_timer_left_ms() {
+    if (s_timer_paused_left_ms) return s_timer_paused_left_ms;
     if (!s_timer_end_ms) return 0;
     int32_t left = (int32_t)(s_timer_end_ms - millis());
-    return left > 0 ? (left + 999) / 1000 : 0;
+    return left > 0 ? (uint32_t)left : 0;
+}
+uint32_t assistant_timer_left_s() { return (assistant_timer_left_ms() + 999) / 1000; }
+void assistant_timer_pause(bool pause) {
+    if (pause && s_timer_end_ms) {
+        s_timer_paused_left_ms = assistant_timer_left_ms();
+        if (!s_timer_paused_left_ms) s_timer_paused_left_ms = 1;
+        s_timer_end_ms = 0;
+    } else if (!pause && s_timer_paused_left_ms) {
+        s_timer_end_ms = millis() + s_timer_paused_left_ms;
+        if (!s_timer_end_ms) s_timer_end_ms = 1;
+        s_timer_paused_left_ms = 0;
+    }
 }
 
 void assistant_timer_update() {

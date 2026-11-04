@@ -345,8 +345,55 @@ static SettingsRow ROWS_WAKE[] = {
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
     { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
     { "Sleep tracking", "From wrist movement, 20:00-12:00 (Sleep app)", ROW_TOGGLE, get_sleep_trk, tap_sleep_trk, nullptr, nullptr },
-    { "Activity tracking", "Walking, running, moving all day (Activity app)", ROW_TOGGLE, get_act, tap_act, nullptr, nullptr },
     { "Flick to go back", "Two quick wrist flicks go back a screen", ROW_TOGGLE, get_flick, tap_flick, nullptr, nullptr },
+};
+
+// ---- Activity (fitness.h) ----
+static void cycle_u16(uint16_t &v, const uint16_t *opts, int n) {
+    int i = 0;
+    while (i < n && opts[i] <= v) i++;
+    v = opts[i % n];
+    nvs_save_settings(g_app_settings);
+}
+static void tap_move_goal() {
+    static const uint16_t O[] = {150, 200, 250, 300, 350, 400, 500, 600, 750, 1000};
+    cycle_u16(g_app_settings.move_goal, O, sizeof(O) / sizeof(O[0]));
+}
+static const char *desc_move_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u active kcal a day", (unsigned)g_app_settings.move_goal);
+    return b;
+}
+static void tap_ex_goal() {
+    static const uint16_t O[] = {10, 15, 20, 30, 45, 60, 90};
+    uint16_t v = g_app_settings.exercise_goal;
+    cycle_u16(v, O, sizeof(O) / sizeof(O[0]));
+    g_app_settings.exercise_goal = (uint8_t)v;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_ex_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u minutes a day", (unsigned)g_app_settings.exercise_goal);
+    return b;
+}
+static void tap_st_goal() {
+    g_app_settings.stand_goal = g_app_settings.stand_goal >= 14 ? 6 : g_app_settings.stand_goal + 1;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_st_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u hours a day", (unsigned)g_app_settings.stand_goal);
+    return b;
+}
+static bool get_st_remind() { return g_app_settings.stand_remind; }
+static void tap_st_remind() { g_app_settings.stand_remind = !g_app_settings.stand_remind; nvs_save_settings(g_app_settings); }
+
+static SettingsRow ROWS_ACTIVITY[] = {
+    { "Activity tracking", "Rings, walking, running all day", ROW_TOGGLE, get_act, tap_act, nullptr, nullptr },
+    { "Move goal", "", ROW_ACTION, nullptr, tap_move_goal, nullptr, nullptr, nullptr, nullptr, desc_move_goal },
+    { "Exercise goal", "", ROW_ACTION, nullptr, tap_ex_goal, nullptr, nullptr, nullptr, nullptr, desc_ex_goal },
+    { "Stand goal", "", ROW_ACTION, nullptr, tap_st_goal, nullptr, nullptr, nullptr, nullptr, desc_st_goal },
+    { "Stand reminders", "At ten to the hour, if you haven't moved", ROW_TOGGLE, get_st_remind, tap_st_remind, nullptr, nullptr },
 };
 
 static bool get_dev() { return g_app_settings.developer_mode; }
@@ -360,7 +407,7 @@ static SettingsRow ROWS_SYSTEM[] = {
 };
 
 extern Screen settings_display_screen, settings_sound_screen, settings_connect_screen, settings_power_screen,
-    settings_wake_screen, settings_system_screen;
+    settings_wake_screen, settings_system_screen, settings_activity_screen;
 
 static SettingsRow ROWS_ROOT[] = {
     { "Display", "Brightness, always-on, watchface", ROW_SUBSCREEN, nullptr, nullptr, &settings_display_screen, ICON_BRIGHTNESS },
@@ -369,6 +416,7 @@ static SettingsRow ROWS_ROOT[] = {
     { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
     // desc: the battery mode, live (page_draw)
     { "Wake & quiet", "Raise to wake, bedtime, fall detection", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "Activity", "Rings, goals, stand reminders", ROW_SUBSCREEN, nullptr, nullptr, &settings_activity_screen, nullptr },
     { "System", "USB, updates, diagnostics", ROW_SUBSCREEN, nullptr, nullptr, &settings_system_screen, ICON_POWER },
 };
 
@@ -512,6 +560,7 @@ static void settings_gesture(Gesture g) {
 
 SETTINGS_PAGE(settings_screen, "Settings", ROWS_ROOT)
 SETTINGS_PAGE(settings_display_screen, "Display", ROWS_DISPLAY)
+SETTINGS_PAGE(settings_activity_screen, "Activity", ROWS_ACTIVITY)
 SETTINGS_PAGE(settings_sound_screen, "Sound", ROWS_SOUND)
 SETTINGS_PAGE(settings_connect_screen, "Connections", ROWS_CONNECT)
 SETTINGS_PAGE(settings_power_screen, "Battery", ROWS_BATTERY)

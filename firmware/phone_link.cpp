@@ -2,6 +2,11 @@
 #include "watchface_registry.h"
 #include "app_assistant.h"
 #include "phone_link.h"
+#include "app_clock.h"
+#include "app_weather.h"
+#include "app_reminders.h"
+#include "app_workout.h"
+#include "fitness.h"
 #include "complications.h"
 #include "dnd.h"
 #include "hal_nvs.h"
@@ -53,6 +58,8 @@ static bool send_doc(JsonDocument &doc) {
     return ble_link_send(buf);
 }
 
+bool phone_link_send(JsonDocument &doc) { return send_doc(doc); }
+
 // Watch status for the phone: battery, steps, charging.
 static void send_report(const char *ev) {
     JsonDocument doc;
@@ -60,6 +67,13 @@ static void send_report(const char *ev) {
     doc["bat"] = power_get_battery_percent();
     doc["chg"] = power_is_charging() ? 1 : 0;
     doc["st"] = (uint32_t)imu_get_step_count();
+    // activity rings today, and their goals
+    doc["mv"] = (int)fitness_move_kcal();
+    doc["ex"] = fitness_exercise_min();
+    doc["sd"] = fitness_stand_hours();
+    doc["gm"] = fitness_move_goal();
+    doc["ge"] = fitness_exercise_goal();
+    doc["gs"] = fitness_stand_goal();
     if (!strcmp(ev, "hi")) {
         // Once per connection: firmware version, why it last reset, and
         // whether there's a crash report the app hasn't fetched yet.
@@ -67,6 +81,14 @@ static void send_report(const char *ev) {
         doc["rr"] = diag_reset_reason();
         doc["cr"] = diag_crash_id();
         doc["up"] = (uint32_t)(millis() / 1000);
+        // the last days' rings: [date yyyymmdd, kcal, exercise min, stand h, steps]
+        FitDay h[7];
+        int n = fitness_history(h, 7);
+        JsonArray fh = doc["fh"].to<JsonArray>();
+        for (int i = 0; i < n; i++) {
+            JsonArray d = fh.add<JsonArray>();
+            d.add(h[i].date); d.add(h[i].move_kcal); d.add(h[i].exercise_min); d.add(h[i].stand_hours); d.add(h[i].steps);
+        }
     }
     send_doc(doc);
     s_last_report_ms = millis();
@@ -87,6 +109,7 @@ static void handle(const char *msg) {
     if (!strcmp(t, "hi")) {
         s_active = true;
         send_report("hi");
+        workout_send_pending();   // workouts recorded while the phone was away
     } else if (!strcmp(t, "bat")) {
         s_active = true;
         s_phone_bat = doc["l"] | -1;
@@ -159,6 +182,14 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "woack")) {
+        workout_on_ack(doc["st"] | 0u);
+    } else if (!strcmp(t, "tz")) {
+        clock_set_utc_offset(doc["o"] | 0);
+    } else if (!strcmp(t, "wxh")) {
+        weather_on_hourly(doc);
+    } else if (!strcmp(t, "todos")) {
+        reminders_on_link(doc);
     } else if (!strcmp(t, "todo")) {
         comp_set_todos(doc["n"] | 0, doc["top"] | "");
     } else if (!strcmp(t, "dnd")) {

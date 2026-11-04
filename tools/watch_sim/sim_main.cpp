@@ -11,6 +11,10 @@
 #include "watchface_registry.h"
 #include "phone_link.h"
 #include "app_notifications.h"
+#include "app_clock.h"
+#include "fitness.h"
+#include "app_workout.h"
+#include "app_reminders.h"
 #include <vector>
 #include <string>
 
@@ -45,6 +49,9 @@ void sim_run(uint32_t ms) {
         g_sim_ms += 4;
         phone_link_update();
         notifications_update();
+        clock_update();
+        fitness_update();
+        workout_update();
         ui_update();
         ui_poll_gestures();
     }
@@ -66,6 +73,9 @@ void sim_save(const char *name) {
     fprintf(stderr, "[sim] saved %s\n", path.c_str());
 }
 
+#include "app_clock.h"
+#include "fitness.h"
+#include "app_workout.h"
 void sim_scenarios();   // sim_scenarios.cpp
 
 int main() {
@@ -74,6 +84,10 @@ int main() {
     ui_fonts_set_smooth(true);
     ui_init(nullptr);
     watchface_registry_init();
+    clock_init();
+    reminders_init();
+    fitness_init();
+    workout_init();
     sim_scenarios();
     return 0;
 }

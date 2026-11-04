@@ -37,6 +37,11 @@ void assistant_timer_update();
 bool assistant_timer_active();
 uint32_t assistant_timer_left_s();
 void assistant_timer_set(uint32_t seconds);   // 0 = cancel
+// The Timer app's controls (app_clock.cpp): pause keeps what's left.
+void assistant_timer_pause(bool pause);
+bool assistant_timer_paused();
+uint32_t assistant_timer_length_s();
+uint32_t assistant_timer_left_ms();
 
 // A question already recorded (16-bit mono, what was said after the wake
 // word that wasn't a command): saved as _ask.wav and sent to the phone,

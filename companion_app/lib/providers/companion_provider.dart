@@ -18,6 +18,7 @@ import 'ble_provider.dart';
 import 'notes_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
+import 'fitness_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
@@ -287,6 +288,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     await Future.delayed(const Duration(milliseconds: 600));
     if (!_ble.isConnected) return;
     await _ble.sendLink({'t': 'hi'});
+    // the watch's world clock needs to know where it is
+    await _ble.sendLink({'t': 'tz', 'o': DateTime.now().timeZoneOffset.inMinutes});
     await _sendState();
     final w = state.weather;
     if (_settings.weatherAuto &&
@@ -294,6 +297,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       await refreshWeather();
     } else if (w != null) {
       await _ble.sendWeather(w.toWatch());
+      await _ble.sendLink(w.toWatchHours());
     }
     await refreshCalendar();
     await _sendBedtime();
@@ -344,16 +348,49 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   String _lastTodo = '';
   Timer? _todoDebounce;
 
-  /// Open to-dos from the memos, for the watch's "To-dos" complication.
+  /// Open to-dos from the memos: the count and first for the watch's "To-dos"
+  /// complication, and the list for its Reminders app (ticked off there:
+  /// [_onWatchTodo]).
   Future<void> _sendTodos() async {
     if (!_ble.hasPhoneLink) return;
     final done = _ref.read(doneActionsProvider);
     final open = _ref.read(knowledgeProvider).actions().where((a) => !done.contains(a.key)).toList();
     final top = open.isEmpty ? '' : open.first.text;
-    final key = '${open.length}|$top';
+    final key = '${open.length}|${open.map((a) => a.key).join('\n')}';
     if (key == _lastTodo) return;
     _lastTodo = key;
     await _ble.sendLink({'t': 'todo', 'n': open.length, 'top': top.length > 36 ? top.substring(0, 36) : top});
+    // the list, a few per message (the link takes ~1 KB at a time)
+    final items = [for (final a in open.take(24)) {'k': todoKey(a.key), 'x': _clip(a.text, 72)}];
+    for (var i = 0; i == 0 || i < items.length; i += 7) {
+      await _ble.sendLink({
+        't': 'todos',
+        if (i == 0) 'r': 1,
+        'l': items.sublist(i, (i + 7).clamp(0, items.length)),
+        if (i + 7 >= items.length) 'done': 1,
+      });
+    }
+  }
+
+  /// A short, stable id for a to-do (FNV-1a of its key), as the watch knows it.
+  static String todoKey(String key) {
+    var h = 0x811c9dc5;
+    for (final b in utf8.encode(key)) {
+      h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
+  /// Ticked off in the watch's Reminders app.
+  Future<void> _onWatchTodo(String k) async {
+    final done = _ref.read(doneActionsProvider);
+    for (final a in _ref.read(knowledgeProvider).actions()) {
+      if (todoKey(a.key) == k && !done.contains(a.key)) {
+        await _ref.read(doneActionsProvider.notifier).toggle(a.key);
+        break;
+      }
+    }
+    _todosChanged();
   }
 
   void _todosChanged() {
@@ -459,6 +496,13 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case 'fall':
         unawaited(_onFall(e['ok'] == 1));
         break;
+      case 'todo':
+        if (e['d'] == 1) await _onWatchTodo(e['k'] as String? ?? '');
+        break;
+      case 'wo':
+        await _ref.read(fitnessProvider.notifier).addWorkout(e);
+        await _ble.sendLink({'t': 'woack', 'st': e['st']});
+        break;
       case 'ntf':
         final id = (e['id'] as num?)?.toInt() ?? 0;
         if (e['a'] == 'reply') {
@@ -472,6 +516,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   void _onWatchReport(Map<String, dynamic> e) {
     if (!mounted) return;
+    _ref.read(fitnessProvider.notifier).onReport(e);
     final steps = (e['st'] as num?)?.toInt() ?? -1;
     final hist = Map<String, int>.from(state.stepsHistory);
     if (steps >= 0) {
@@ -1200,7 +1245,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       final w = await WeatherService.fetch(loc['lat']!, loc['lon']!);
       if (!mounted) return;
       state = state.copyWith(weather: w, weatherLoading: false);
-      if (_ble.isConnected) await _ble.sendWeather(w.toWatch());
+      if (_ble.isConnected) {
+        await _ble.sendWeather(w.toWatch());
+        if (_ble.hasPhoneLink) await _ble.sendLink(w.toWatchHours());
+      }
     } catch (e) {
       if (!mounted) return;
       state = state.copyWith(weatherLoading: false, weatherError: e.toString().replaceFirst('Exception: ', ''));

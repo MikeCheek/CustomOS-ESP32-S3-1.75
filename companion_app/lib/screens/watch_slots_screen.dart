@@ -20,6 +20,7 @@ class WatchSlotsScreen extends ConsumerWidget {
     'navigation': ('Next turn', Icons.navigation_rounded),
     'todos': ('Memo to-dos', Icons.task_alt_rounded),
     'seconds': ('Seconds', Icons.timer_rounded),
+    'rings': ('Activity rings', Icons.donut_large_rounded),
   };
 
   @override

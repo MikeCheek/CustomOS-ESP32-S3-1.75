@@ -4,6 +4,12 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+#include "app_activity.h"
+#include "fitness.h"
+#include "app_workout.h"
+#include "app_reminders.h"
+#include "app_weather.h"
+#include "app_clock.h"
 #include "apps.h"
 #include "watchface_registry.h"
 #include "hal_fwupdate.h"
@@ -43,6 +49,15 @@ static void phone_data() {
     sim_link("{\"t\":\"ntf\",\"id\":11,\"ap\":\"Calendar\",\"ti\":\"Design review in 35 min\",\"tx\":\"Room 4B\",\"rp\":0}");
     sim_link("{\"t\":\"ntf\",\"id\":12,\"ap\":\"Gmail\",\"ti\":\"Your order has shipped\",\"tx\":\"Arriving Friday - track your package\",\"rp\":0}");
     sim_link("{\"t\":\"ntf\",\"id\":13,\"ap\":\"WhatsApp\",\"ti\":\"Sara\",\"tx\":\"Still on for lunch at 1? I booked a table\",\"rp\":1}");
+    sim_link("{\"t\":\"tz\",\"o\":120}");
+    sim_link("{\"t\":\"wxh\",\"pl\":\"Milan\",\"hi\":21,\"lo\":12,\"h\":[[10,19,61],[11,19,61],[12,20,3],[13,21,2],"
+             "[14,21,2],[15,21,1],[16,20,0],[17,19,0],[18,17,0],[19,16,0],[20,15,0],[21,14,0]]}");
+    sim_link("{\"t\":\"todos\",\"r\":1,\"done\":1,\"l\":[{\"k\":\"a1\",\"x\":\"Call Marco about the flat\"},"
+             "{\"k\":\"a2\",\"x\":\"Send the slides to Giulia before Friday's review\"},"
+             "{\"k\":\"a3\",\"x\":\"Buy coffee\"},{\"k\":\"a4\",\"x\":\"Book the dentist\"}]}");
+    // a morning's movement for the rings
+    for (int i = 0; i < 330; i++) fitness_feed(ACT_WALK, 108);
+    for (int i = 0; i < 300; i++) fitness_feed(ACT_MOVING, 0);
     sim_run(4000);
 }
 
@@ -93,6 +108,38 @@ void sim_scenarios() {
     g_app_settings.menu_list = true;
     shot(&menu_screen, "menu_list");
     g_app_settings.menu_list = false;
+    shot(&activity_screen, "activity_rings");
+    shot(&rings_celebrate_screen, "rings_closed", 1600);
+    shot(&weather_screen, "weather");
+    shot(&reminders_screen, "reminders");
+    shot(&worldclock_screen, "world_clock");
+    shot(&alarms_screen, "alarms_empty");
+    sim_tap(233, 96 + 44);                  // + Add alarm
+    sim_run(500);
+    sim_save("alarm_edit");
+    sim_tap(233 + 90, 360 + 28);            // Save (a new one: the middle button)
+    sim_tap(233, 388);
+    sim_run(600);
+    sim_save("alarms");
+    shot(&timer_screen, "timer");
+    sim_tap(233, 146);                      // 3 min
+    sim_run(20000);
+    sim_save("timer_running");
+    shot(&stopwatch_screen, "stopwatch_idle");
+    sim_tap(233 + 80, 346);                 // Start
+    sim_run(12340);
+    sim_tap(233 - 80, 346);                 // Lap
+    sim_run(9870);
+    sim_tap(233 - 80, 346);
+    sim_run(4210);
+    sim_save("stopwatch");
+    shot(&workout_screen, "workout_types");
+    sim_tap(233, 92 + 92 + 46);             // Outdoor Run
+    sim_run(1500);
+    sim_save("workout_countdown");
+    sim_run(2500);
+    sim_run(60000);
+    sim_save("workout_live");
     shot(&smart_stack_screen, "smart_stack");
     home();
     ui_handle_touch(233, 300, true);        // touch and hold the face
