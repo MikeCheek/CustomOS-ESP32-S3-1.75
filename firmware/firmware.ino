@@ -35,6 +35,7 @@
 #include "app_reminders.h"
 #include "fitness.h"
 #include "app_workout.h"
+#include "app_life.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
 #include "hal_vibrate.h"
@@ -640,6 +641,7 @@ void setup() {
     reminders_init();                                      // to-dos from the phone
     fitness_init();                                        // activity rings
     workout_init();                                        // saved workouts
+    life_init();                                           // Life: plan and today
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
@@ -755,6 +757,7 @@ void loop() {
     clock_update();              // alarms ring, awake or asleep
     haptics_update();            // the cue patterns, on time
     look_update();               // the app's Faces tab follows changes made here
+    life_update();               // Life: the day's nudges
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder
     workout_update();            // a running workout: steps, GPS distance

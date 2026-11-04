@@ -20,6 +20,7 @@ import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import 'fitness_provider.dart';
 import 'look_provider.dart';
+import 'life_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
@@ -304,6 +305,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     await _sendBedtime();
     await _sendQuickReplies();
     await _sendComplications();
+    await _ref.read(lifeProvider.notifier).sendAll();   // the Life plan and today's meal ideas
     _lastTodo = '';
     await _sendTodos();
     if (_settings.dndSync) {
@@ -506,6 +508,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
           if (c.phone.isEmpty) await _ble.sendLink({'t': 'sos', 'ok': 0, 'why': 'No emergency contact set in the app'});
           unawaited(_onFall(false, sos: true));
         }
+        break;
+      case 'life':
+        _ref.read(lifeProvider.notifier).onWatch(e);
         break;
       case 'look':
         _ref.read(lookProvider.notifier).fromWatch(e);

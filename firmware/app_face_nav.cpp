@@ -14,6 +14,7 @@
 #include "app_weather.h"
 #include "app_reminders.h"
 #include "app_workout.h"
+#include "app_life.h"
 #include "fitness.h"
 #include "clock_fmt.h"
 #include "phone_link.h"
@@ -66,7 +67,7 @@ static void fit_text(char *out, int n, const char *in, int size, int w) {
 //  The Smart Stack
 // =========================================================================
 
-enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_BATTERY };
+enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_LIFE, CARD_BATTERY };
 struct Card {
     CardKind kind;
     Screen *open;          // tapping the card opens this (nullptr: nothing)
@@ -155,6 +156,7 @@ static int card_score(const Card &c) {
         s = 60 + (evening ? 50 : 0) + (mv >= 0.7f && mv < 1.0f ? 30 : 0);   // nearly there: a nudge
         break;
     }
+    case CARD_LIFE:      s = 58 + (h >= 7 && h < 10 ? 20 : 0) + (strstr(c.sub, " min") ? 25 : 0); break;
     case CARD_REMINDERS: s = 55 + (h >= 8 && h < 12 ? 25 : 0); break;
     case CARD_NOTIFS:    s = 50 + (int)(notifications_unread() > 6 ? 30 : notifications_unread() * 5); break;
     case CARD_BATTERY: {
@@ -263,6 +265,18 @@ static void build_cards() {
         snprintf(c.main, sizeof(c.main), "%d/%u kcal", (int)fitness_move_kcal(), (unsigned)fitness_move_goal());
         snprintf(c.sub, sizeof(c.sub), "%lu min exercise - %d h stand - %lu steps", (unsigned long)fitness_exercise_min(),
                  fitness_stand_hours(), (unsigned long)imu_get_step_count());
+    }
+    {
+        char nx[48];
+        bool has = life_next(nx, sizeof(nx));
+        int sc = life_score();
+        if (has || sc > 0) {
+            Card &c = add(CARD_LIFE, &life_screen, 0x2CCA, "LIFE");
+            snprintf(c.main, sizeof(c.main), "%d%% of today", sc);
+            if (has) strlcpy(c.sub, nx, sizeof(c.sub));
+            else snprintf(c.sub, sizeof(c.sub), "Nothing else planned");
+            c.progress = sc / 100.0f;
+        }
     }
     if (reminders_count() > 0) {
         Card &c = add(CARD_REMINDERS, &reminders_screen, COLOR_ACCENT3, "REMINDERS");

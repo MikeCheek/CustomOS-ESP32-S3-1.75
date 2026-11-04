@@ -4,6 +4,9 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+#include "app_life.h"
+extern Screen life_meal_screen;
+static Screen &life_meal_screen_ref() { return life_meal_screen; }
 #include "app_menu.h"
 #include "app_sos.h"
 #include "app_poweroff.h"
@@ -148,6 +151,21 @@ void sim_scenarios() {
     sim_run(2500);
     sim_run(60000);
     sim_save("workout_live");
+    // Life: a plan from the app, a few things done
+    sim_link("{\"t\":\"life\",\"w\":{\"on\":1,\"g\":8,\"ev\":90},\"s\":{\"on\":1,\"g\":3},\"tr\":{\"on\":1,\"dy\":127,\"g\":30,\"at\":1080},"
+             "\"m\":{\"on\":1,\"g\":3,\"at\":1260},\"so\":{\"on\":1,\"dy\":127,\"at\":1140,\"who\":\"Mum\"},\"wd\":{\"on\":1,\"at\":1350}}");
+    sim_link("{\"t\":\"meals\",\"b\":\"Greek yogurt, berries and walnuts\",\"l\":\"Chickpea salad with feta and olive oil\","
+             "\"d\":\"Grilled salmon, quinoa and green beans\"}");
+    shot(&life_screen, "life_empty");
+    for (int i = 0; i < 3; i++) sim_tap(233 + 118, 250 + 42);   // three glasses of water
+    sim_run(1600);
+    sim_save("life");
+    shot(&life_meal_screen_ref(), "life_meals");
+    shot(&breathe_screen, "breathe_pick");
+    sim_tap(233, 392);                       // Start
+    sim_run(3000);
+    sim_save("breathe");
+    shot(&stretch_screen, "stretch", 4000);
     shot(&smart_stack_screen, "smart_stack");
     // more from one app: they stack up
     sim_link("{\"t\":\"ntf\",\"id\":14,\"ap\":\"WhatsApp\",\"ti\":\"Marco\",\"tx\":\"Are you coming tonight?\",\"rp\":1}");

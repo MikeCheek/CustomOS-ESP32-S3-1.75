@@ -34,6 +34,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Weather | Reminders (memo to-dos) | Workout types | |
 | ![](docs/screenshots/notifications_grouped.png) | ![](docs/screenshots/notifications_swipe.png) | ![](docs/screenshots/power_sos.png) | ![](docs/screenshots/sos_countdown.png) |
 | Notifications stacked by app | Swipe left to clear | Hold PWR: power off or SOS | Emergency SOS |
+| ![](docs/screenshots/life.png) | ![](docs/screenshots/life_meals.png) | ![](docs/screenshots/breathe.png) | ![](docs/screenshots/stretch.png) |
+| Life: today's habits | Meal ideas | Breathe | Stretch break |
 
 ### Getting around
 

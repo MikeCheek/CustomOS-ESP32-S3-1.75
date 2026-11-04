@@ -39,6 +39,7 @@
 #include "app_reminders.h"
 #include "fitness.h"
 #include "app_workout.h"
+#include "app_life.h"
 #include "hal_nvs.h"
 #include "hal_sleep.h"
 #include "dnd.h"
@@ -127,6 +128,7 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     reminders_init();                                      // to-dos from the phone
     fitness_init();                                        // activity rings
     workout_init();                                        // saved workouts
+    life_init();                                           // Life: plan and today
     g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
     audio_set_volume(g_app_settings.volume);
     ui_fonts_set_smooth(g_app_settings.smooth_fonts);
@@ -144,6 +146,7 @@ __attribute__((visibility("default"))) void emu_step() {
     clock_update();
     haptics_update();
     look_update();
+    life_update();               // Life: the day's nudges
     low_power_update();
     fitness_update();
     workout_update();

@@ -16,6 +16,7 @@
 #include "low_power.h"
 #include "fitness.h"
 #include "app_workout.h"
+#include "app_life.h"
 #include "app_reminders.h"
 #include <vector>
 #include <string>
@@ -53,6 +54,7 @@ void sim_run(uint32_t ms) {
         notifications_update();
         clock_update();
         haptics_update();
+        life_update();
         fitness_update();
         workout_update();
         ui_update();
@@ -91,6 +93,7 @@ int main() {
     reminders_init();
     fitness_init();
     workout_init();
+    life_init();
     sim_scenarios();
     return 0;
 }

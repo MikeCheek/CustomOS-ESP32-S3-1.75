@@ -16,6 +16,7 @@
 #include "app_weather.h"
 #include "app_reminders.h"
 #include "app_workout.h"
+#include "app_life.h"
 
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
 
@@ -513,6 +514,15 @@ static void icon_workout(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawLine(cx + 3, cy - 7, cx - 8, cy - 4, c);
 }
 
+static void icon_life(Arduino_GFX *g, int cx, int cy, float br) {
+    // a heart with a leaf: living well
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx - 8, cy - 5, 10, c);
+    g->fillCircle(cx + 8, cy - 5, 10, c);
+    g->fillTriangle(cx - 18, cy - 1, cx + 18, cy - 1, cx, cy + 19, c);
+    g->fillCircle(cx + 15, cy - 18, 3, IC(0x2CCA));   // keeps the disc green
+}
+
 // In honeycomb order: the first one sits in the middle, the next six
 // around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
@@ -520,6 +530,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Music",         CAT_TOOLS, icon_music,         &music_screen},
     {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
     {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
+    {"Life",          CAT_TOOLS, icon_life,          &life_screen, false, 0x2CCA},
     {"Workout",       CAT_TOOLS, icon_workout,       &workout_screen},
     {"Timer",         CAT_TOOLS, icon_timer,         &timer_screen, false, 0xFC60},
     {"Weather",       CAT_TOOLS, icon_weather,       &weather_screen, false, 0x2A9F},

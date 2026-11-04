@@ -8,6 +8,7 @@
 #include "app_workout.h"
 #include "app_sos.h"
 #include "face_look.h"
+#include "app_life.h"
 #include "fitness.h"
 #include "complications.h"
 #include "dnd.h"
@@ -113,6 +114,7 @@ static void handle(const char *msg) {
         send_report("hi");
         workout_send_pending();   // workouts recorded while the phone was away
         look_send();              // the app's Faces tab shows what the watch shows
+        life_send(true);          // the Life screen: today and the last days
     } else if (!strcmp(t, "bat")) {
         s_active = true;
         s_phone_bat = doc["l"] | -1;
@@ -185,6 +187,10 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "life")) {
+        life_on_plan(doc);
+    } else if (!strcmp(t, "meals")) {
+        life_on_meals(doc);
     } else if (!strcmp(t, "look")) {
         look_on_link(doc);
     } else if (!strcmp(t, "sos")) {

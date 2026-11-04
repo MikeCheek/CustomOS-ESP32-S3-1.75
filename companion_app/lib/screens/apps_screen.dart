@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import 'life_screen.dart';
 import '../providers/ble_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -208,8 +209,16 @@ final appGroups = <AppGroup>[
   ]),
   AppGroup('Health & safety', [
     AppFeature(
+      'Life',
+      'Plan healthy days: water, stretch, breathe, train, meals, friends, sleep',
+      Icons.spa_rounded,
+      Color(0xFF2CCA70),
+      page: () => const LifeScreen(),
+      keywords: ['habits', 'water', 'meditation', 'mindfulness', 'stretch', 'meals', 'diet', 'social', 'wellbeing', 'health'],
+    ),
+    AppFeature(
       'Activity',
-      'Steps counted by the watch',
+      'Rings, steps and workouts from the watch',
       Icons.directions_run_rounded,
       AppColors.success,
       page: () => const ActivityScreen(),

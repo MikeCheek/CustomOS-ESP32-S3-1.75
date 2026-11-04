@@ -538,12 +538,12 @@ class _Shortcuts extends StatelessWidget {
 
   // iPhone: no notification forwarding there, so sound alerts instead
   static final defaults = [
+    'Life',
     'Assistant',
     'Look',
     'Messages',
     'Faces & display',
     isIos ? 'Sound alerts' : 'Notifications & calls',
-    'Search memos',
   ];
 
   @override
