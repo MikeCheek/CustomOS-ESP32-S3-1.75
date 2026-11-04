@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/ble_provider.dart';
+import '../providers/home_provider.dart';
 import '../providers/look_provider.dart';
 import '../providers/photo_faces_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'home_gestures_screen.dart';
 import 'photo_faces_screen.dart';
 import 'watch_slots_screen.dart';
 import 'watchface/watchface_library.dart';
@@ -47,6 +49,7 @@ class _FacesScreenState extends ConsumerState<FacesScreen> {
       slots.add('none');
     }
     final pf = ref.watch(photoFacesProvider);
+    final home = ref.watch(homeProvider);
     final can = connected && known;
 
     return Scaffold(
@@ -262,6 +265,23 @@ class _FacesScreenState extends ConsumerState<FacesScreen> {
                 ),
               ],
             ),
+          ),
+
+          // ---- gestures on the face
+          const SectionLabel('Home gestures'),
+          RowGroup(
+            children: [
+              NavRow(
+                icon: Icons.swipe_rounded,
+                color: AppColors.accent2,
+                title: 'Gestures and Tiles',
+                subtitle: home == null
+                    ? 'Tap, swipes, BOOT and the Tiles on the face'
+                    : '${home.style?.label ?? 'Custom'} - tap: ${homeAction(home.action('tap')).label}, '
+                          'from the right: ${homeAction(home.action('left')).label}',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HomeGesturesScreen())),
+              ),
+            ],
           ),
 
           // ---- more faces

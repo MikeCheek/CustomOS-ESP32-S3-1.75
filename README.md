@@ -41,13 +41,22 @@ Built on Arduino + Arduino_GFX, no LVGL.
 
 ### Getting around
 
+Every gesture on the face can be changed - on the watch (Settings > Home gestures) or in the app (Faces > Gestures and Tiles), one by one or with a style: Standard, Apple-like, Wear OS-like, Galaxy-like or Classic. Standard:
+
 | On the watch face | |
 |---|---|
-| Swipe left | Apps: one honeycomb, bigger in the middle, the name of the app in the middle at the bottom; games (and developer tools) in folders; tap to zoom an app open (Settings > Display > Apps as a list for A-Z) |
+| Tap | Apps: one honeycomb, bigger in the middle, the name of the app in the middle at the bottom; games (and developer tools) in folders; tap to zoom an app open (Settings > Display > Apps as a list for A-Z) |
+| Double-tap | Play / pause the phone's music |
 | Swipe up | Smart Stack: a workout or timer running, music playing, the next event or alarm, weather, the rings, reminders, messages, battery |
+| Swipe in from the right | Tiles: full-screen pages to flick through - Activity, Weather, Up next, Music with its buttons, Timer (1/3/5/10 min in a tap), Life, World clock, Alarm, Reminders, Battery; which and in what order is set in the app |
+| Swipe in from the left | Notifications |
+| Pull down, or BOOT | Control Center (the quick panel) |
 | Touch and hold | Face switcher: swipe through the faces, tap to wear one, Edit for its complications |
-| Swipe down, or BOOT | Control Center (the quick panel) |
-| Swipe right | Notifications |
+
+| | | | |
+|:-:|:-:|:-:|:-:|
+| ![](docs/screenshots/tile_activity.png) | ![](docs/screenshots/tile_music.png) | ![](docs/screenshots/tile_timer.png) | ![](docs/screenshots/settings_home.png) |
+| Tiles: Activity | Tiles: Music | Tiles: Timer | Settings > Home gestures |
 
 Settings > System > Gesture tips (also shown once after an update) walks through all of these with little animations. Hold PWR for power off or Emergency SOS (5 s countdown, then the phone texts your emergency contact with its location). A red dot at the top of a face means unread notifications. Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
 
