@@ -334,6 +334,9 @@ bool audio_mic_ok() { return true; }
 int audio_mic_level_percent() { return g_sim.live ? s_mic_level : 40; }
 void audio_set_mic_sensitivity(uint8_t) {}
 void audio_play_note(uint16_t f, uint16_t ms) { sim_tone(f, ms, 1); }
+void audio_play_chord(const uint8_t *midi, int n, uint16_t ms) {
+    for (int i = 0; i < n && i < 4; i++) sim_tone((uint16_t)lroundf(440.0f * powf(2.0f, (midi[i] - 69) / 12.0f)), ms, 1);
+}
 // Speech-like: syllables (~4/s) of a few harmonics, mic 2 a bit quieter and later.
 int audio_get_mic_waveform(int16_t *l, int16_t *r, int n) {
     if (!g_sim.recording) return 0;

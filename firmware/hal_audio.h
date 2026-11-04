@@ -55,6 +55,9 @@ void audio_play_sfx(uint16_t freq_hz, uint16_t duration_ms);
 // playable instruments: it cuts off whatever note is sounding and is
 // kept only ~50 ms ahead of the speaker, so a tap is heard right away.
 void audio_play_note(uint16_t freq_hz, uint16_t duration_ms);
+// Piano keys by MIDI number (60 = middle C), up to 4 at once (a chord),
+// exactly in tune; they ring together with whatever is still sounding.
+void audio_play_chord(const uint8_t *midi, int n, uint16_t duration_ms);
 
 // WAV file playback from SD card.
 // Starts playing <filename> (root of SD) through the speaker.

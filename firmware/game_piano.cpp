@@ -77,7 +77,7 @@ static uint16_t judge_col(int j) { return j == J_PERFECT ? ACCENT : j == J_GREAT
 #define MAX_SONGS 80
 #define MAX_SD_SONGS 24
 #define G_SD PG_COUNT              // the SD card's "genre"
-struct SongRef { const char *title, *composer, *notes; uint16_t bpm; uint8_t genre; };
+struct SongRef { const char *title, *composer, *notes; uint16_t bpm; uint8_t genre; int8_t sd = -1; };   // sd: its file (sd_path)
 
 // The game's tables live in PSRAM while it's open (internal RAM is what
 // Wi-Fi needs next to Bluetooth).
@@ -87,6 +87,7 @@ struct PianoMem {
     int16_t genre_list[PG_COUNT + 1][MAX_SONGS];
     int16_t genre_n[PG_COUNT + 1];
     char *sd_text[MAX_SD_SONGS];
+    char sd_path[MAX_SD_SONGS][48];   // /piano/<file>.txt
     float ring_c[RING_N], ring_s[RING_N];
 };
 static PianoMem *s_m = nullptr;
@@ -112,7 +113,8 @@ static int parse_note_name(const char *t, int n) {
 struct Tile {
     uint32_t start;    // ticks
     uint16_t len;      // ticks
-    uint8_t midi;
+    uint8_t midi;      // the top note (lanes follow it)
+    uint8_t chord[3];  // the chord's other notes (0: none)
     uint8_t lane;
     uint8_t state;     // 0 waiting, 1 hit, 2 missed
     uint8_t hold;      // a hold tile
@@ -146,21 +148,26 @@ static int parse_song(const char *txt) {
         }
         bool rest = plen == 1 && (tok[0] == 'R' || tok[0] == 'r');
         if (!rest) {
-            int top = -1;
+            int notes[4], nn = 0;
             const char *q = tok;
             while (q < tok + plen) {
                 const char *e = (const char *)memchr(q, '+', tok + plen - q);
                 if (!e) e = tok + plen;
                 int m = parse_note_name(q, e - q);
-                if (m > top) top = m;
+                if (m >= 0 && nn < 4) notes[nn++] = m;
                 q = e + 1;
             }
-            if (top >= 0) {
+            if (nn > 0) {
+                int top = 0;
+                for (int k = 1; k < nn; k++)
+                    if (notes[k] > notes[top]) top = k;
                 Tile &tile = s_tiles[n++];
                 memset(&tile, 0, sizeof(tile));
                 tile.start = t;
                 tile.len = last_len;
-                tile.midi = top;
+                tile.midi = notes[top];
+                for (int k = 0, c = 0; k < nn && c < 3; k++)
+                    if (k != top) tile.chord[c++] = notes[k];
             }
         }
         t += last_len;
@@ -240,9 +247,11 @@ static void load_sd_songs() {
         int got = f.read((uint8_t *)buf, f.size());
         buf[got > 0 ? got : 0] = 0;
         f.close();
-        s_m->sd_text[k++] = buf;
+        snprintf(s_m->sd_path[k], sizeof(s_m->sd_path[k]), "/piano/%s", strrchr(nm, '/') ? strrchr(nm, '/') + 1 : nm);
+        s_m->sd_text[k] = buf;
         SongRef &s = s_m->songs[s_nsongs++];
-        s.title = "Song"; s.composer = "SD card"; s.bpm = 100; s.genre = G_SD; s.notes = buf;
+        s.title = "Song"; s.composer = "SD card"; s.bpm = 100; s.genre = G_SD; s.notes = buf; s.sd = (int8_t)k;
+        k++;
         char *line = buf;
         while (*line) {
             char *end = strchr(line, '\n');
@@ -266,10 +275,11 @@ static void load_sd_songs() {
 }
 
 static void build_song_list() {
+    for (int i = 0; i < MAX_SD_SONGS; i++) { free(s_m->sd_text[i]); s_m->sd_text[i] = nullptr; }
     s_nsongs = 0;
     for (int i = 0; i < PIANO_SONG_COUNT && s_nsongs < MAX_SONGS; i++) {
         const PianoSong &p = PIANO_SONGS[i];
-        s_m->songs[s_nsongs++] = { p.title, p.composer, p.notes, p.bpm, (uint8_t)(p.genre < PG_COUNT ? p.genre : 0) };
+        s_m->songs[s_nsongs++] = { p.title, p.composer, p.notes, p.bpm, (uint8_t)(p.genre < PG_COUNT ? p.genre : 0), -1 };
     }
     load_sd_songs();
     memset(s_m->genre_n, 0, sizeof(s_m->genre_n));
@@ -299,6 +309,7 @@ static int s_lives, s_score, s_combo, s_max_combo;
 static int s_count[4];         // judgements
 static float s_acc_sum;        // accuracy points so far
 static int s_holding = -1;     // tile being held
+static bool s_auto = false;    // Listen: the song plays itself, no score
 static float s_hold_from;      // scroll when the hold began
 static uint32_t s_last_ms, s_end_ms;
 static int s_judge = -1;       // last judgement, shown in the centre
@@ -316,11 +327,20 @@ static float tile_l(const Tile &t) { return t.len * s_ppt; }
 static float r_front(const Tile &t) { return R_IN + s_scroll - tile_s(t); }
 static float cur_speed() { return s_speed * (1.0f + 0.2f * (s_ntiles ? (float)s_next / s_ntiles : 0)); }
 
+// how long the key is held: the note's value (a little legato), the piano
+// voice then lets it ring out
 static uint16_t note_ms(const Tile &t) {
     float ms = t.len * 60000.0f / (s_m->songs[s_song].bpm * TPQ);
-    return (uint16_t)constrain(ms * 1.1f, 160.0f, 1600.0f);
+    return (uint16_t)constrain(ms * 1.05f, 220.0f, 2400.0f);
 }
-static uint16_t note_hz(int midi) { return (uint16_t)(440.0f * powf(2.0f, (midi - 69) / 12.0f)); }
+static void play_tile(const Tile &t) {
+    if (!g_app_settings.sfx_enabled) return;
+    uint8_t m[4] = { t.midi, 0, 0, 0 };
+    int n = 1;
+    for (int k = 0; k < 3; k++)
+        if (t.chord[k]) m[n++] = t.chord[k];
+    audio_play_chord(m, n, note_ms(t));
+}
 
 // ---- song start / end ----------------------------------------------------------------------
 static void start_song(int song) {
@@ -367,6 +387,7 @@ static void start_song(int song) {
     // The first tile waits with its front on the timing ring.
     s_scroll = tile_s(s_tiles[0]) + (R_HIT - R_IN);
     s_started = false;
+    s_auto = false;
     s_next = 0;
     s_lives = LIVES[diff];
     s_score = s_combo = s_max_combo = 0;
@@ -425,7 +446,7 @@ static void hit(int i, float lag_ms) {
     Tile &t = s_tiles[i];
     t.state = 1;
     t.hit_ms = millis();
-    if (g_app_settings.sfx_enabled) audio_play_note(note_hz(t.midi), note_ms(t));
+    play_tile(t);
     // timing against the ring, where the tile was when the finger landed
     Judge j = J_PERFECT;
     if (s_started) {
@@ -575,6 +596,11 @@ static void draw_play(Arduino_GFX *g) {
                         grey(20));
     }
     char b[16];
+    if (s_auto) {   // Listen: no score
+        ui_text_center(CX, CY - 6, WHITE, "Listen", 1);
+        ui_text_center(CX, CY + 12, grey(16), "tap to stop", 1);
+        return;
+    }
     snprintf(b, sizeof(b), "%d", s_score);
     ui_text_center(CX, CY - 8, WHITE, b, s_score < 10000 ? 2 : 1);
     if (s_judge >= 0 && now - s_judge_ms < 450) ui_text_center(CX, CY + 14, judge_col(s_judge), JUDGE_TXT[s_judge], 1);
@@ -671,6 +697,7 @@ static void draw_menu(Arduino_GFX *g) {
 
 // song card: difficulty and Play
 static const int PILL_W = 112, PILL_H = 64, PILL_Y = 184, PLAY_Y = 352, PLAY_R = 44;
+static const int SIDE_W = 84, SIDE_H = 40, SIDE_DX_L = CX - 116, SIDE_DX_R = CX + 116;   // Listen / Delete
 static int pill_x(int d) { return CX + (d - 1) * (PILL_W + 10); }
 
 static void draw_pick(Arduino_GFX *g) {
@@ -699,6 +726,26 @@ static void draw_pick(Arduino_GFX *g) {
     ui_text_center(CX, PILL_Y + PILL_H + 22, COLOR_TEXT_DIM, t, 1);
     g->fillCircle(CX, PLAY_Y, PLAY_R, s_press == 5 ? ui_dim(ACCENT, 0.6f) : ACCENT);
     g->fillTriangle(CX - 11, PLAY_Y - 17, CX - 11, PLAY_Y + 17, CX + 19, PLAY_Y, COLOR_BG);
+    // Listen (the song plays itself) - and, for a song from the SD card, Delete
+    g->fillRoundRect(SIDE_DX_L - SIDE_W / 2, PLAY_Y - SIDE_H / 2, SIDE_W, SIDE_H, SIDE_H / 2, s_press == 6 ? grey(12) : COLOR_PANEL);
+    ui_text_center(SIDE_DX_L, PLAY_Y, WHITE, "Listen", 1);
+    if (s.sd >= 0) {
+        g->fillRoundRect(SIDE_DX_R - SIDE_W / 2, PLAY_Y - SIDE_H / 2, SIDE_W, SIDE_H, SIDE_H / 2, s_press == 7 ? grey(12) : COLOR_PANEL);
+        ui_text_center(SIDE_DX_R, PLAY_Y, COLOR_BAD, "Delete", 1);
+    }
+}
+
+// Delete a song from the SD card (after "Delete?")
+static void delete_confirmed(bool yes) {
+    if (!yes || !s_m) return;
+    const SongRef &s = s_m->songs[s_song];
+    if (s.sd < 0) return;
+    bool ok = SD.remove(s_m->sd_path[s.sd]);
+    ui_show_toast(ok ? "Song deleted" : "Couldn't delete it", 1500);
+    build_song_list();
+    if (s_genre >= n_genres()) s_genre = 0;
+    s_state = ST_MENU;
+    open_genre(s_genre);
 }
 
 static void draw_result(Arduino_GFX *g) {
@@ -789,6 +836,24 @@ static void piano_tick() {
     }
     if (!s_started) return;
     s_scroll += cur_speed() * dt;     // a little faster towards the end
+    if (s_auto) {
+        // Listen: each tile plays itself as its front reaches the ring
+        while (s_next < s_ntiles && r_front(s_tiles[s_next]) >= R_HIT) {
+            Tile &t = s_tiles[s_next];
+            t.state = 1;
+            t.judge = J_PERFECT;
+            t.hit_ms = now;
+            play_tile(t);
+            s_lane_ms[t.lane] = now;
+            s_lane_c[t.lane] = ACCENT;
+            s_next++;
+        }
+        if (s_next >= s_ntiles) {
+            Tile &t = s_tiles[s_ntiles - 1];
+            if (r_front(t) - tile_l(t) > R_OUT) { s_auto = false; s_state = ST_PICK; ui_show_toast("Now you play it", 1500); }
+        }
+        return;
+    }
     // a tile that got away
     if (s_next < s_ntiles) {
         Tile &t = s_tiles[s_next];
@@ -814,6 +879,10 @@ static void piano_touch(int x, int y, bool pressed) {
     bool edge = pressed && !s_prev;
     s_prev = pressed;
     if (s_state == ST_PLAY) {
+        if (s_auto) {   // Listen: a tap stops it
+            if (edge) { s_auto = false; s_state = ST_PICK; }
+            return;
+        }
         if (!pressed && s_holding >= 0) {     // let go of a hold tile early
             Tile &t = s_tiles[s_holding];
             float frac = (s_scroll - s_hold_from) / tile_l(t);
@@ -857,13 +926,20 @@ static void piano_touch(int x, int y, bool pressed) {
         for (int d = 0; d < 3; d++)
             if (abs(x - pill_x(d)) < PILL_W / 2 && y > PILL_Y && y < PILL_Y + PILL_H) hitp = d;
         if ((x - CX) * (x - CX) + (y - PLAY_Y) * (y - PLAY_Y) < (PLAY_R + 8) * (PLAY_R + 8)) hitp = 5;
+        if (abs(y - PLAY_Y) < SIDE_H / 2 + 8 && abs(x - SIDE_DX_L) < SIDE_W / 2 + 6) hitp = 6;
+        if (abs(y - PLAY_Y) < SIDE_H / 2 + 8 && abs(x - SIDE_DX_R) < SIDE_W / 2 + 6 && s_m->songs[s_song].sd >= 0) hitp = 7;
         if (edge) s_press = hitp;
         if (pressed) return;
         int p = s_press;
         s_press = -1;
         if (p < 0 || p != hitp) return;
         if (p < 3) { s_diff = p; save_diff(); game_sfx_simon_note(p); return; }
+        if (p == 7) {
+            ui_show_confirm("Delete this song?", s_m->songs[s_song].title, "Delete", "Keep", delete_confirmed);
+            return;
+        }
         start_song(s_song);
+        if (p == 6 && s_state == ST_PLAY) { s_auto = true; s_started = true; }   // Listen: off it goes, by itself
         return;
     }
     // menu: genre arrows, then the list
