@@ -26,6 +26,7 @@ struct MenuEntry {
     Screen *screen;
     bool dev = false;   // only with Settings > System > Developer mode
     uint16_t disc = 0;  // the icon's disc colour (0: taken from its drawing)
+    int8_t folder = -1; // >= 0: this is a folder holding that category (games, developer tools)
 };
 
 extern Screen settings_screen;
@@ -525,6 +526,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Alarms",        CAT_TOOLS, icon_alarm,         &alarms_screen, false, 0xFC60},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"Reminders",     CAT_TOOLS, icon_reminders,     &reminders_screen},
+    {"Games",         CAT_TOOLS, nullptr,            nullptr, false, 0, CAT_GAMES},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
     {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},
     {"World Clock",   CAT_TOOLS, icon_worldclock,    &worldclock_screen, false, 0x3A7F},
@@ -539,6 +541,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Battery",       CAT_TOOLS, icon_battery,       &battery_screen},
     {"Pet",           CAT_TOOLS, icon_pet,           &pet_screen},
     {"3D Printer",    CAT_TOOLS, icon_bambu,         &bambu_printer_screen},
+    {"Developer",     CAT_TOOLS, nullptr,            nullptr, true,  0, CAT_TESTS},
     {"Piano Tiles",   CAT_GAMES, icon_piano,         &piano_screen},
     {"Flappy",        CAT_GAMES, icon_flappy,        &flappy_screen},
     {"Fruit Slice",   CAT_GAMES, icon_fruitninja,    &fruitninja_screen},
@@ -637,8 +640,27 @@ static void make_sprite(int i) {
 
 // Draws icon i with its centre at (cx, cy), r pixels across the middle
 // (nearest-neighbour scaling, straight into the frame).
+static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r);
+
+// A folder: a frosted disc with its first four apps, small, in a 2x2 grid.
+static void blit_folder(uint16_t *fb, int i, int cx, int cy, int r) {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    g->fillCircle(cx, cy, r, 0x3186);
+    int shown = 0, cat = MENU_ENTRIES[i].folder;
+    int mr = r * 30 / 100, off = r * 36 / 100;
+    for (int k = 0; k < MENU_COUNT && shown < 4; k++) {
+        const MenuEntry &e = MENU_ENTRIES[k];
+        if (e.folder >= 0 || e.category != cat) continue;
+        int mx = cx + (shown % 2 ? off : -off), my = cy + (shown / 2 ? off : -off);
+        blit_icon(fb, k, mx, my, mr);
+        shown++;
+    }
+}
+
 static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
     if (r < 3) return;
+    if (MENU_ENTRIES[i].folder >= 0) { blit_folder(fb, i, cx, cy, r); return; }
     if (!s_spr[i]) make_sprite(i);
     const uint16_t *sp = s_spr[i];
     if (!sp || !fb) return;
@@ -734,10 +756,23 @@ static const int LIST_ROW = 72, LIST_TOP = 96;
 
 static bool listing() { return g_app_settings.menu_list; }
 
-static void menu_create() {
+// Which view the field shows: the top level (-1) or a folder's category.
+static int s_folder = -1, s_next_folder = -1;
+static float s_top_pan_x = 0, s_top_pan_y = 0;   // where the top level was, for coming back
+extern Screen menu_folder_screen;
+
+static bool visible_in_view(const MenuEntry &e) {
+    bool dev_ok = !e.dev || g_app_settings.developer_mode;
+    if (!dev_ok) return false;
+    if (listing()) return e.folder < 0;   // the list: every app, A-Z, no folders
+    if (s_folder < 0) return e.folder >= 0 || (e.category != CAT_GAMES && e.category != CAT_TESTS);
+    return e.folder < 0 && e.category == s_folder;
+}
+
+static void build_field() {
     s_vis_n = 0;
     for (int i = 0; i < MENU_COUNT; i++)
-        if (!MENU_ENTRIES[i].dev || g_app_settings.developer_mode) s_vis[s_vis_n++] = i;
+        if (visible_in_view(MENU_ENTRIES[i])) s_vis[s_vis_n++] = i;
     HexCoord coords[MENU_COUNT];
     gen_hex_positions(coords, s_vis_n);
     s_bound = 0;
@@ -759,6 +794,26 @@ static void menu_create() {
     s_list_y = s_list_vel = 0;
     s_dragging = false;
     s_launch = -1;
+}
+
+static void menu_create() {
+    s_folder = -1;
+    build_field();
+}
+
+static void folder_create() {
+    s_top_pan_x = s_pan_x;
+    s_top_pan_y = s_pan_y;
+    s_folder = s_next_folder;
+    build_field();
+}
+
+static void folder_destroy() {
+    // back to the top level, where it was
+    s_folder = -1;
+    build_field();
+    s_pan_x = s_top_pan_x;
+    s_pan_y = s_top_pan_y;
 }
 
 // Where position k is drawn: fisheye from the middle. False when off screen.
@@ -796,7 +851,7 @@ static int hit_test(int x, int y) {
 }
 
 static void launch(int k, int sx, int sy, int r) {
-    if (k < 0 || !MENU_ENTRIES[s_vis[k]].screen) return;
+    if (k < 0 || (!MENU_ENTRIES[s_vis[k]].screen && MENU_ENTRIES[s_vis[k]].folder < 0)) return;
     sleep_register_activity();
     s_launch = k;
     s_launch_ms = millis();
@@ -852,6 +907,22 @@ static void menu_draw() {
         int r = s_launch_r + (int)((LCD_WIDTH * 0.75f - s_launch_r) * e);
         blit_icon(fb, s_vis[s_launch], cx, cy, r);
         return;
+    }
+    if (listing()) return;
+    // which app is in the middle: its name in a pill at the bottom, following the pan
+    if (s_nearest_idx >= 0) {
+        const char *name = MENU_ENTRIES[s_vis[s_nearest_idx]].label;
+        int tw = ui_text_width(name, 2);
+        int w = tw + 40, h = 40, x = LCD_WIDTH / 2 - w / 2, y = LCD_HEIGHT - 64;
+        g->fillRoundRect(x - 2, y - 2, w + 4, h + 4, h / 2 + 2, COLOR_BG);
+        g->fillRoundRect(x, y, w, h, h / 2, 0x2945);
+        ui_text_center(LCD_WIDTH / 2, y + h / 2, COLOR_TEXT, name, 2);
+    }
+    if (s_folder >= 0) {
+        const char *title = s_folder == CAT_GAMES ? "Games" : "Developer";
+        int tw = ui_text_width(title, 2);
+        g->fillRoundRect(LCD_WIDTH / 2 - tw / 2 - 22, 22, tw + 44, 36, 18, COLOR_BG);
+        ui_text_center(LCD_WIDTH / 2, 40, COLOR_TEXT_DIM, title, 2);
     }
 }
 
@@ -924,9 +995,14 @@ static void menu_touch(int x, int y, bool pressed) {
 static void menu_tick() {
     if (s_launch >= 0) {
         if (millis() - s_launch_ms >= LAUNCH_MS) {
-            Screen *to = MENU_ENTRIES[s_vis[s_launch]].screen;
+            const MenuEntry &e = MENU_ENTRIES[s_vis[s_launch]];
             s_launch = -1;
-            ui_push_instant(to);   // it zoomed in already: no slide
+            if (e.folder >= 0) {   // a folder opens as its own honeycomb
+                s_next_folder = e.folder;
+                ui_push_instant(&menu_folder_screen);
+            } else {
+                ui_push_instant(e.screen);   // it zoomed in already: no slide
+            }
         }
         return;
     }
@@ -998,3 +1074,25 @@ Screen menu_screen = {
     false, false, false, false,
     true,  // hide_status: the honeycomb uses the whole round screen
 };
+
+// A folder (Games, Developer): the same honeycomb with just its apps.
+// Swipe or BOOT goes back to the top level, where it was.
+Screen menu_folder_screen = {
+    "",
+    GESTURE_MODE_EDGE,
+    UI_FRAME_MS_DEFAULT,
+    folder_create,
+    menu_draw,
+    menu_touch,
+    menu_tick,
+    folder_destroy,
+    menu_gesture,
+    150,
+    false, false, false, false,
+    true,
+};
+
+void menu_open_folder(int category) {
+    s_next_folder = category;
+    ui_push_instant(&menu_folder_screen);
+}

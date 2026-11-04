@@ -4,6 +4,7 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+#include "app_menu.h"
 #include "app_sos.h"
 #include "app_poweroff.h"
 #include "app_activity.h"
@@ -103,6 +104,11 @@ void sim_scenarios() {
     sim_save("aod");
     sleep_register_activity();
     g_app_settings.aod_on = false;
+    shot(&menu_screen, "menu");
+    menu_open_folder(0);                    // Games
+    sim_run(800);
+    sim_save("menu_folder");
+    home();
     shot(&menu_screen, "menu");
     sim_tap(233, 233);                      // the middle app: zooms open
     sim_run(90);

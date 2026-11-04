@@ -19,12 +19,10 @@ import 'media_screen.dart';
 import 'memo_insights.dart';
 import 'messages_screen.dart';
 import 'notifications_screen.dart';
-import 'photo_faces_screen.dart';
 import 'piano_song_screen.dart';
 import 'safety_screen.dart';
 import 'sound_alerts_screen.dart';
 import 'wake_word_screen.dart';
-import 'watch_slots_screen.dart';
 import 'watch_wifi_screen.dart';
 import 'weather_screen.dart';
 import '../widgets/platform_notice.dart';
@@ -123,28 +121,12 @@ final appGroups = <AppGroup>[
   ]),
   AppGroup('Watch', [
     AppFeature(
-      'Faces',
-      'Design faces and pick one',
+      'Faces & display',
+      'Pick and style the face, slots, brightness, photo and designed faces',
       Icons.palette_outlined,
       AppColors.accent,
       tab: 3,
-      keywords: ['watchface', 'design'],
-    ),
-    AppFeature(
-      'Photo face',
-      'Your photos, the time behind their subject',
-      Icons.portrait_rounded,
-      AppColors.accent3,
-      page: () => const PhotoFaceScreen(),
-      keywords: ['watchface', 'depth', 'picture'],
-    ),
-    AppFeature(
-      'Face slots',
-      'Steps, weather, events on the face',
-      Icons.donut_large_rounded,
-      AppColors.accent2,
-      page: () => const WatchSlotsScreen(),
-      keywords: ['complications'],
+      keywords: ['watchface', 'design', 'photo', 'slots', 'complications', 'brightness', 'colour', 'color'],
     ),
     AppFeature(
       'Send files',

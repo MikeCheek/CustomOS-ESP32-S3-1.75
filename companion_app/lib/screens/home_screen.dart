@@ -5,6 +5,9 @@ import '../app.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/fitness_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'calendar_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'activity_screen.dart';
@@ -87,6 +90,7 @@ class HomeScreen extends ConsumerWidget {
                   if (ble.isConnected) ...[
                     const SectionLabel('Today'),
                     _TodayRow(link: link),
+                    _UpNext(link: link),
                     if (link.media != null && link.mediaTitle.isNotEmpty) ...[
                       const SectionLabel('Playing on your phone'),
                       _NowPlayingCard(link: link),
@@ -94,12 +98,18 @@ class HomeScreen extends ConsumerWidget {
                   ],
                   SectionLabel(
                     'Shortcuts',
-                    trailing: TextButton(
-                      onPressed: () => TabSwitcher.open(context, TabSwitcher.apps),
-                      child: const Text('All apps'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(onPressed: () => _editShortcuts(context), child: const Text('Edit')),
+                        TextButton(
+                          onPressed: () => TabSwitcher.open(context, TabSwitcher.apps),
+                          child: const Text('All apps'),
+                        ),
+                      ],
                     ),
                   ),
-                  _Shortcuts(connected: ble.isConnected),
+                  _Shortcuts(key: ValueKey(_shortcutsRev), connected: ble.isConnected),
                 ],
               ),
             ),
@@ -353,16 +363,9 @@ class _QuickActions extends ConsumerWidget {
           },
         ),
         const SizedBox(width: 10),
-        _QuickButton(
-          icon: Icons.schedule_rounded,
-          label: 'Sync time',
-          onTap: () async {
-            await ref.read(bleProvider.notifier).syncTime();
-            if (context.mounted) showSnack(context, 'Watch clock synced');
-          },
-        ),
-        const SizedBox(width: 10),
         _QuickButton(icon: Icons.mic_rounded, label: 'Ask', onTap: () => _push(context, const AssistantScreen())),
+        const SizedBox(width: 10),
+        _QuickButton(icon: Icons.timer_outlined, label: 'Timer', onTap: () => _pickTimer(context, ref)),
         const SizedBox(width: 10),
         _QuickButton(
           icon: link.findingPhone ? Icons.volume_off_rounded : Icons.cloud_sync_rounded,
@@ -429,15 +432,7 @@ class _TodayRow extends ConsumerWidget {
     }
     return Row(
       children: [
-        Expanded(
-          child: StatTile(
-            icon: Icons.directions_walk_rounded,
-            color: AppColors.success,
-            value: link.watchSteps >= 0 ? _thousands(link.watchSteps) : '--',
-            label: 'Steps',
-            onTap: () => _push(context, const ActivityScreen()),
-          ),
-        ),
+        Expanded(child: _RingsTile(steps: link.watchSteps)),
         const SizedBox(width: 10),
         Expanded(
           child: StatTile(
@@ -539,14 +534,14 @@ class _NowPlayingCard extends ConsumerWidget {
 /// The features used most, a tap away; everything else is in Apps.
 class _Shortcuts extends StatelessWidget {
   final bool connected;
-  const _Shortcuts({required this.connected});
+  const _Shortcuts({super.key, required this.connected});
 
   // iPhone: no notification forwarding there, so sound alerts instead
-  static final _titles = [
+  static final defaults = [
     'Assistant',
     'Look',
     'Messages',
-    'Photo face',
+    'Faces & display',
     isIos ? 'Sound alerts' : 'Notifications & calls',
     'Search memos',
   ];
@@ -554,7 +549,17 @@ class _Shortcuts extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final all = [for (final g in appGroups) ...g.items];
-    final items = [for (final t in _titles) all.firstWhere((f) => f.title == t)];
+    return FutureBuilder<List<String>>(
+      future: SharedPreferences.getInstance().then((p) => p.getStringList('home_shortcuts') ?? defaults),
+      builder: (context, snap) {
+        final titles = snap.data ?? defaults;
+        final items = [for (final t in titles) ...all.where((f) => f.title == t)];
+        return _grid(context, items);
+      },
+    );
+  }
+
+  Widget _grid(BuildContext context, List<AppFeature> items) {
     return LayoutBuilder(
       builder: (context, c) {
         final w = (c.maxWidth - 20) / 3;
@@ -842,4 +847,216 @@ class _MiniStat extends StatelessWidget {
       ],
     ),
   );
+}
+
+// ---- quick timer ------------------------------------------------------------------------
+
+Future<void> _pickTimer(BuildContext context, WidgetRef ref) async {
+  final m = await showModalBottomSheet<int>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Timer on the watch',
+              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final v in const [1, 3, 5, 10, 15, 20, 30, 45, 60])
+                  ActionChip(label: Text(v >= 60 ? '1 h' : '$v min'), onPressed: () => Navigator.pop(ctx, v)),
+                ActionChip(
+                  avatar: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancel timer'),
+                  onPressed: () => Navigator.pop(ctx, 0),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (m == null) return;
+  final ble = ref.read(bleServiceProvider);
+  if (!ble.hasPhoneLink) return;
+  await ble.sendLink({'t': 'tmr', 's': m * 60});
+  if (context.mounted) {
+    showSnack(context, m == 0 ? 'Timer cancelled' : 'Timer set for ${m >= 60 ? '1 hour' : '$m minutes'}');
+  }
+}
+
+// ---- the rings, today ------------------------------------------------------------------------
+
+class _RingsTile extends ConsumerWidget {
+  final int steps;
+  const _RingsTile({required this.steps});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fit = ref.watch(fitnessProvider);
+    final t = fit.today;
+    return Panel(
+      onTap: () => _push(context, const ActivityScreen()),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          t == null
+              ? const Icon(Icons.directions_walk_rounded, color: AppColors.success)
+              : RingsView(
+                  move: t.moveKcal / fit.moveGoal,
+                  exercise: t.exerciseMin / fit.exerciseGoal,
+                  stand: t.standHours / fit.standGoal,
+                  size: 34,
+                ),
+          const SizedBox(height: 12),
+          Text(
+            t != null ? '${t.moveKcal} kcal' : (steps >= 0 ? _thousands(steps) : '--'),
+            style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          Text(
+            t != null ? '${t.exerciseMin} min · ${steps >= 0 ? _thousands(steps) : '--'} steps' : 'Steps',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---- up next: the next event and the last workout ------------------------------------------
+
+class _UpNext extends ConsumerWidget {
+  final CompanionState link;
+  const _UpNext({required this.link});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = DateTime.now();
+    final next = link.agenda.where((e) => e.end.isAfter(now)).toList()..sort((a, b) => a.start.compareTo(b.start));
+    final wo = ref.watch(fitnessProvider).workouts;
+    final today = wo.where((w) => w.start.year == now.year && w.start.month == now.month && w.start.day == now.day);
+    final rows = <Widget>[];
+    if (next.isNotEmpty) {
+      final e = next.first;
+      final mins = e.start.difference(now).inMinutes;
+      final when = e.allDay
+          ? 'All day'
+          : e.start.isBefore(now)
+          ? 'Now'
+          : mins < 60
+          ? 'In $mins min'
+          : TimeOfDay.fromDateTime(e.start).format(context);
+      rows.add(
+        NavRow(
+          icon: Icons.event_rounded,
+          color: Color(0xFF000000 | (e.color == 0 ? 0x6E5CE6 : e.color)),
+          title: e.title,
+          subtitle: [when, if (e.location.isNotEmpty) e.location].join(' · '),
+          onTap: () => _push(context, const CalendarScreen()),
+        ),
+      );
+    }
+    if (today.isNotEmpty) {
+      final w = today.first;
+      rows.add(
+        NavRow(
+          icon: Icons.directions_run_rounded,
+          color: ringExercise,
+          title: w.type,
+          subtitle: [
+            '${w.duration.inMinutes} min',
+            if (w.meters > 0) '${(w.meters / 1000).toStringAsFixed(2)} km',
+            '${w.kcal} kcal',
+          ].join(' · '),
+          onTap: () => _push(context, const ActivityScreen()),
+        ),
+      );
+    }
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: RowGroup(children: rows),
+    );
+  }
+}
+
+// ---- picking the shortcuts ------------------------------------------------------------------
+
+int _shortcutsRev = 0;
+
+Future<void> _editShortcuts(BuildContext context) async {
+  final p = await SharedPreferences.getInstance();
+  final chosen = [...(p.getStringList('home_shortcuts') ?? _Shortcuts.defaults)];
+  final all = [for (final g in appGroups) ...g.items];
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(ctx).height * 0.75,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Shortcuts (${chosen.length}/9)',
+                        style: const TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => set(
+                        () => chosen
+                          ..clear()
+                          ..addAll(_Shortcuts.defaults),
+                      ),
+                      child: const Text('Reset'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  children: [
+                    for (final f in all)
+                      CheckboxListTile(
+                        value: chosen.contains(f.title),
+                        secondary: IconChip(f.icon, color: f.color, size: 34),
+                        title: Text(f.title),
+                        onChanged: (v) => set(() {
+                          if (v == true && chosen.length < 9) {
+                            chosen.add(f.title);
+                          } else if (v == false) {
+                            chosen.remove(f.title);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  await p.setStringList('home_shortcuts', chosen);
+  _shortcutsRev++;
+  if (context.mounted) (context as Element).markNeedsBuild();
 }

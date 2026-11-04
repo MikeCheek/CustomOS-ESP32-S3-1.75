@@ -34,6 +34,7 @@
 #include "app_face_nav.h"
 #include "app_clock.h"
 #include "haptics.h"
+#include "face_look.h"
 #include "low_power.h"
 #include "app_reminders.h"
 #include "fitness.h"
@@ -142,6 +143,7 @@ __attribute__((visibility("default"))) void emu_step() {
     assistant_timer_update();
     clock_update();
     haptics_update();
+    look_update();
     low_power_update();
     fitness_update();
     workout_update();

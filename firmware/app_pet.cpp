@@ -18,6 +18,7 @@
  * with every other piece of art in this project, and there's no
  * sprite pipeline here to load one through anyway.
  */
+#include "app_settings_state.h"
 #include "app_pet.h"
 #include "config.h"
 #include "board_pins.h"
@@ -202,7 +203,7 @@ static void draw_pet_creature(Arduino_GFX *g, int cx, int cy, uint32_t now,
 }
 
 void pet_step_and_draw(Arduino_GFX *g) {
-    if (!g) return;
+    if (!g || !g_app_settings.face_pet) return;   // hidden from the app's Faces tab
     uint32_t now = millis();
     pet_update(now);
     int cx, cy;
@@ -216,6 +217,7 @@ void pet_draw_icon(Arduino_GFX *g, int cx, int cy) {
 }
 
 bool pet_handle_touch(int x, int y, bool pressed) {
+    if (!g_app_settings.face_pet) return false;
     if (!s_inited) pet_init_once(millis());
 
     if (pressed) {

@@ -8,7 +8,7 @@ import 'screens/home_screen.dart';
 import 'screens/notes_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/updates_screen.dart';
-import 'screens/watchface/watchface_library.dart';
+import 'screens/faces_screen.dart';
 
 class AmoledCompanionApp extends StatelessWidget {
   const AmoledCompanionApp({super.key});
@@ -65,7 +65,7 @@ class _RootShellState extends State<RootShell> {
   int _tab = 0;
   final _built = <int>{0};
 
-  static const _pages = <Widget>[HomeScreen(), NotesScreen(), AppsScreen(), WatchfaceLibrary(), SettingsScreen()];
+  static const _pages = <Widget>[HomeScreen(), NotesScreen(), AppsScreen(), FacesScreen(), SettingsScreen()];
 
   void selectTab(int i) => setState(() {
     _tab = i;

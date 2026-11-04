@@ -70,6 +70,8 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUChar("st_goal", s.stand_goal);
     s_prefs.putBool("st_remind", s.stand_remind);
     s_prefs.putBool("cues", s.sound_cues);
+    s_prefs.putUChar("f_acc", s.face_accent);
+    s_prefs.putUChar("f_flags", (uint8_t)((s.face_seconds ? 1 : 0) | (s.face_eyes ? 2 : 0) | (s.face_date ? 4 : 0) | (s.face_pet ? 8 : 0)));
     s_prefs.putUChar("text_sz", s.text_size);
     s_prefs.putBool("lowpwr", s.low_power);
     s_prefs.putUChar("lp_prev", (uint8_t)((s.lp_prev_aod ? 1 : 0) | (s.lp_prev_wx ? 2 : 0) | (s.lp_prev_wake ? 4 : 0)));
@@ -162,6 +164,11 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.stand_goal < 1 || s.stand_goal > 16) s.stand_goal = 10;
     s.stand_remind = s_prefs.getBool("st_remind", true);
     s.sound_cues = s_prefs.getBool("cues", true);
+    s.face_accent = s_prefs.getUChar("f_acc", 0) % 8;
+    {
+        uint8_t f = s_prefs.getUChar("f_flags", 15);
+        s.face_seconds = f & 1; s.face_eyes = f & 2; s.face_date = f & 4; s.face_pet = f & 8;
+    }
     s.text_size = s_prefs.getUChar("text_sz", 0) % 3;
     s.low_power = s_prefs.getBool("lowpwr", false);
     {

@@ -10,7 +10,7 @@ import '../widgets/common.dart';
 import 'ai_settings_screen.dart';
 import 'calendar_screen.dart';
 import 'dnd_replies_screen.dart';
-import 'watch_slots_screen.dart';
+import '../app.dart';
 import 'diagnostics_screen.dart';
 import 'firmware_update_screen.dart';
 import 'updates_screen.dart';
@@ -166,11 +166,11 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => push(const DndRepliesScreen()),
               ),
               NavRow(
-                icon: Icons.donut_large_rounded,
+                icon: Icons.palette_outlined,
                 color: AppColors.accent3,
-                title: 'Watch face slots',
-                subtitle: s.compSlots.join(' · ').replaceAll('_', ' '),
-                onTap: () => push(const WatchSlotsScreen()),
+                title: 'Faces & display',
+                subtitle: 'The face, its colour and slots, brightness, text size - in the Faces tab',
+                onTap: () => TabSwitcher.open(context, TabSwitcher.faces),
               ),
             ],
           ),

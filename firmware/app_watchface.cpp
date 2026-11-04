@@ -1,3 +1,5 @@
+#include "face_look.h"
+#include "app_settings_state.h"
 #include "app_face_nav.h"
 #include "clock_fmt.h"
 #include "app_watchface.h"
@@ -104,7 +106,7 @@ static void draw_eyes(Arduino_GFX *g) {
         // Pupil (centered within the eye, offset by gaze)
         int32_t px = eye_x + EYE_W / 2 - PUPIL_D / 2 + s_gaze_dx;
         int32_t py = eye_y + s_eye_h / 2 - PUPIL_D / 2 + s_gaze_dy;
-        g->fillCircle(px + PUPIL_D / 2, py + PUPIL_D / 2, PUPIL_D / 2, COLOR_ACCENT);
+        g->fillCircle(px + PUPIL_D / 2, py + PUPIL_D / 2, PUPIL_D / 2, face_accent());
     }
 }
 
@@ -116,7 +118,7 @@ static void draw_seconds_arc(Arduino_GFX *g, uint8_t second) {
     int r = LCD_WIDTH / 2 - 8;
     int thickness = 4;
 
-    if (second == 0) return;
+    if (second == 0 || !g_app_settings.face_seconds) return;
 
     int end_angle = (int)second * 6; // 360/60 = 6 degrees per second
 
@@ -132,8 +134,8 @@ static void draw_seconds_arc(Arduino_GFX *g, uint8_t second) {
         int y3 = cy + (int)(sinf(rad2) * (r + thickness));
         int x4 = cx + (int)(cosf(rad2) * (r - thickness));
         int y4 = cy + (int)(sinf(rad2) * (r - thickness));
-        g->fillTriangle(x1, y1, x2, y2, x3, y3, COLOR_ACCENT);
-        g->fillTriangle(x1, y1, x3, y3, x4, y4, COLOR_ACCENT);
+        g->fillTriangle(x1, y1, x2, y2, x3, y3, face_accent());
+        g->fillTriangle(x1, y1, x3, y3, x4, y4, face_accent());
     }
 }
 
@@ -152,6 +154,7 @@ static void draw_time(Arduino_GFX *g) {
     if (!clock_24h()) ui_print((LCD_WIDTH + tw) / 2 + 6, LCD_HEIGHT / 2 - 28, 2, COLOR_TEXT_DIM, clock_ampm(t.hour));
 
     // Date - small centered below time
+    if (!g_app_settings.face_date) { draw_seconds_arc(g, t.second); return; }
     char date_buf[32];
     snprintf(date_buf, sizeof(date_buf), "%s %d %s %d",
              WEEKDAYS[t.weekday % 7], t.day, MONTHS[t.month], t.year);
@@ -189,7 +192,7 @@ static void watchface_draw() {
 
     weather_fx_draw(g);   // behind everything (Settings > Display > Weather effects)
     draw_seconds_arc(g, rtc_now().second);
-    draw_eyes(g);
+    if (g_app_settings.face_eyes) draw_eyes(g);
     draw_time(g);
     // (no "BAT 82%  BLE" line: battery lives in the status readout and the slots)
     bool steps_in_slot = false;

@@ -100,7 +100,13 @@ struct AppSettings {
     uint8_t exercise_goal = 30;              // minutes a day
     uint8_t stand_goal = 10;                 // hours a day
     bool stand_remind = true;
-    bool sound_cues = true;                  // haptics.h: a tone pattern per kind of event
+    bool sound_cues = true;
+    // The main (Eyes) face, set on the watch or from the app's Faces tab (face_look.h)
+    uint8_t face_accent = 0;                 // FACE_ACCENTS index
+    bool face_seconds = true;                // the seconds arc round the edge
+    bool face_eyes = true;
+    bool face_date = true;
+    bool face_pet = true;                    // the pet walking on the faces                  // haptics.h: a tone pattern per kind of event
     uint8_t text_size = 0;                   // 0 default, 1 large, 2 larger (ui_font.cpp)
     bool low_power = false;                  // Low Power Mode (low_power.h)
     bool lp_prev_aod = false, lp_prev_wx = false, lp_prev_wake = false;   // what it turned off

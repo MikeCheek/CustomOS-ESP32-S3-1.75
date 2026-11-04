@@ -30,6 +30,7 @@
 #include "app_face_nav.h"
 #include "app_clock.h"
 #include "haptics.h"
+#include "face_look.h"
 #include "low_power.h"
 #include "app_reminders.h"
 #include "fitness.h"
@@ -753,6 +754,7 @@ void loop() {
     assistant_timer_update();    // the assistant's timer rings, awake or asleep
     clock_update();              // alarms ring, awake or asleep
     haptics_update();            // the cue patterns, on time
+    look_update();               // the app's Faces tab follows changes made here
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder
     workout_update();            // a running workout: steps, GPS distance

@@ -26,8 +26,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Assistant listening | Assistant answer | Fall detection | Sleep and smart alarm |
 | ![](docs/screenshots/draw_open.png) | ![](docs/screenshots/activity.png) | ![](docs/screenshots/smart_stack.png) | ![](docs/screenshots/face_switcher.png) |
 | Draw to open | Activity | Smart Stack | Face switcher |
-| ![](docs/screenshots/menu_list.png) | ![](docs/screenshots/activity_rings.png) | ![](docs/screenshots/rings_closed.png) | ![](docs/screenshots/workout_live.png) |
-| Apps as a list | Activity rings | A ring closed | Workout |
+| ![](docs/screenshots/menu_folder.png) | ![](docs/screenshots/activity_rings.png) | ![](docs/screenshots/rings_closed.png) | ![](docs/screenshots/workout_live.png) |
+| The Games folder | Activity rings | A ring closed | Workout |
 | ![](docs/screenshots/timer_running.png) | ![](docs/screenshots/stopwatch.png) | ![](docs/screenshots/alarms.png) | ![](docs/screenshots/world_clock.png) |
 | Timer | Stopwatch with laps | Alarms | World clock |
 | ![](docs/screenshots/weather.png) | ![](docs/screenshots/reminders.png) | ![](docs/screenshots/workout_types.png) | |
@@ -39,7 +39,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
 
 | On the watch face | |
 |---|---|
-| Swipe left | Apps: one honeycomb, bigger in the middle; tap to zoom an app open (Settings > Display > Apps as a list for A-Z) |
+| Swipe left | Apps: one honeycomb, bigger in the middle, the name of the app in the middle at the bottom; games (and developer tools) in folders; tap to zoom an app open (Settings > Display > Apps as a list for A-Z) |
 | Swipe up | Smart Stack: a workout or timer running, music playing, the next event or alarm, weather, the rings, reminders, messages, battery |
 | Touch and hold | Face switcher: swipe through the faces, tap to wear one, Edit for its complications |
 | Swipe down, or BOOT | Control Center (the quick panel) |

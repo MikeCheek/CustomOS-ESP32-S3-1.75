@@ -19,6 +19,7 @@ import 'notes_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import 'fitness_provider.dart';
+import 'look_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
@@ -504,6 +505,14 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
           final c = await Safety.contact();
           if (c.phone.isEmpty) await _ble.sendLink({'t': 'sos', 'ok': 0, 'why': 'No emergency contact set in the app'});
           unawaited(_onFall(false, sos: true));
+        }
+        break;
+      case 'look':
+        _ref.read(lookProvider.notifier).fromWatch(e);
+        // slots changed on the watch: the app's copy follows (no echo: the same slots don't resend)
+        final comp = (e['comp'] as List?)?.map((x) => '$x').toList();
+        if (comp != null && comp.join(',') != _settings.compSlots.take(3).join(',')) {
+          _ref.read(settingsProvider.notifier).update(_settings.copyWith(compSlots: comp));
         }
         break;
       case 'todo':
