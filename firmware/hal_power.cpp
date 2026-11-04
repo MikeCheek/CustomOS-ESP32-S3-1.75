@@ -106,6 +106,16 @@ int power_get_battery_percent() {
     return pct;
 }
 
+// Charge to 4.0 V (about 80%) instead of 4.2 V - less wear on the battery.
+static bool s_charge_limited = false;
+void power_set_charge_limit(bool limit) {
+    if (!s_ok || limit == s_charge_limited) return;
+    if (s_pmu.setChargeTargetVoltage(limit ? XPOWERS_AXP2101_CHG_VOL_4V : XPOWERS_AXP2101_CHG_VOL_4V2))
+        s_charge_limited = limit;
+    DEBUG_PRINTF("[power] charging to %s\n", limit ? "4.0 V (~80%)" : "4.2 V (full)");
+}
+bool power_charge_limited() { return s_charge_limited; }
+
 bool power_vbus_present() {
     if (!s_ok) return false;
     return s_pmu.isVbusIn();

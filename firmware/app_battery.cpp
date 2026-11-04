@@ -131,7 +131,9 @@ static void battery_draw() {
     char b[48];
     snprintf(b, sizeof(b), "%d%%", pct);
     ui_text_center(CX, RY - 12, COLOR_TEXT, b, 5);
-    const char *state = st.is_charging ? "Charging" : st.usb_connected ? "Plugged in" : g_app_settings.low_power ? "Low Power Mode" : "On battery";
+    const char *state = st.is_charging ? (power_charge_limited() ? "Charging to 80%" : "Charging")
+                        : st.usb_connected ? (power_charge_limited() ? "Held at 80% - full by the morning" : "Plugged in")
+                        : g_app_settings.low_power ? "Low Power Mode" : "On battery";
     ui_text_center(CX, RY + 30, col, state, 1);
 
     // how long it lasts

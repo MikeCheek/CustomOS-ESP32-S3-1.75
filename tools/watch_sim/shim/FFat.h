@@ -4,5 +4,6 @@
 class FFatFS : public fs::FS {
 public:
     bool begin(bool = false) { return false; }
+    void end() {}
 };
 extern FFatFS FFat;

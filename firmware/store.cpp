@@ -14,11 +14,55 @@ static fs::FS *s_fs = nullptr;
 static const char *s_where = "nowhere";
 static const char *DIR_DATA = "/data";
 
+// Copies every file under `dir` on `from` that `to` doesn't have yet, then
+// removes it from `from` (a card put in after the watch's flash was used).
+static int move_missing(fs::FS &from, fs::FS &to, const char *dir) {
+    File d = from.open(dir);
+    if (!d || !d.isDirectory()) return 0;
+    to.mkdir(dir);
+    int moved = 0;
+    static uint8_t buf[2048];
+    for (File f = d.openNextFile(); f; f = d.openNextFile()) {
+        char path[96];
+        const char *nm = f.name();
+        const char *base = strrchr(nm, '/') ? strrchr(nm, '/') + 1 : nm;
+        snprintf(path, sizeof(path), "%s/%s", dir, base);
+        if (f.isDirectory()) {
+            f.close();
+            moved += move_missing(from, to, path);
+            from.rmdir(path);
+            continue;
+        }
+        bool ok = true;
+        if (!to.exists(path)) {
+            File o = to.open(path, FILE_WRITE);
+            ok = (bool)o;
+            while (ok && f.available()) {
+                size_t n = f.read(buf, sizeof(buf));
+                if (!n || o.write(buf, n) != n) ok = false;
+            }
+            if (o) o.close();
+            if (!ok) to.remove(path);
+            else moved++;
+        }
+        f.close();
+        if (ok) from.remove(path);
+    }
+    d.close();
+    return moved;
+}
+
 void store_begin() {
 #if FEATURE_SD_CARD
     if (sd_is_mounted()) {
         s_fs = &SD;
         s_where = "SD card";
+        // what was kept on the watch's flash before the card: onto the card
+        if (FFat.begin(false)) {
+            int n = move_missing(FFat, SD, DIR_DATA);
+            if (n) DEBUG_PRINTF("[store] %d files moved from the watch to the SD card\n", n);
+            FFat.end();
+        }
     }
 #endif
     if (!s_fs && FFat.begin(true)) {   // formats the partition the first time

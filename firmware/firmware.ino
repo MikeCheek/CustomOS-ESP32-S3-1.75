@@ -41,6 +41,7 @@
 #include "app_wallet.h"
 #include "store.h"
 #include "app_briefing.h"
+#include "battery_mode.h"
 #include "app_torch.h"
 #include "app_weather.h"
 #include "app_tips.h"
@@ -776,6 +777,7 @@ void loop() {
     usage_update();              // how the watch is used (Diagnostics)
     weather_update();            // keeps a new weather push across restarts
     briefing_update();           // the morning briefing, once a morning
+    charge_update();             // optimized charging: 80% overnight, full by the morning
     {
         // dimmer in the bedtime hours (not the flashlight or a Wallet code, which need it bright)
         static uint32_t s_dim_ms = 0;

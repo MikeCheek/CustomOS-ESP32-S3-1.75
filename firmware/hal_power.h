@@ -26,6 +26,9 @@ int power_get_battery_percent();
 bool power_is_charging();
 // USB cable present (AXP2101 VBUS-good) - a fresh I2C read, poll sparingly.
 bool power_vbus_present();
+// Charge to about 80% (4.0 V) instead of full (battery_mode.h: the charging setting).
+void power_set_charge_limit(bool limit);
+bool power_charge_limited();
 void power_shutdown(); // immediate, real - see hal_power.cpp for the verification note
 
 // PWR button state, via the AXP2101's own PEK (power-key) IRQ status -

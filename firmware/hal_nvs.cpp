@@ -72,6 +72,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putBool("wrist_dn", s.wrist_down_sleep);
     s_prefs.putBool("brief", s.morning_brief);
     s_prefs.putBool("ndim", s.night_dim);
+    s_prefs.putUChar("chg_mode", s.charge_mode);
     s_prefs.putBytes("home_act", s.home_act, sizeof(s.home_act));
     s_prefs.putBytes("tiles", s.tiles, sizeof(s.tiles));
     s_prefs.putUChar("ex_goal", s.exercise_goal);
@@ -175,6 +176,7 @@ bool nvs_load_settings(AppSettings &s) {
     s.wrist_down_sleep = s_prefs.getBool("wrist_dn", true);
     s.morning_brief = s_prefs.getBool("brief", true);
     s.night_dim = s_prefs.getBool("ndim", true);
+    s.charge_mode = s_prefs.getUChar("chg_mode", 1);
     if (s_prefs.getBytesLength("home_act") == sizeof(s.home_act)) s_prefs.getBytes("home_act", s.home_act, sizeof(s.home_act));
     if (s_prefs.getBytesLength("tiles") == sizeof(s.tiles)) s_prefs.getBytes("tiles", s.tiles, sizeof(s.tiles));
     s.exercise_goal = s_prefs.getUChar("ex_goal", 30);

@@ -118,6 +118,16 @@ static void tap_pwr_save() { g_app_settings.power_saving = !g_app_settings.power
 static bool pwr_save_available() { return power_auto_sleep_available(); }
 static bool get_aod() { return g_app_settings.aod_on; }
 static void tap_aod() { g_app_settings.aod_on = !g_app_settings.aod_on; nvs_save_settings(g_app_settings); }
+static void tap_charge_mode() {
+    g_app_settings.charge_mode = (g_app_settings.charge_mode + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_charge_mode() {
+    static char b[48];
+    snprintf(b, sizeof(b), "%s - %s", charge_mode_name(),
+             g_app_settings.charge_mode == 1 ? "80% overnight, full by morning" : g_app_settings.charge_mode == 2 ? "less wear" : "to 100%");
+    return b;
+}
 static bool get_awake_charge() { return g_app_settings.stay_awake_charging; }
 static void tap_awake_charge() { g_app_settings.stay_awake_charging = !g_app_settings.stay_awake_charging; nvs_save_settings(g_app_settings); }
 
@@ -356,6 +366,7 @@ static SettingsRow ROWS_BATTERY[] = {
     { "Deep sleep", "Sleep between Bluetooth events, screen off", ROW_TOGGLE, get_pwr_save, tap_pwr_save, nullptr, ICON_BATTERY,
       pwr_save_available, "Needs the PlatformIO build" },
     { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
+    { "Charging", "", ROW_ACTION, nullptr, tap_charge_mode, nullptr, ICON_BATTERY, nullptr, nullptr, desc_charge_mode },
 };
 
 static bool get_act() { return g_app_settings.activity_track; }

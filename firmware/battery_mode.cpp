@@ -1,4 +1,6 @@
 #include "battery_mode.h"
+#include "hal_rtc.h"
+#include "hal_power.h"
 #include "config.h"
 #include "app_settings_state.h"
 #include "hal_display.h"
@@ -121,5 +123,37 @@ void battery_mode_draw_icon(Arduino_GFX *g, BatteryMode m, int cx, int cy, uint1
         g->fillTriangle(cx - 5, cy + 8, cx + 5, cy - 6, cx + 3, cy + 3, c);
         break;
     default: break;
+    }
+}
+
+// ---- Optimized charging ------------------------------------------------------------------
+// Full: always to 4.2 V. Stop at 80%: always 4.0 V. Optimized: on the charger
+// in the bedtime hours it holds at 80% and finishes in the last 90 minutes
+// before you get up (the smart alarm when it's on, else the end of bedtime),
+// so the battery doesn't sit full all night.
+void charge_update() {
+    static uint32_t last = 0;
+    uint32_t ms = millis();
+    if (last && ms - last < 30000) return;
+    last = ms ? ms : 1;
+    bool limit = false;
+    if (g_app_settings.charge_mode == 2) limit = true;
+    else if (g_app_settings.charge_mode == 1 && power_vbus_present()) {
+        WatchTime t = rtc_now();
+        if (t.valid) {
+            int m = t.hour * 60 + t.minute;
+            int up = g_app_settings.alarm_on ? g_app_settings.alarm_min : g_app_settings.dnd_to_min;
+            int from = g_app_settings.dnd_from_min, until = (up - 90 + 1440) % 1440;
+            limit = from <= until ? (m >= from && m < until) : (m >= from || m < until);
+        }
+    }
+    power_set_charge_limit(limit);
+}
+
+const char *charge_mode_name() {
+    switch (g_app_settings.charge_mode) {
+    case 0: return "Full";
+    case 2: return "Stop at 80%";
+    default: return "Optimized";
     }
 }

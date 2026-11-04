@@ -141,6 +141,7 @@ struct AppSettings {
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced
+    uint8_t charge_mode = 1;            // 0 full, 1 optimized (80% overnight, full by the morning), 2 stop at 80%
     // What Saver/Ultra switched off, restored when going back to a normal mode.
     bool    saver_prev_wifi = false;
     bool    saver_prev_gps = false;
