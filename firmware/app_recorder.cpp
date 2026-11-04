@@ -434,6 +434,129 @@ static void enter_select(int first) {
     ui_scroll_set_max(&s_scroll, content_h() - LCD_HEIGHT);
 }
 
+// ---- a memo's transcript (the app writes it next to the recording) ----------------------
+// Opened by tapping a memo that has one: the words, wrapped and scrolling,
+// with Play at the top.
+static int s_tx_index = -1;
+static char *s_tx = nullptr;          // the text (PSRAM)
+static int s_tx_lines[400];           // where each wrapped line starts in s_tx
+static int s_tx_n = 0;
+static UiScroll s_tx_scroll;
+static bool s_tx_play_press = false;
+static const int TX_TOP = 150, TX_LINE = 30, TX_W = 330;
+
+static void tx_wrap() {
+    s_tx_n = 0;
+    if (!s_tx) return;
+    int len = strlen(s_tx), start = 0;
+    while (start < len && s_tx_n < 400) {
+        // the longest run of whole words that fits TX_W at size 2
+        int end = start, last_space = -1;
+        char save;
+        while (end < len && s_tx[end] != '\n') {
+            if (s_tx[end] == ' ') last_space = end;
+            save = s_tx[end + 1];
+            s_tx[end + 1] = 0;
+            int w = ui_text_width(s_tx + start, 2);
+            s_tx[end + 1] = save;
+            if (w > TX_W) break;
+            end++;
+        }
+        int cut = end;
+        if (end < len && s_tx[end] != '\n' && last_space > start) cut = last_space;
+        if (cut == start) cut = start + 1;   // one huge word: split it
+        s_tx_lines[s_tx_n++] = start;
+        start = cut;
+        while (start < len && (s_tx[start] == ' ' || s_tx[start] == '\n')) start++;
+    }
+}
+
+static void tx_create() {
+    s_tx_play_press = false;
+    if (s_tx) { heap_caps_free(s_tx); s_tx = nullptr; }
+    s_tx_n = 0;
+    if (s_tx_index < 0 || s_tx_index >= s_list.n) return;
+    char txt[96];
+    snprintf(txt, sizeof(txt), "%s", s_list.path(s_tx_index));
+    char *dot = strrchr(txt, '.');
+    if (dot) strcpy(dot, ".txt");
+    File f = SD.open(txt, FILE_READ);
+    if (!f) return;
+    int n = f.size() < 8000 ? (int)f.size() : 8000;
+    s_tx = (char *)heap_caps_malloc(n + 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_tx) {
+        int got = f.read((uint8_t *)s_tx, n);
+        s_tx[got > 0 ? got : 0] = 0;
+        ui_utf8_trim(s_tx);
+        tx_wrap();
+    }
+    f.close();
+    ui_scroll_reset(&s_tx_scroll, s_tx_n * TX_LINE - (LCD_HEIGHT - TX_TOP - 70), 0);
+}
+
+static void tx_destroy() {
+    if (s_tx) { heap_caps_free(s_tx); s_tx = nullptr; }
+    s_tx_n = 0;
+}
+
+static void tx_draw() {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    ui_scroll_tick(&s_tx_scroll);
+    g->fillScreen(COLOR_BG);
+    int off = ui_scroll_offset(&s_tx_scroll);
+    for (int i = 0; i < s_tx_n; i++) {
+        int y = TX_TOP + i * TX_LINE - off;
+        if (y < 118 || y > LCD_HEIGHT - 40) continue;   // under the Play pill / past the round edge
+        int a = s_tx_lines[i], b = i + 1 < s_tx_n ? s_tx_lines[i + 1] : (int)strlen(s_tx);
+        char line[160];
+        int n = b - a < (int)sizeof(line) - 1 ? b - a : (int)sizeof(line) - 1;
+        memcpy(line, s_tx + a, n);
+        line[n] = 0;
+        while (n > 0 && (line[n - 1] == ' ' || line[n - 1] == '\n')) line[--n] = 0;
+        ui_print(CX - TX_W / 2, y, 2, COLOR_TEXT, line);
+    }
+    if (!s_tx_n) ui_text_center(CX, CY, COLOR_TEXT_DIM, "No transcript", 2);
+    // the top: the memo's name and Play
+    g->fillRect(0, 0, LCD_WIDTH, 116, COLOR_BG);
+    const char *nm = s_tx_index >= 0 && s_tx_index < s_list.n ? s_list.path(s_tx_index) : "";
+    const char *base = strrchr(nm, '/') ? strrchr(nm, '/') + 1 : nm;
+    char t[40];
+    strlcpy(t, base, sizeof(t));
+    char *d = strrchr(t, '.');
+    if (d) *d = 0;
+    ui_text_center(CX, 50, COLOR_TEXT_DIM, t, 1);
+    g->fillRoundRect(CX - 70, 70, 140, 40, 20, s_tx_play_press ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+    ui_text_center(CX, 90, COLOR_TEXT, "Play", 2);
+}
+
+static void tx_touch(int x, int y, bool pressed) {
+    static bool on_play = false;
+    if (pressed && !s_tx_play_press && !s_tx_scroll.dragging) {
+        on_play = abs(x - CX) < 80 && y > 60 && y < 120;
+        s_tx_play_press = on_play;
+    }
+    if (on_play) {
+        if (!pressed) {
+            s_tx_play_press = false;
+            on_play = false;
+            if (abs(x - CX) < 80 && y > 60 && y < 120) media_play_playlist(&s_list, nullptr, s_list.n, s_tx_index);
+        }
+        return;
+    }
+    ui_scroll_touch(&s_tx_scroll, y, pressed);
+}
+
+static void tx_gesture(Gesture g) {
+    if (g == GESTURE_SWIPE_RIGHT || g == GESTURE_SWIPE_LEFT) ui_pop_screen();
+}
+
+static Screen transcript_screen = {
+    "Transcript", GESTURE_MODE_EDGE, UI_FRAME_MS_SMOOTH,
+    tx_create, tx_draw, tx_touch, nullptr, tx_destroy, tx_gesture,
+    250,
+};
+
 // ---- screen callbacks -----------------------------------------------------------------
 
 static void recorder_create() {
@@ -508,6 +631,7 @@ static void recorder_touch(int x, int y, bool pressed) {
         return;
     }
     if (p == -1) start_recording();
+    else if (p >= 0 && s_info[p].transcript) { s_tx_index = p; ui_push(&transcript_screen); }   // its words, Play on top
     else if (p >= 0) media_play_playlist(&s_list, nullptr, s_list.n, p);   // the music player
 }
 

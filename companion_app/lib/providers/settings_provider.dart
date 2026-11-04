@@ -14,17 +14,18 @@ class AppSettings {
   final bool mediaToWatch;
   final bool weatherAuto;
   final bool fahrenheit;
-  final bool onboarded;     // first-run setup finished (or skipped)
+  final bool onboarded; // first-run setup finished (or skipped)
   final bool calendarToWatch;
   final int reminderMinutes; // 0 = no reminders on the watch
   final bool navigationToWatch;
-  final bool wifiTransfers;   // recordings over Wi-Fi when the watch can
-  final bool autoProcess;     // after a sync: transcribe + summarize new memos
-  final bool dndSync;         // phone DND <-> watch DND
-  final bool bedtimeOn;       // watch silent every night
-  final int bedFrom, bedTo;   // minutes after midnight
+  final bool wifiTransfers; // recordings over Wi-Fi when the watch can
+  final bool autoProcess; // after a sync: transcribe + summarize new memos
+  final bool freeWatch; // delete a memo on the watch once it's safely on the phone
+  final bool dndSync; // phone DND <-> watch DND
+  final bool bedtimeOn; // watch silent every night
+  final int bedFrom, bedTo; // minutes after midnight
   final List<String> quickReplies; // empty = the watch's built-in presets
-  final List<String> compSlots;    // watchface complications, left to right
+  final List<String> compSlots; // watchface complications, left to right
 
   const AppSettings({
     this.loaded = false,
@@ -44,6 +45,7 @@ class AppSettings {
     this.navigationToWatch = true,
     this.wifiTransfers = true,
     this.autoProcess = false,
+    this.freeWatch = false,
     this.dndSync = true,
     this.bedtimeOn = false,
     this.bedFrom = 23 * 60,
@@ -70,6 +72,7 @@ class AppSettings {
     bool? navigationToWatch,
     bool? wifiTransfers,
     bool? autoProcess,
+    bool? freeWatch,
     bool? dndSync,
     bool? bedtimeOn,
     int? bedFrom,
@@ -95,6 +98,7 @@ class AppSettings {
       navigationToWatch: navigationToWatch ?? this.navigationToWatch,
       wifiTransfers: wifiTransfers ?? this.wifiTransfers,
       autoProcess: autoProcess ?? this.autoProcess,
+      freeWatch: freeWatch ?? this.freeWatch,
       dndSync: dndSync ?? this.dndSync,
       bedtimeOn: bedtimeOn ?? this.bedtimeOn,
       bedFrom: bedFrom ?? this.bedFrom,
@@ -131,6 +135,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       navigationToWatch: p.getBool('navigation_to_watch') ?? true,
       wifiTransfers: p.getBool('wifi_transfers') ?? true,
       autoProcess: p.getBool('auto_process') ?? false,
+      freeWatch: p.getBool('free_watch') ?? false,
       dndSync: p.getBool('dnd_sync') ?? true,
       bedtimeOn: p.getBool('bedtime_on') ?? false,
       bedFrom: p.getInt('bed_from') ?? 23 * 60,
@@ -159,6 +164,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await p.setBool('navigation_to_watch', next.navigationToWatch);
     await p.setBool('wifi_transfers', next.wifiTransfers);
     await p.setBool('auto_process', next.autoProcess);
+    await p.setBool('free_watch', next.freeWatch);
     await p.setBool('dnd_sync', next.dndSync);
     await p.setBool('bedtime_on', next.bedtimeOn);
     await p.setInt('bed_from', next.bedFrom);
@@ -188,6 +194,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       navigationToWatch: state.navigationToWatch,
       wifiTransfers: state.wifiTransfers,
       autoProcess: state.autoProcess,
+      freeWatch: state.freeWatch,
       dndSync: state.dndSync,
       bedtimeOn: state.bedtimeOn,
       bedFrom: state.bedFrom,

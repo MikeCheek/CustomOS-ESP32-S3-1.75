@@ -1,3 +1,4 @@
+import '../services/memo_export.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -55,12 +56,16 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
 
   Future<void> _save(RecordingEntry e) async {
     // copyWith: keeps topics, to-dos, people, favorite...
-    await ref.read(notesProvider.notifier).updateRecording(e.copyWith(
-          title: _title.text.trim(),
-          summary: _summary.text.trim(),
-          importance: _importance,
-          tags: List.of(_tags),
-        ));
+    await ref
+        .read(notesProvider.notifier)
+        .updateRecording(
+          e.copyWith(
+            title: _title.text.trim(),
+            summary: _summary.text.trim(),
+            importance: _importance,
+            tags: List.of(_tags),
+          ),
+        );
     if (!mounted) return;
     setState(() => _editing = false);
     showSnack(context, 'Saved');
@@ -84,8 +89,10 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
           IconButton(
             tooltip: e.favorite ? 'Remove from favorites' : 'Favorite',
             onPressed: () => ref.read(notesProvider.notifier).toggleFavorite(e.name),
-            icon: Icon(e.favorite ? Icons.star_rounded : Icons.star_border_rounded,
-                color: e.favorite ? AppColors.warning : null),
+            icon: Icon(
+              e.favorite ? Icons.star_rounded : Icons.star_border_rounded,
+              color: e.favorite ? AppColors.warning : null,
+            ),
           ),
           if (_editing)
             IconButton(onPressed: () => _save(e), icon: const Icon(Icons.check_rounded))
@@ -105,9 +112,19 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
             color: AppColors.surfaceLight,
             onSelected: (v) async {
               if (v == 'copy') {
-                await Clipboard.setData(ClipboardData(
-                    text: e.speakers.isNotEmpty ? labeledTranscript(e.speakers, e.speakerNames) : e.transcript));
+                await Clipboard.setData(
+                  ClipboardData(
+                    text: e.speakers.isNotEmpty ? labeledTranscript(e.speakers, e.speakerNames) : e.transcript,
+                  ),
+                );
                 if (context.mounted) showSnack(context, 'Transcript copied');
+              } else if (v == 'share_md') {
+                await MemoExport.shareMarkdown(e);
+              } else if (v == 'share_txt') {
+                await MemoExport.shareTranscript(e);
+              } else if (v == 'share_audio') {
+                final ok = await MemoExport.shareAudio(e, await NotesNotifier.phoneMemoPath(e.name));
+                if (!ok && context.mounted) showSnack(context, 'Download it from the watch first');
               } else if (v == 'resum') {
                 ref.read(notesProvider.notifier).resummarize(e.name);
               } else if (v == 'retx') {
@@ -118,6 +135,10 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
             },
             itemBuilder: (_) => [
               if (e.transcript.isNotEmpty) const PopupMenuItem(value: 'copy', child: Text('Copy transcript')),
+              if (e.transcript.isNotEmpty || e.summary.isNotEmpty)
+                const PopupMenuItem(value: 'share_md', child: Text('Share as a note (Markdown)')),
+              if (e.transcript.isNotEmpty) const PopupMenuItem(value: 'share_txt', child: Text('Share the transcript')),
+              if (downloaded) const PopupMenuItem(value: 'share_audio', child: Text('Share the recording')),
               if (e.transcript.isNotEmpty) const PopupMenuItem(value: 'resum', child: Text('Summarize again')),
               if (downloaded) const PopupMenuItem(value: 'retx', child: Text('Transcribe again')),
               const PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -135,20 +156,23 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(notes.processingStage, style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600)),
+                    Text(
+                      notes.processingStage,
+                      style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+                    ),
                     const SizedBox(height: 10),
                     LinearProgressIndicator(value: notes.processingProgress >= 0 ? notes.processingProgress : null),
                   ],
                 ),
               ),
             ),
-          if (downloaded) ...[
-            MemoPlayerBar(name: e.name),
-            const SizedBox(height: 8),
-          ],
+          if (downloaded) ...[MemoPlayerBar(name: e.name), const SizedBox(height: 8)],
           if (_editing) ...[
             const SectionLabel('Title'),
-            TextField(controller: _title, decoration: InputDecoration(hintText: e.displayTitle)),
+            TextField(
+              controller: _title,
+              decoration: InputDecoration(hintText: e.displayTitle),
+            ),
           ] else
             Padding(
               padding: const EdgeInsets.only(left: 4, top: 4),
@@ -168,13 +192,17 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                 alignment: Alignment.centerLeft,
                 child: ActionChip(
                   avatar: const Icon(Icons.translate_rounded, size: 16),
-                  label: Builder(builder: (_) {
-                    // Memos transcribed before languages were tracked: guess now.
-                    final code = e.language.isNotEmpty ? e.language : TextInsights.detectLanguage(e.transcript).code;
-                    return Text(code.isEmpty
-                        ? 'Language unknown · change'
-                        : '${WhisperService.languageName(code)} · ${e.languageSet ? 'set by you' : 'detected'}');
-                  }),
+                  label: Builder(
+                    builder: (_) {
+                      // Memos transcribed before languages were tracked: guess now.
+                      final code = e.language.isNotEmpty ? e.language : TextInsights.detectLanguage(e.transcript).code;
+                      return Text(
+                        code.isEmpty
+                            ? 'Language unknown · change'
+                            : '${WhisperService.languageName(code)} · ${e.languageSet ? 'set by you' : 'detected'}',
+                      );
+                    },
+                  ),
                   onPressed: busy ? null : () => _pickLanguage(e),
                 ),
               ),
@@ -186,12 +214,19 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                     controller: _summary,
                     maxLines: null,
                     style: const TextStyle(color: AppColors.text, fontSize: 15, height: 1.45),
-                    decoration: const InputDecoration(hintText: 'Write a summary', filled: false, contentPadding: EdgeInsets.zero),
+                    decoration: const InputDecoration(
+                      hintText: 'Write a summary',
+                      filled: false,
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   )
                 : Text(
                     e.summary.isNotEmpty ? e.summary : 'No summary yet.',
                     style: TextStyle(
-                        color: e.summary.isNotEmpty ? AppColors.text : AppColors.textDim, fontSize: 15, height: 1.45),
+                      color: e.summary.isNotEmpty ? AppColors.text : AppColors.textDim,
+                      fontSize: 15,
+                      height: 1.45,
+                    ),
                   ),
           ),
           const SectionLabel('Importance'),
@@ -208,10 +243,13 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       alignment: Alignment.center,
-                      child: Text('$i',
-                          style: TextStyle(
-                              color: i <= importance ? _color(importance) : AppColors.textDim,
-                              fontWeight: FontWeight.w700)),
+                      child: Text(
+                        '$i',
+                        style: TextStyle(
+                          color: i <= importance ? _color(importance) : AppColors.textDim,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -225,10 +263,7 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
             runSpacing: 8,
             children: [
               for (final t in tags)
-                InputChip(
-                  label: Text('#$t'),
-                  onDeleted: _editing ? () => setState(() => _tags.remove(t)) : null,
-                ),
+                InputChip(label: Text('#$t'), onDeleted: _editing ? () => setState(() => _tags.remove(t)) : null),
               if (_editing)
                 SizedBox(
                   width: 140,
@@ -242,21 +277,24 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                     },
                   ),
                 ),
-              if (tags.isEmpty && !_editing)
-                const Text('No tags', style: TextStyle(color: AppColors.textDim)),
+              if (tags.isEmpty && !_editing) const Text('No tags', style: TextStyle(color: AppColors.textDim)),
             ],
           ),
           if (e.topics.isNotEmpty) ...[
             const SectionLabel('Topics'),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final t in e.topics)
-                ActionChip(
-                  avatar: const Icon(Icons.topic_outlined, size: 16),
-                  label: Text(t),
-                  onPressed: () =>
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: t))),
-                ),
-            ]),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final t in e.topics)
+                  ActionChip(
+                    avatar: const Icon(Icons.topic_outlined, size: 16),
+                    label: Text(t),
+                    onPressed: () =>
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: t))),
+                  ),
+              ],
+            ),
           ],
           if (e.actions.isNotEmpty) ...[
             const SectionLabel('To-dos'),
@@ -267,15 +305,19 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
           ],
           if (e.people.isNotEmpty) ...[
             const SectionLabel('People'),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final p in e.people)
-                ActionChip(
-                  avatar: const Icon(Icons.person_outline_rounded, size: 16),
-                  label: Text(p),
-                  onPressed: () =>
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: p))),
-                ),
-            ]),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final p in e.people)
+                  ActionChip(
+                    avatar: const Icon(Icons.person_outline_rounded, size: 16),
+                    label: Text(p),
+                    onPressed: () =>
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: p))),
+                  ),
+              ],
+            ),
           ],
           SectionLabel(e.speakers.isNotEmpty ? 'Conversation · ${speakerCount(e.speakers)} voices' : 'Transcript'),
           Panel(
@@ -290,10 +332,10 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
                         !downloaded
                             ? 'Download the recording to transcribe it.'
                             : e.name.toLowerCase().endsWith('.mp3')
-                                ? 'MP3 files can\'t be transcribed - only the watch\'s WAV recordings.'
-                                : e.noSpeech
-                                    ? 'No speech was found in this recording. Try again, or in another language.'
-                                    : 'Not transcribed yet.',
+                            ? 'MP3 files can\'t be transcribed - only the watch\'s WAV recordings.'
+                            : e.noSpeech
+                            ? 'No speech was found in this recording. Try again, or in another language.'
+                            : 'Not transcribed yet.',
                         style: const TextStyle(color: AppColors.textDim),
                       ),
                       const SizedBox(height: 14),
@@ -338,13 +380,17 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
             children: [
               const Padding(
                 padding: EdgeInsets.fromLTRB(20, 18, 20, 4),
-                child: Text('Language of this memo',
-                    style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                child: Text(
+                  'Language of this memo',
+                  style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w700),
+                ),
               ),
               const Padding(
                 padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: Text('It will be transcribed again in this language, then summarized.',
-                    style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+                child: Text(
+                  'It will be transcribed again in this language, then summarized.',
+                  style: TextStyle(color: AppColors.textDim, fontSize: 13),
+                ),
               ),
               for (final l in langs)
                 ListTile(
@@ -401,9 +447,11 @@ class _RecordingDetailState extends ConsumerState<RecordingDetail> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete memo?'),
-        content: Text(connected
-            ? 'Delete "${e.name}" from the watch and this phone?'
-            : 'Delete "${e.name}" from this phone? (The watch is not connected, so its copy stays.)'),
+        content: Text(
+          connected
+              ? 'Delete "${e.name}" from the watch and this phone?'
+              : 'Delete "${e.name}" from this phone? (The watch is not connected, so its copy stays.)',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
