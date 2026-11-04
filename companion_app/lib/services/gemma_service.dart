@@ -410,6 +410,67 @@ class GemmaService {
     return out?.replaceAll(RegExp(r'[*#`]'), '').trim();
   }
 
+  /// Today's breakfast, lunch and dinner ideas for the Life app: [diet] ("vegan",
+  /// "Mediterranean"...), [notes] (allergies, likes, dislikes - the user's own
+  /// words), [avoid] (ideas from the last days, so they change), [training]
+  /// (a training day: a bit more protein and carbs). Each under ~65 letters
+  /// so the watch shows it. Null without a model or when the answer isn't usable.
+  Future<(String, String, String)?> mealIdeas({
+    required String diet,
+    String notes = '',
+    List<String> avoid = const [],
+    bool training = false,
+    DateTime? day,
+  }) async {
+    if (!await hasModel()) return null;
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    final d = day ?? DateTime.now();
+    final out = await _generate(
+      'Suggest today\'s meals for a healthy, balanced day. Diet: $diet. '
+      '${notes.trim().isEmpty ? '' : 'About the person (follow it strictly, e.g. allergies): ${notes.trim()}. '}'
+      '${training ? 'It is a training day: a little more protein and carbohydrates. ' : ''}'
+      'Season: ${months[d.month - 1]}, use seasonal produce. Simple home cooking, mostly whole foods. '
+      '${avoid.isEmpty ? '' : 'Do not repeat these recent ones: ${avoid.take(9).join('; ')}. '}'
+      'Answer with exactly three lines and nothing else:\n'
+      'Breakfast: <dish, under 60 characters>\nLunch: <dish, under 60 characters>\nDinner: <dish, under 60 characters> /no_think',
+      temperature: 0.8,
+    );
+    return out == null ? null : parseMealIdeas(out);
+  }
+
+  /// The three dishes from the model's answer ("Breakfast: ..." lines, with or
+  /// without markdown), each trimmed to fit the watch; null if one is missing.
+  static (String, String, String)? parseMealIdeas(String out) {
+    String? pick(String label) {
+      final m = RegExp('^\\W*$label\\W*[:\\-]\\s*(.+)\$', caseSensitive: false, multiLine: true).firstMatch(out);
+      if (m == null) return null;
+      var t = m.group(1)!.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      t = t.replaceAll(RegExp(r'[.;]+$'), '');
+      if (t.length > 66) {
+        final cut = t.lastIndexOf(' ', 66);
+        t = t.substring(0, cut > 30 ? cut : 66);
+      }
+      return t.length < 4 ? null : t;
+    }
+
+    final b = pick('Breakfast'), l = pick('Lunch'), dn = pick('Dinner');
+    if (b == null || l == null || dn == null) return null;
+    return (b, l, dn);
+  }
+
   /// [text] translated into [language], or null without a model.
   Future<String?> translate(String text, String language) async {
     if (!await hasModel()) return null;

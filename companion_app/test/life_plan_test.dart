@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:amoled_companion/services/gemma_service.dart';
 import 'package:amoled_companion/services/life_plan.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,5 +43,17 @@ void main() {
     expect(d.date, DateTime(2026, 11, 4));
     expect(d.score, 42);
     expect(LifeDay.fromRow(d.toRow())!.water, 3);
+  });
+
+  test('the local LLM\'s meal ideas: parsed from messy answers, fitted to the watch', () {
+    const out = 'Sure! Here are some ideas:\n**Breakfast:** Porridge with apples, cinnamon and walnuts.\n'
+        '- Lunch - Warm farro salad with roasted squash, rocket and feta cheese and a lemony olive oil dressing\n'
+        'Dinner: Baked trout with potatoes and green beans';
+    final r = GemmaService.parseMealIdeas(out)!;
+    expect(r.$1, 'Porridge with apples, cinnamon and walnuts');
+    expect(r.$2.startsWith('Warm farro salad'), isTrue);
+    expect(r.$2.length, lessThanOrEqualTo(66));
+    expect(r.$3, 'Baked trout with potatoes and green beans');
+    expect(GemmaService.parseMealIdeas('Breakfast: eggs\nLunch: soup'), isNull);   // dinner missing
   });
 }

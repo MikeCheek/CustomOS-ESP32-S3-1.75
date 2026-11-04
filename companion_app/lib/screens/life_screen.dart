@@ -167,6 +167,34 @@ class LifeScreen extends ConsumerWidget {
                     ),
                 ],
               ),
+              const SizedBox(height: 4),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: p.aiMeals,
+                onChanged: (v) => set((j) => j['ai'] = v ? 1 : 0),
+                title: const Text('Ideas from the on-phone AI'),
+                subtitle: Text(
+                  st.writing
+                      ? 'Writing today\'s ideas...'
+                      : st.mealsByAi
+                      ? 'Written for you today: your diet, notes, the season, training days'
+                      : 'Uses the local LLM when one is installed (AI models); the built-in list otherwise',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+              ),
+              if (p.aiMeals)
+                TextFormField(
+                  initialValue: p.foodNotes,
+                  maxLength: 120,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'About your food (optional)',
+                    hintText: 'Allergic to nuts, love fish, no spicy food, 15 minutes to cook...',
+                  ),
+                  onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+                  onChanged: (v) => _debounce(() => set((j) => j['notes'] = v.trim())),
+                ),
               const SizedBox(height: 8),
               _Row('Breakfast', [
                 _TimeChip(
@@ -189,11 +217,17 @@ class LifeScreen extends ConsumerWidget {
                       style: TextStyle(color: AppColors.textDim, fontWeight: FontWeight.w600),
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: n.shuffleMeals,
-                    icon: const Icon(Icons.shuffle_rounded, size: 18),
-                    label: const Text('Others'),
-                  ),
+                  if (st.writing)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  else
+                    TextButton.icon(
+                      onPressed: n.shuffleMeals,
+                      icon: Icon(st.mealsByAi ? Icons.auto_awesome_rounded : Icons.shuffle_rounded, size: 18),
+                      label: const Text('Others'),
+                    ),
                 ],
               ),
               for (final (k, v) in [('Breakfast', b), ('Lunch', l), ('Dinner', d)])

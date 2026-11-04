@@ -3,24 +3,50 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/gemma_service.dart';
 import '../services/life_plan.dart';
 import 'ble_provider.dart';
+
+typedef MealSet = (String, String, String);
 
 class LifeState {
   final LifePlan plan;
   final LifeDay? today;
   final List<LifeDay> days; // before today, newest first
   final int shuffle; // today's meal ideas moved on this many times
-  const LifeState({this.plan = const LifePlan(), this.today, this.days = const [], this.shuffle = 0});
+  /// Today's ideas written by the on-phone LLM (null: the built-in list's).
+  final MealSet? aiIdeas;
+  final bool writing; // the LLM is writing them now
 
-  LifeState copyWith({LifePlan? plan, LifeDay? today, List<LifeDay>? days, int? shuffle}) => LifeState(
+  const LifeState({
+    this.plan = const LifePlan(),
+    this.today,
+    this.days = const [],
+    this.shuffle = 0,
+    this.aiIdeas,
+    this.writing = false,
+  });
+
+  static const _keep = Object();
+  LifeState copyWith({
+    LifePlan? plan,
+    LifeDay? today,
+    List<LifeDay>? days,
+    int? shuffle,
+    Object? aiIdeas = _keep,
+    bool? writing,
+  }) => LifeState(
     plan: plan ?? this.plan,
     today: today ?? this.today,
     days: days ?? this.days,
     shuffle: shuffle ?? this.shuffle,
+    aiIdeas: identical(aiIdeas, _keep) ? this.aiIdeas : aiIdeas as MealSet?,
+    writing: writing ?? this.writing,
   );
 
-  (String, String, String) get meals => MealIdeas.forDay(plan.diet, DateTime.now(), shuffle: shuffle);
+  /// What the watch gets: the LLM's ideas when there are some, else the built-in list's.
+  MealSet get meals => (plan.aiMeals ? aiIdeas : null) ?? MealIdeas.forDay(plan.diet, DateTime.now(), shuffle: shuffle);
+  bool get mealsByAi => plan.aiMeals && aiIdeas != null;
 
   /// Days in a row with a score of 60% or more (today counts once it's there).
   int get streak {
@@ -37,13 +63,19 @@ class LifeState {
   }
 }
 
-/// The Life plan (kept on the phone, sent to the watch) and the days the
-/// watch reports back ({"e":"life"}).
+/// The Life plan (kept on the phone, sent to the watch), today's meal ideas,
+/// and the days the watch reports back ({"e":"life"}).
 class LifeNotifier extends StateNotifier<LifeState> {
-  static const _kPlan = 'life_plan', _kDays = 'life_days';
+  static const _kPlan = 'life_plan', _kDays = 'life_days', _kAi = 'life_ai_meals', _kRecent = 'life_recent_meals';
   final Ref _ref;
   LifeNotifier(this._ref) : super(const LifeState()) {
     _load();
+  }
+
+  /// What a set of ideas was written for: the day, the food preferences and how many times "Others" was tapped.
+  static String ideasKey(LifePlan p, int shuffle, [DateTime? now]) {
+    final n = now ?? DateTime.now();
+    return '${n.year}-${n.month}-${n.day}|${p.diet}|${p.foodNotes.trim()}|$shuffle';
   }
 
   Future<void> _load() async {
@@ -53,7 +85,20 @@ class LifeNotifier extends StateNotifier<LifeState> {
     final days = <LifeDay>[
       for (final s in p.getStringList(_kDays) ?? const <String>[]) ?LifeDay.fromRow(jsonDecode(s) as List),
     ];
-    if (mounted) state = state.copyWith(plan: plan, days: days);
+    // today's LLM ideas, if they were written for today and these preferences
+    MealSet? ai;
+    var shuffle = 0;
+    final c = p.getString(_kAi);
+    if (c != null) {
+      final j = jsonDecode(c) as Map<String, dynamic>;
+      shuffle = (j['sh'] as num?)?.toInt() ?? 0;
+      if (j['key'] == ideasKey(plan, shuffle)) {
+        ai = (j['b'] as String, j['l'] as String, j['d'] as String);
+      } else {
+        shuffle = 0;
+      }
+    }
+    if (mounted) state = state.copyWith(plan: plan, days: days, aiIdeas: ai, shuffle: shuffle);
   }
 
   Future<void> _save() async {
@@ -62,24 +107,74 @@ class LifeNotifier extends StateNotifier<LifeState> {
     await p.setStringList(_kDays, [for (final d in state.days.take(120)) jsonEncode(d.toRow())]);
   }
 
+  /// Asks the on-phone LLM for today's ideas, unless they're already written for
+  /// today (or [fresh]: new ones). Without a model, or when its answer isn't
+  /// usable, the built-in list's ideas stay.
+  Future<void> _writeIdeas({bool fresh = false}) async {
+    final plan = state.plan;
+    if (!plan.aiMeals || state.writing) return;
+    final key = ideasKey(plan, state.shuffle);
+    final p = await SharedPreferences.getInstance();
+    final c = p.getString(_kAi);
+    if (!fresh && state.aiIdeas != null && c != null && (jsonDecode(c) as Map)['key'] == key) return;
+    if (!await GemmaService.instance.hasModel()) return;
+    if (!mounted) return;
+    state = state.copyWith(writing: true);
+    try {
+      final recent = p.getStringList(_kRecent) ?? const <String>[];
+      final now = DateTime.now();
+      final training = plan.train && plan.trainDays & (1 << (now.weekday % 7)) != 0;
+      final ideas = await GemmaService.instance
+          .mealIdeas(
+            diet: MealIdeas.diets[plan.diet] ?? plan.diet,
+            notes: plan.foodNotes,
+            avoid: recent,
+            training: training,
+          )
+          .timeout(const Duration(seconds: 90), onTimeout: () => null);
+      if (!mounted) return;
+      if (ideas == null) {
+        state = state.copyWith(writing: false);
+        return;
+      }
+      final (b, l, d) = ideas;
+      await p.setString(_kAi, jsonEncode({'key': key, 'sh': state.shuffle, 'b': b, 'l': l, 'd': d}));
+      await p.setStringList(_kRecent, [b, l, d, ...recent].take(9).toList());
+      state = state.copyWith(aiIdeas: ideas, writing: false);
+    } catch (_) {
+      if (mounted) state = state.copyWith(writing: false);
+    }
+  }
+
   Future<void> setPlan(LifePlan plan) async {
-    final dietChanged = plan.diet != state.plan.diet;
-    state = state.copyWith(plan: plan, shuffle: dietChanged ? 0 : null);
+    final old = state.plan;
+    final food = plan.diet != old.diet || plan.foodNotes.trim() != old.foodNotes.trim() || plan.aiMeals != old.aiMeals;
+    state = state.copyWith(plan: plan, shuffle: food ? 0 : null, aiIdeas: food ? null : state.aiIdeas);
     await _save();
     await sendAll();
   }
 
+  /// "Others": the LLM writes new ideas (or the built-in list moves on).
   Future<void> shuffleMeals() async {
-    state = state.copyWith(shuffle: state.shuffle + 1);
+    state = state.copyWith(shuffle: state.shuffle + 1, aiIdeas: null);
     await _sendMeals();
+    if (state.plan.aiMeals) {
+      await _writeIdeas(fresh: true);
+      await _sendMeals();
+    }
   }
 
-  /// The plan and today's meal ideas - on connect and after a change.
+  /// The plan and today's meal ideas - on connect and after a change. The
+  /// ideas at hand go at once; the LLM's follow when written.
   Future<void> sendAll() async {
     final ble = _ref.read(bleServiceProvider);
-    if (!ble.hasPhoneLink) return;
-    await ble.sendLink(state.plan.toWatch());
-    await _sendMeals();
+    if (ble.hasPhoneLink) {
+      await ble.sendLink(state.plan.toWatch());
+      await _sendMeals();
+    }
+    final before = state.meals;
+    await _writeIdeas();
+    if (state.meals != before) await _sendMeals();
   }
 
   Future<void> _sendMeals() async {

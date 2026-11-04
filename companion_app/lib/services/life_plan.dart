@@ -21,6 +21,8 @@ class LifePlan {
   final bool meals;
   final int breakfastAt, lunchAt, dinnerAt;
   final String diet; // omnivore, mediterranean, vegetarian, vegan, high_protein
+  final bool aiMeals; // ideas written by the on-phone LLM (when one is installed)
+  final String foodNotes; // allergies, likes, dislikes - for the LLM
   // social: someone to check in with on [socialDays] at [socialAt]
   final bool social;
   final int socialDays, socialAt;
@@ -52,6 +54,8 @@ class LifePlan {
     this.lunchAt = 13 * 60,
     this.dinnerAt = 19 * 60 + 30,
     this.diet = 'mediterranean',
+    this.aiMeals = true,
+    this.foodNotes = '',
     this.social = false,
     this.socialDays = 0x41, // Sun, Sat
     this.socialAt = 19 * 60,
@@ -71,10 +75,18 @@ class LifePlan {
     'so': {'on': social ? 1 : 0, 'dy': socialDays, 'at': socialAt, 'who': socialWho},
     'wd': {'on': wind ? 1 : 0, 'at': windAt},
     'diet': diet,
+    'ai': aiMeals ? 1 : 0,
+    'notes': foodNotes,
   };
 
   /// The watch's message: the plan without the app-only bits.
-  Map<String, dynamic> toWatch() => {'t': 'life', ...toJson()..remove('diet')};
+  Map<String, dynamic> toWatch() => {
+    't': 'life',
+    ...toJson()
+      ..remove('diet')
+      ..remove('ai')
+      ..remove('notes'),
+  };
 
   static LifePlan fromJson(Map<String, dynamic> j) {
     int i(Map? m, String k, int d) => (m?[k] as num?)?.toInt() ?? d;
@@ -105,6 +117,8 @@ class LifePlan {
       lunchAt: i(me, 'l', d.lunchAt),
       dinnerAt: i(me, 'd', d.dinnerAt),
       diet: j['diet'] as String? ?? d.diet,
+      aiMeals: j['ai'] == null ? d.aiMeals : j['ai'] == 1,
+      foodNotes: j['notes'] as String? ?? '',
       social: b(so, d.social),
       socialDays: i(so, 'dy', d.socialDays),
       socialAt: i(so, 'at', d.socialAt),
