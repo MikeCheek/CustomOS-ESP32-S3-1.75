@@ -17,6 +17,7 @@
 #include "app_reminders.h"
 #include "app_workout.h"
 #include "app_life.h"
+#include "app_tips.h"
 
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
 
@@ -523,6 +524,15 @@ static void icon_life(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 15, cy - 18, 3, IC(0x2CCA));   // keeps the disc green
 }
 
+static void icon_tips(Arduino_GFX *g, int cx, int cy, float br) {
+    // a lit bulb
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx, cy - 5, 14, c);
+    g->fillRoundRect(cx - 7, cy + 6, 14, 10, 3, c);
+    g->fillRoundRect(cx - 5, cy + 17, 10, 4, 2, c);
+    g->fillCircle(cx + 15, cy - 18, 2, IC(COLOR_WARN));   // a yellow disc
+}
+
 // In honeycomb order: the first one sits in the middle, the next six
 // around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
@@ -542,6 +552,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},
     {"World Clock",   CAT_TOOLS, icon_worldclock,    &worldclock_screen, false, 0x3A7F},
     {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
+    {"Tips",          CAT_TOOLS, icon_tips,          &tips_screen, false, 0xFD20},
     {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
     {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
     {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},

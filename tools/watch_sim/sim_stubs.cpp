@@ -384,6 +384,8 @@ bool recordings_file_busy(const char *) { return false; }
 // ---- diagnostics / updates ------------------------------------------------------------------
 const char *diag_fw_version() { return FW_VERSION; }
 const char *diag_reset_reason() { return "Power on"; }
+uint32_t diag_boot_count() { return 12; }
+uint32_t diag_crash_count() { return 0; }
 const char *diag_crash_text() { return ""; }
 uint32_t diag_crash_id() { return 0; }
 void diag_clear_crash() {}
@@ -414,4 +416,5 @@ Screen bambu_printer_screen = { "Printer", GESTURE_MODE_EDGE, 33, none, none, nu
 Screen espnow_status_screen = { "ESP-NOW", GESTURE_MODE_EDGE, 33, none, none, nullptr, nullptr, nullptr, nullptr };
 Screen wifi_setup_screen = { "WiFi Setup", GESTURE_MODE_EDGE, 33, none, none, nullptr, nullptr, nullptr, nullptr };
 uint64_t sd_card_size_mb() { return 30436; }
+uint64_t sd_used_mb() { return 4210; }
 String sd_list_root(int) { return String("Music/\nRecordings/\nPhotos/\nnotes.txt  (2 KB)\n"); }

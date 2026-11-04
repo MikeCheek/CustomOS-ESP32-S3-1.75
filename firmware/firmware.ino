@@ -36,6 +36,8 @@
 #include "fitness.h"
 #include "app_workout.h"
 #include "app_life.h"
+#include "usage_stats.h"
+#include "app_tips.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
 #include "hal_vibrate.h"
@@ -642,6 +644,7 @@ void setup() {
     fitness_init();                                        // activity rings
     workout_init();                                        // saved workouts
     life_init();                                           // Life: plan and today
+    usage_init();                                          // usage stats for Diagnostics
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
@@ -697,6 +700,9 @@ void setup() {
 
     const WatchfaceEntry *wf = watchface_get(watchface_current());
     if (wf && wf->screen) ui_push(wf->screen);
+    // The gesture tips, once: under the power-on animation (or onboarding),
+    // so they're there when it's done.
+    tips_show_if_new();
 
     if (!g_app_settings.onboarding_complete) {
         // First-ever boot (or after an NVS wipe) - the welcome/setup
@@ -758,6 +764,7 @@ void loop() {
     haptics_update();            // the cue patterns, on time
     look_update();               // the app's Faces tab follows changes made here
     life_update();               // Life: the day's nudges
+    usage_update();              // how the watch is used (Diagnostics)
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder
     workout_update();            // a running workout: steps, GPS distance

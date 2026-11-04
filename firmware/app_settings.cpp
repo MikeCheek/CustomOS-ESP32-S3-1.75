@@ -6,6 +6,7 @@
 #include <math.h>
 #include "haptics.h"
 #include "low_power.h"
+#include "app_tips.h"
 #include "app_calibration.h"
 #include "app_wifi_setup.h"
 #include "app_usb.h"
@@ -434,6 +435,7 @@ static SettingsRow ROWS_SYSTEM[] = {
     { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
     { "Software update", "Check GitHub for new firmware", ROW_SUBSCREEN, nullptr, nullptr, &fwup_screen, nullptr },
     { "Diagnostics", "Version, memory, last crash report", ROW_SUBSCREEN, nullptr, nullptr, &diagnostics_screen, nullptr },
+    { "Gesture tips", "Every swipe and button, shown", ROW_SUBSCREEN, nullptr, nullptr, &tips_screen, nullptr },
     { "Developer mode", "Tests and diagnostics in the app menu", ROW_TOGGLE, get_dev, tap_dev, nullptr, nullptr },
 };
 

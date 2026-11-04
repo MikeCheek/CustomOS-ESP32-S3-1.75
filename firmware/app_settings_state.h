@@ -99,6 +99,7 @@ struct AppSettings {
     uint16_t move_goal = 300;                // fitness.h: active kcal a day
     uint8_t weight_kg = 70;                  // for calories (fitness.h, workouts)
     uint8_t height_cm = 175;                 // for the stride: distance from steps
+    bool tips_seen = false;                  // app_tips.h: shown once
     uint8_t exercise_goal = 30;              // minutes a day
     uint8_t stand_goal = 10;                 // hours a day
     bool stand_remind = true;

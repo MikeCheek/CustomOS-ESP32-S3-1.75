@@ -75,6 +75,16 @@ int main(int argc, char **argv) {
     snprintf(p, sizeof(p), "%s/emu_link.ppm", out); save(p);
     if (!got) { printf("FAIL: no message from the watch\n"); return 1; }
 
+    // the app's Diagnostics asks how the watch is used: three parts come back
+    emu_link_push("{\"t\":\"usage\"}");
+    run(200);
+    int parts = 0;
+    while ((n = emu_link_pop(buf, sizeof(buf))) > 0) {
+        if (strstr(buf, "\"e\":\"usage\"")) { parts++; printf("usage part: %.90s...\n", buf); }
+    }
+    printf("usage parts: %d\n", parts);
+    if (parts != 3) { printf("FAIL: usage report\n"); return 1; }
+
     // phase 3: a fall on the phone's accelerometer (62.5 Hz), then the alert's beeps
     auto acc = [](float x, float y, float z, float secs) {
         for (int i = 0; i < (int)(secs * 62.5f); i++) { emu_set_accel(x, y, z); if (i % 4 == 0) emu_step(); wait_ms(16); }

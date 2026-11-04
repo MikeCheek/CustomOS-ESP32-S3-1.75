@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/usage_provider.dart';
+import '../widgets/watch_usage_card.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
@@ -51,6 +53,7 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> with Widg
       final link = ref.read(companionProvider.notifier);
       if (ref.read(bleProvider).isConnected) {
         await link.requestDiagnostics();
+        await ref.read(usageProvider.notifier).request(); // battery, screen time, apps (fw 3.5+)
       }
       final s = await SetupStatus.check(ref.read(nativeServiceProvider));
       if (mounted) setState(() => _setup = s);
@@ -91,22 +94,32 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> with Widg
         children: [
           const SectionLabel('Watch'),
           Panel(
-            child: Column(children: [
-              _Info('Connection', ble.isConnected ? (link.linkActive ? 'Connected, phone link on' : 'Connected') : 'Not connected',
-                  color: ble.isConnected ? AppColors.success : AppColors.danger),
-              _Info('Firmware', link.watchFirmware ?? (ble.isConnected ? 'older than 2.5' : '—')),
-              _Info('Last restart', link.watchResetReason ?? '—',
-                  color: _isCrashReason(link.watchResetReason) ? AppColors.warning : null),
-              _Info('Battery', ble.batteryLevel >= 0 ? '${ble.batteryLevel}%' : '—'),
-            ]),
+            child: Column(
+              children: [
+                _Info(
+                  'Connection',
+                  ble.isConnected ? (link.linkActive ? 'Connected, phone link on' : 'Connected') : 'Not connected',
+                  color: ble.isConnected ? AppColors.success : AppColors.danger,
+                ),
+                _Info('Firmware', link.watchFirmware ?? (ble.isConnected ? 'older than 2.5' : '—')),
+                _Info(
+                  'Last restart',
+                  link.watchResetReason ?? '—',
+                  color: _isCrashReason(link.watchResetReason) ? AppColors.warning : null,
+                ),
+                _Info('Battery', ble.batteryLevel >= 0 ? '${ble.batteryLevel}%' : '—'),
+              ],
+            ),
           ),
-          if ((link.watchSystem ?? '').isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _MonoBlock(text: link.watchSystem!),
-          ],
-          SectionLabel('Last crash',
-              trailing: crash.isNotEmpty
-                  ? Row(mainAxisSize: MainAxisSize.min, children: [
+          if ((link.watchSystem ?? '').isNotEmpty) ...[const SizedBox(height: 10), _MonoBlock(text: link.watchSystem!)],
+          const SectionLabel('Usage & battery'),
+          const WatchUsageSection(),
+          SectionLabel(
+            'Last crash',
+            trailing: crash.isNotEmpty
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       TextButton.icon(
                         icon: const Icon(Icons.copy_rounded, size: 16),
                         label: const Text('Copy'),
@@ -119,8 +132,10 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> with Widg
                         onPressed: () => ref.read(companionProvider.notifier).requestDiagnostics(clear: true),
                         child: const Text('Clear', style: TextStyle(color: AppColors.danger)),
                       ),
-                    ])
-                  : null),
+                    ],
+                  )
+                : null,
+          ),
           if (crash.isNotEmpty) ...[
             _MonoBlock(text: crash, color: AppColors.warning),
             const Padding(
@@ -133,112 +148,118 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> with Widg
             ),
           ] else
             Panel(
-              child: Row(children: [
-                const IconChip(Icons.verified_rounded, color: AppColors.success),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    !ble.isConnected
-                        ? 'Connect the watch to read its crash log'
-                        : link.diagnosticsAt == null
-                            ? (link.linkActive ? 'Asking the watch…' : 'Update the watch firmware to read crash reports')
-                            : 'No crashes recorded',
-                    style: const TextStyle(color: AppColors.text, fontSize: 14),
+              child: Row(
+                children: [
+                  const IconChip(Icons.verified_rounded, color: AppColors.success),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      !ble.isConnected
+                          ? 'Connect the watch to read its crash log'
+                          : link.diagnosticsAt == null
+                          ? (link.linkActive ? 'Asking the watch…' : 'Update the watch firmware to read crash reports')
+                          : 'No crashes recorded',
+                      style: const TextStyle(color: AppColors.text, fontSize: 14),
+                    ),
                   ),
-                ),
-              ]),
+                ],
+              ),
             ),
           const SectionLabel('Firmware'),
-          RowGroup(children: [
-            NavRow(
-              icon: Icons.system_update_rounded,
-              color: AppColors.accent2,
-              title: 'Update watch firmware',
-              subtitle: 'Install a .bin over Bluetooth',
-              onTap: () => _push(const FirmwareUpdateScreen()),
-            ),
-          ]),
+          RowGroup(
+            children: [
+              NavRow(
+                icon: Icons.system_update_rounded,
+                color: AppColors.accent2,
+                title: 'Update watch firmware',
+                subtitle: 'Install a .bin over Bluetooth',
+                onTap: () => _push(const FirmwareUpdateScreen()),
+              ),
+            ],
+          ),
           const SectionLabel('This phone'),
           if (s == null)
             const Panel(child: Center(child: CircularProgressIndicator()))
           else
-            RowGroup(children: [
-              _Check(
-                icon: Icons.bluetooth_rounded,
-                title: 'Nearby devices',
-                ok: s.bluetooth,
-                okText: 'Allowed',
-                fix: () async {
-                  await SetupStatus.requestBluetooth();
-                  _refresh();
-                },
-              ),
-              _Check(
-                icon: Icons.notifications_active_outlined,
-                title: 'Notification access',
-                ok: s.notificationAccess,
-                okText: settings.forwardNotifications ? 'Forwarding on' : 'Allowed, forwarding off',
-                fix: () => _push(const NotificationsScreen()),
-              ),
-              _Check(
-                icon: Icons.sync_lock_rounded,
-                title: 'Status notification',
-                ok: s.postNotifications || !settings.backgroundLink,
-                okText: settings.backgroundLink ? 'Allowed' : 'Background link off',
-                fix: () async {
-                  await Permission.notification.request();
-                  _refresh();
-                },
-              ),
-              _Check(
-                icon: Icons.place_outlined,
-                title: 'Location (weather)',
-                ok: s.location || !settings.weatherAuto,
-                okText: settings.weatherAuto ? 'Allowed' : 'Weather off',
-                fix: () async {
-                  await Permission.locationWhenInUse.request();
-                  _refresh();
-                },
-              ),
-              _Check(
-                icon: Icons.calendar_month_rounded,
-                title: 'Calendar',
-                ok: s.calendar || !settings.calendarToWatch,
-                okText: settings.calendarToWatch ? 'Allowed' : 'Calendar off',
-                fix: () async {
-                  await Permission.calendarFullAccess.request();
-                  await ref.read(companionProvider.notifier).calendarPermissionChanged();
-                  _refresh();
-                },
-              ),
-              _Check(
-                icon: Icons.contacts_outlined,
-                title: 'Contacts',
-                ok: s.contacts,
-                okText: 'Allowed',
-                optional: true,
-                fix: () async {
-                  await Permission.contacts.request();
-                  _refresh();
-                },
-              ),
-              _Check(
-                icon: Icons.record_voice_over_outlined,
-                title: 'Speech model',
-                ok: s.speechModel,
-                okText: 'Installed - memos and voice replies',
-                failText: 'Needed for transcripts and voice replies',
-                fix: () => _push(const AiSettingsScreen()),
-              ),
-              _Check(
-                icon: Icons.auto_awesome_rounded,
-                title: 'Summary model',
-                ok: s.summaryModel,
-                okText: 'Installed',
-                optional: true,
-                fix: () => _push(const AiSettingsScreen()),
-              ),
-            ]),
+            RowGroup(
+              children: [
+                _Check(
+                  icon: Icons.bluetooth_rounded,
+                  title: 'Nearby devices',
+                  ok: s.bluetooth,
+                  okText: 'Allowed',
+                  fix: () async {
+                    await SetupStatus.requestBluetooth();
+                    _refresh();
+                  },
+                ),
+                _Check(
+                  icon: Icons.notifications_active_outlined,
+                  title: 'Notification access',
+                  ok: s.notificationAccess,
+                  okText: settings.forwardNotifications ? 'Forwarding on' : 'Allowed, forwarding off',
+                  fix: () => _push(const NotificationsScreen()),
+                ),
+                _Check(
+                  icon: Icons.sync_lock_rounded,
+                  title: 'Status notification',
+                  ok: s.postNotifications || !settings.backgroundLink,
+                  okText: settings.backgroundLink ? 'Allowed' : 'Background link off',
+                  fix: () async {
+                    await Permission.notification.request();
+                    _refresh();
+                  },
+                ),
+                _Check(
+                  icon: Icons.place_outlined,
+                  title: 'Location (weather)',
+                  ok: s.location || !settings.weatherAuto,
+                  okText: settings.weatherAuto ? 'Allowed' : 'Weather off',
+                  fix: () async {
+                    await Permission.locationWhenInUse.request();
+                    _refresh();
+                  },
+                ),
+                _Check(
+                  icon: Icons.calendar_month_rounded,
+                  title: 'Calendar',
+                  ok: s.calendar || !settings.calendarToWatch,
+                  okText: settings.calendarToWatch ? 'Allowed' : 'Calendar off',
+                  fix: () async {
+                    await Permission.calendarFullAccess.request();
+                    await ref.read(companionProvider.notifier).calendarPermissionChanged();
+                    _refresh();
+                  },
+                ),
+                _Check(
+                  icon: Icons.contacts_outlined,
+                  title: 'Contacts',
+                  ok: s.contacts,
+                  okText: 'Allowed',
+                  optional: true,
+                  fix: () async {
+                    await Permission.contacts.request();
+                    _refresh();
+                  },
+                ),
+                _Check(
+                  icon: Icons.record_voice_over_outlined,
+                  title: 'Speech model',
+                  ok: s.speechModel,
+                  okText: 'Installed - memos and voice replies',
+                  failText: 'Needed for transcripts and voice replies',
+                  fix: () => _push(const AiSettingsScreen()),
+                ),
+                _Check(
+                  icon: Icons.auto_awesome_rounded,
+                  title: 'Summary model',
+                  ok: s.summaryModel,
+                  okText: 'Installed',
+                  optional: true,
+                  fix: () => _push(const AiSettingsScreen()),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -257,14 +278,20 @@ class _Info extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(children: [
-        Expanded(child: Text(label, style: const TextStyle(color: AppColors.textDim, fontSize: 14))),
-        Flexible(
-          child: Text(value,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: const TextStyle(color: AppColors.textDim, fontSize: 14)),
+          ),
+          Flexible(
+            child: Text(
+              value,
               textAlign: TextAlign.right,
-              style: TextStyle(color: color ?? AppColors.text, fontSize: 14, fontWeight: FontWeight.w500)),
-        ),
-      ]),
+              style: TextStyle(color: color ?? AppColors.text, fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -280,12 +307,7 @@ class _MonoBlock extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       child: SelectableText(
         text.trim(),
-        style: TextStyle(
-          color: color ?? AppColors.textDim,
-          fontFamily: 'monospace',
-          fontSize: 12,
-          height: 1.45,
-        ),
+        style: TextStyle(color: color ?? AppColors.textDim, fontFamily: 'monospace', fontSize: 12, height: 1.45),
       ),
     );
   }

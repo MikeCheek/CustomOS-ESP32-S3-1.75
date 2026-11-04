@@ -9,6 +9,7 @@
 #include "ui_font.h"
 #include "phone_images.h"
 #include "haptics.h"
+#include "usage_stats.h"
 #include "app_calendar.h"
 #include "hal_touch.h"
 #include <Arduino_GFX_Library.h>
@@ -94,6 +95,7 @@ uint32_t notifications_unread() { return s_unread; }
 
 static void toast_for(const NotifHistoryItem &it) {
     s_unread++;
+    usage_count_notification();
     if (dnd_active() || notifications_app_muted(it.source)) return;
     haptic(HAP_NOTIFY);
     char t[96];

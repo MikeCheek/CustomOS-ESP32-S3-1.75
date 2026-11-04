@@ -36,6 +36,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Notifications stacked by app | Swipe left to clear | Hold PWR: power off or SOS | Emergency SOS |
 | ![](docs/screenshots/life.png) | ![](docs/screenshots/life_meals.png) | ![](docs/screenshots/breathe.png) | ![](docs/screenshots/stretch.png) |
 | Life: today's habits | Meal ideas | Breathe | Stretch break |
+| ![](docs/screenshots/tips_swipe.png) | ![](docs/screenshots/tips_hold.png) | ![](docs/screenshots/tips_button.png) | |
+| Tips: swipes | Tips: touch and hold | Tips: buttons | |
 
 ### Getting around
 
@@ -47,7 +49,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Swipe down, or BOOT | Control Center (the quick panel) |
 | Swipe right | Notifications |
 
-Hold PWR for power off or Emergency SOS (5 s countdown, then the phone texts your emergency contact with its location). A red dot at the top of a face means unread notifications. Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
+Settings > System > Gesture tips (also shown once after an update) walks through all of these with little animations. Hold PWR for power off or Emergency SOS (5 s countdown, then the phone texts your emergency contact with its location). A red dot at the top of a face means unread notifications. Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
 
 ### In motion
 

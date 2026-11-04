@@ -23,6 +23,7 @@ extern Screen snake_screen;
 extern Screen breakout_screen;
 #define breakout_screen_ref breakout_screen
 #include "app_life.h"
+#include "app_tips.h"
 extern Screen life_meal_screen;
 static Screen &life_meal_screen_ref() { return life_meal_screen; }
 #include "app_menu.h"
@@ -189,6 +190,13 @@ void sim_scenarios() {
     sim_save("breathe");
     shot(&stretch_screen, "stretch", 4000);
     shot(&settings_body_screen_ref, "body");
+    shot(&tips_screen, "tips_swipe", 900);
+    for (int i = 0; i < 4; i++) sim_tap(380, 233);    // on to "Touch and hold"
+    sim_run(1200);
+    sim_save("tips_hold");
+    for (int i = 0; i < 2; i++) sim_tap(380, 233);    // "Side button"
+    sim_run(1000);
+    sim_save("tips_button");
     shot(&contacts_screen_ref, "review_contacts");
     shot(&phone_screen_ref, "review_phone");
     shot(&gallery_screen_ref, "review_gallery");

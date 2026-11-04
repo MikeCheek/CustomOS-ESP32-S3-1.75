@@ -68,6 +68,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUShort("move_goal", s.move_goal);
     s_prefs.putUChar("weight", s.weight_kg);
     s_prefs.putUChar("height", s.height_cm);
+    s_prefs.putBool("tips_seen", s.tips_seen);
     s_prefs.putUChar("ex_goal", s.exercise_goal);
     s_prefs.putUChar("st_goal", s.stand_goal);
     s_prefs.putBool("st_remind", s.stand_remind);
@@ -164,6 +165,7 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.weight_kg < 30 || s.weight_kg > 250) s.weight_kg = 70;
     s.height_cm = s_prefs.getUChar("height", 175);
     if (s.height_cm < 100 || s.height_cm > 230) s.height_cm = 175;
+    s.tips_seen = s_prefs.getBool("tips_seen", false);
     s.exercise_goal = s_prefs.getUChar("ex_goal", 30);
     if (s.exercise_goal < 5 || s.exercise_goal > 240) s.exercise_goal = 30;
     s.stand_goal = s_prefs.getUChar("st_goal", 10);

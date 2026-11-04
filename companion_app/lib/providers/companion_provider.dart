@@ -21,6 +21,7 @@ import 'knowledge_provider.dart';
 import 'fitness_provider.dart';
 import 'look_provider.dart';
 import 'life_provider.dart';
+import 'usage_provider.dart';
 import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
@@ -512,6 +513,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case 'life':
         _ref.read(lifeProvider.notifier).onWatch(e);
         break;
+      case 'usage':
+        _ref.read(usageProvider.notifier).onPart(e);
+        break;
       case 'look':
         _ref.read(lookProvider.notifier).fromWatch(e);
         // slots changed on the watch: the app's copy follows (no echo: the same slots don't resend)
@@ -541,6 +545,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   void _onWatchReport(Map<String, dynamic> e) {
     if (!mounted) return;
     _ref.read(fitnessProvider.notifier).onReport(e);
+    _ref.read(usageProvider.notifier).onReport((e['bat'] as num?)?.toInt() ?? -1, (e['chg'] ?? 0) == 1);
     final steps = (e['st'] as num?)?.toInt() ?? -1;
     final hist = Map<String, int>.from(state.stepsHistory);
     if (steps >= 0) {

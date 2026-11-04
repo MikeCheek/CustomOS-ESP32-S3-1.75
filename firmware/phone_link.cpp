@@ -9,6 +9,7 @@
 #include "app_sos.h"
 #include "face_look.h"
 #include "app_life.h"
+#include "usage_stats.h"
 #include "fitness.h"
 #include "complications.h"
 #include "dnd.h"
@@ -189,6 +190,8 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "usage")) {
+        usage_send();   // the app's Diagnostics: battery, screen time, apps
     } else if (!strcmp(t, "body")) {
         // weight and height from the app's Activity screen
         int kg = doc["kg"] | 0, cm = doc["cm"] | 0;

@@ -168,6 +168,10 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | phone → watch | `{"t":"meals","b":"Greek yogurt...","l":"...","d":"..."}` | today's meal ideas (up to ~70 letters each) |
 | watch → phone | `{"e":"life","d":20261104,"w":3,"st":1,"mi":2,"tr":12,"me":2,"so":0,"wd":0,"sc":42,"h":[[20261103,8,3,3,30,3,1,1,100],...]}` | today in Life (water glasses, stretch breaks, mindful min, exercise min, meals, social, wind-down, score %) after each change, and the last days `h` on `hi` |
 | phone → watch | `{"t":"body","kg":70,"cm":175}` | weight (30-250 kg) and height (100-230 cm) for calories and the stride (fw 3.5+); the watch answers with a status report, which carries `kg` and `cm` too |
+| phone → watch | `{"t":"usage"}` | the app's Diagnostics asks how the watch is used (fw 3.5+); three answers follow |
+| watch → phone | `{"e":"usage","p":0,"iv":10,"bat":"5251ff...","chg":"0001..."}` | the battery every 10 min over 24 h, oldest first, two hex digits each (`ff` = no sample), and charging per sample |
+| watch → phone | `{"e":"usage","p":1,"on":[...24],"wk":[...24],"ony":[...24]}` | screen-on seconds and wake-ups per hour today, screen-on yesterday |
+| watch → phone | `{"e":"usage","p":2,"apps":[["Music",1234],...],"wake":64,"disc":2,"ntf":41,"boot":12,"crash":0,"heap":61,"psram":7100,"sd":[30436,4210],"up":52000,"rr":"Power on"}` | seconds per app today (top 12), counters, lowest free internal RAM (KB), free PSRAM (KB), SD total/used (MB), uptime, last reset |
 | watch → phone | `{"e":"sos"}` | Emergency SOS (fw 3.5+, hold PWR, slide): the phone rings and texts the emergency contact with its location, then answers `{"t":"sos","ok":1}` or `{"t":"sos","ok":0,"why":"..."}` |
 | phone → watch | `{"t":"woack","st":<start>}` | a workout arrived (see `wo`); the watch stops resending it |
 | watch → phone | `{"e":"wo","ty":"Outdoor Run","st":<start>,"du":1800,"m":5230,"kc":310,"stp":4800,"gps":1}` | a finished workout (fw 3.5+): start in local epoch seconds, seconds, metres (0 = none), active kcal, steps, GPS distance. Sent again on every `hi` until acked |
