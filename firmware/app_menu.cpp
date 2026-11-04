@@ -592,34 +592,51 @@ static const int MENU_COUNT = sizeof(MENU_ENTRIES) / sizeof(MENU_ENTRIES[0]);
 //  Icons: drawn once into a small image each, in one style
 // =========================================================================
 //
-// Every icon is drawn by its function above into a 128x128 image, then
-// restyled the same way: a disc in the icon's own colour (lighter at the
-// top) with the drawing in white on it - the look of watchOS's app icons,
-// whatever colours each drawing used. The images can then be drawn at any
-// size: smaller toward the edge of the honeycomb, growing when an app
-// opens, small in the list.
-static const int SPR = 128, SPR_R = 62;
-static const uint16_t KEY = 0x0821;              // "nothing here" (outside the disc)
-static uint16_t *s_spr[MENU_COUNT];
+// Every icon is drawn by its function above at its own (small) scale,
+// then rebuilt into a 128x128 image in one style: a disc in the icon's own
+// colour (lighter at the top) with the drawing in white on it - the look
+// of watchOS's app icons, whatever colours each drawing used. The rebuild
+// enlarges the drawing smoothly (its outline is interpolated and cut
+// again, so curves and diagonals come out smooth instead of in steps),
+// anti-aliases it, and dithers the gradient so it doesn't band in 16-bit
+// colour. A half-size copy is kept for small icons, and the disc's round
+// edge is worked out at the size it's drawn, so it's smooth at any size:
+// smaller toward the edge of the honeycomb, growing when an app opens,
+// small in the list.
+static const int SPR = 128, SPR_R = 62;          // the image, and its disc
+static const int MIP = 64, MIP_R = 31;           // the half-size copy
+static const int SRC = 84;                       // the drawing, at its own scale
+static const float GLYPH = 1.45f;                // how much bigger it's drawn on the disc
+static uint16_t *s_spr[MENU_COUNT], *s_mip[MENU_COUNT];
 
 static void rgb(uint16_t c, int &r, int &g, int &b) { r = (c >> 11) << 3; g = ((c >> 5) & 0x3F) << 2; b = (c & 0x1F) << 3; }
+
+// 4x4 ordered dither, -0.5..0.5 of one 16-bit step
+static const int8_t BAYER[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+static inline uint16_t dither565(float r, float g, float b, int x, int y) {
+    float d = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5f) / 16.0f - 0.5f;
+    int ri = (int)(r / 8.0f + d + 0.5f), gi = (int)(g / 4.0f + d + 0.5f), bi = (int)(b / 8.0f + d + 0.5f);
+    ri = ri < 0 ? 0 : ri > 31 ? 31 : ri;
+    gi = gi < 0 ? 0 : gi > 63 ? 63 : gi;
+    bi = bi < 0 ? 0 : bi > 31 ? 31 : bi;
+    return (uint16_t)((ri << 11) | (gi << 5) | bi);
+}
 
 static void make_sprite(int i) {
     static Arduino_Canvas *canvas = nullptr;
     if (!canvas) {
-        canvas = new Arduino_Canvas(SPR, SPR, nullptr);
+        canvas = new Arduino_Canvas(SRC, SRC, nullptr);
         if (!canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) { delete canvas; canvas = nullptr; return; }
     }
     uint16_t *px = canvas->getFramebuffer();
-    canvas->fillScreen(KEY);
-    canvas->fillCircle(SPR / 2, SPR / 2, SPR_R, COLOR_PANEL);
-    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(canvas, SPR / 2, SPR / 2, 1.0f);
+    canvas->fillScreen(COLOR_PANEL);
+    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(canvas, SRC / 2, SRC / 2, 1.0f);
 
     // The drawing's own colour (its most saturated pixels) becomes the disc's.
     long sr = 0, sg = 0, sb = 0, sw = 0;
-    for (int k = 0; k < SPR * SPR; k++) {
+    for (int k = 0; k < SRC * SRC; k++) {
         uint16_t c = px[k];
-        if (c == KEY || c == COLOR_PANEL) continue;
+        if (c == COLOR_PANEL) continue;
         int r, g, b;
         rgb(c, r, g, b);
         int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
@@ -634,41 +651,110 @@ static void make_sprite(int i) {
     int mx = tr > tg ? (tr > tb ? tr : tb) : (tg > tb ? tg : tb);
     if (mx < 150 && mx > 0) { tr = tr * 150 / mx; tg = tg * 150 / mx; tb = tb * 150 / mx; }
 
+    // Per pixel of the drawing: is something drawn there (cov), and how
+    // white it is (tone: its darker parts become a shade of the disc).
+    uint8_t *cov = (uint8_t *)heap_caps_malloc(SRC * SRC * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     uint16_t *out = (uint16_t *)heap_caps_malloc(SPR * SPR * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!out) return;
+    uint16_t *mip = (uint16_t *)heap_caps_malloc(MIP * MIP * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!cov || !out || !mip) { free(cov); free(out); free(mip); return; }
+    uint8_t *tone = cov + SRC * SRC;
+    for (int k = 0; k < SRC * SRC; k++) {
+        uint16_t c = px[k];
+        if (c == COLOR_PANEL) { cov[k] = 0; tone[k] = 0; continue; }
+        int r, g, b;
+        rgb(c, r, g, b);
+        int luma = (r * 3 + g * 6 + b) / 10;
+        float a = luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
+        cov[k] = 255;
+        tone[k] = (uint8_t)(a * 255);
+    }
+    auto at = [&](const uint8_t *m, int x, int y) -> float {
+        return (x < 0 || y < 0 || x >= SRC || y >= SRC) ? 0.0f : m[y * SRC + x] / 255.0f;
+    };
+
     for (int y = 0; y < SPR; y++) {
         // disc: lighter at the top, deeper at the bottom
-        float k = 1.08f - 0.38f * y / SPR;
-        int br = (int)(tr * k), bg = (int)(tg * k), bb = (int)(tb * k);
-        if (br > 255) br = 255;
-        if (bg > 255) bg = 255;
-        if (bb > 255) bb = 255;
-        uint16_t disc = COLOR565(br, bg, bb);
+        float k = 1.08f - 0.38f * (y + 0.5f) / SPR;
+        float dr = tr * k, dg = tg * k, db = tb * k;
+        if (dr > 255) dr = 255;
+        if (dg > 255) dg = 255;
+        if (db > 255) db = 255;
+        float v = SRC / 2.0f + (y + 0.5f - SPR / 2.0f) / GLYPH - 0.5f;
+        int y0 = (int)floorf(v);
+        float fy = v - y0;
         for (int x = 0; x < SPR; x++) {
-            uint16_t c = px[y * SPR + x];
-            if (c == KEY) { out[y * SPR + x] = KEY; continue; }
-            if (c == COLOR_PANEL) { out[y * SPR + x] = disc; continue; }
-            int r, g, b;
-            rgb(c, r, g, b);
-            int luma = (r * 3 + g * 6 + b) / 10;
-            // the drawing in white, its darker parts a shade of the disc (keeps detail)
-            float a = luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
-            out[y * SPR + x] = COLOR565((int)(255 * a + br * (1 - a)), (int)(255 * a + bg * (1 - a)),
-                                        (int)(255 * a + bb * (1 - a)));
+            float u = SRC / 2.0f + (x + 0.5f - SPR / 2.0f) / GLYPH - 0.5f;
+            int x0 = (int)floorf(u);
+            float fx = u - x0;
+            float w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+            float c00 = at(cov, x0, y0), c10 = at(cov, x0 + 1, y0), c01 = at(cov, x0, y0 + 1), c11 = at(cov, x0 + 1, y0 + 1);
+            float c = c00 * w00 + c10 * w10 + c01 * w01 + c11 * w11;
+            float a = 0;
+            if (c > 0) {
+                // the outline: cut the smooth coverage at half, ~1 pixel soft
+                float s = (c - 0.5f) * GLYPH * 1.1f + 0.5f;
+                s = s < 0 ? 0 : s > 1 ? 1 : s;
+                if (s > 0) {
+                    float t = (at(tone, x0, y0) * w00 + at(tone, x0 + 1, y0) * w10 + at(tone, x0, y0 + 1) * w01 +
+                               at(tone, x0 + 1, y0 + 1) * w11) / c;
+                    a = s * (t > 1 ? 1 : t);
+                }
+            }
+            out[y * SPR + x] = dither565(255 * a + dr * (1 - a), 255 * a + dg * (1 - a), 255 * a + db * (1 - a), x, y);
         }
     }
+    // the half-size copy: each pixel the average of four
+    for (int y = 0; y < MIP; y++)
+        for (int x = 0; x < MIP; x++) {
+            int r = 0, g = 0, b = 0;
+            for (int q = 0; q < 4; q++) {
+                int cr, cg, cb;
+                rgb(out[(y * 2 + (q >> 1)) * SPR + x * 2 + (q & 1)], cr, cg, cb);
+                r += cr; g += cg; b += cb;
+            }
+            mip[y * MIP + x] = dither565(r / 4.0f, g / 4.0f, b / 4.0f, x, y);
+        }
+    free(cov);
     s_spr[i] = out;
+    s_mip[i] = mip;
 }
 
-// Draws icon i with its centre at (cx, cy), r pixels across the middle
-// (nearest-neighbour scaling, straight into the frame).
+static inline uint16_t mix565(uint16_t fg, uint16_t bg, int a /*0..256*/) {
+    uint32_t f = ((fg & 0xF81F) | ((uint32_t)(fg & 0x07E0) << 16));
+    uint32_t b = ((bg & 0xF81F) | ((uint32_t)(bg & 0x07E0) << 16));
+    uint32_t k = (uint32_t)(a < 0 ? 0 : a > 256 ? 256 : a) >> 3;   // 0..32
+    uint32_t m = ((f * k + b * (32 - k)) >> 5) & 0x07E0F81F;
+    return (uint16_t)(m | (m >> 16));
+}
+
+// Fills a disc with a smooth (anti-aliased) edge, straight into the frame.
+static void fill_disc_aa(uint16_t *fb, int cx, int cy, int r, uint16_t color) {
+    if (!fb || r < 1) return;
+    int in2 = (2 * r - 1) * (2 * r - 1), out2 = (2 * r + 1) * (2 * r + 1);
+    for (int y = -r - 1; y <= r; y++) {
+        int sy = cy + y;
+        if (sy < 0 || sy >= LCD_HEIGHT) continue;
+        int Y = 2 * y + 1;
+        uint16_t *drow = fb + sy * LCD_WIDTH;
+        for (int x = -r - 1; x <= r; x++) {
+            int sx = cx + x;
+            if (sx < 0 || sx >= LCD_WIDTH) continue;
+            int X = 2 * x + 1, d2 = X * X + Y * Y;
+            if (d2 >= out2) continue;
+            if (d2 <= in2) { drow[sx] = color; continue; }
+            float a = r + 0.5f - sqrtf((float)d2) * 0.5f;
+            drow[sx] = mix565(color, drow[sx], (int)(a * 256));
+        }
+    }
+}
+
+// Draws icon i with its centre at (cx, cy), r pixels across the middle,
+// straight into the frame.
 static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r);
 
 // A folder: a frosted disc with its first four apps, small, in a 2x2 grid.
 static void blit_folder(uint16_t *fb, int i, int cx, int cy, int r) {
-    Arduino_GFX *g = ui_gfx();
-    if (!g) return;
-    g->fillCircle(cx, cy, r, 0x3186);
+    fill_disc_aa(fb, cx, cy, r, 0x3186);
     int shown = 0, cat = MENU_ENTRIES[i].folder;
     int mr = r * 30 / 100, off = r * 36 / 100;
     for (int k = 0; k < MENU_COUNT && shown < 4; k++) {
@@ -684,26 +770,33 @@ static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
     if (r < 3) return;
     if (MENU_ENTRIES[i].folder >= 0) { blit_folder(fb, i, cx, cy, r); return; }
     if (!s_spr[i]) make_sprite(i);
-    const uint16_t *sp = s_spr[i];
-    if (!sp || !fb) return;
-    int d = 2 * r;
-    int x0 = cx - r, y0 = cy - r;
-    // the sprite's disc is SPR_R of SPR/2: map r -> SPR_R
-    float step = (float)SPR_R / r;
-    for (int y = 0; y < d; y++) {
-        int sy = y0 + y;
+    if (!s_spr[i] || !fb) return;
+    // small: the half-size copy (sampling the big one would skip pixels and shimmer)
+    bool small = r <= MIP_R + 4;
+    const uint16_t *sp = small ? s_mip[i] : s_spr[i];
+    int n = small ? MIP : SPR;
+    float step = (float)(small ? MIP_R : SPR_R) / r;
+    int in2 = (2 * r - 1) * (2 * r - 1), out2 = (2 * r + 1) * (2 * r + 1);
+    for (int y = -r - 1; y <= r; y++) {
+        int sy = cy + y;
         if (sy < 0 || sy >= LCD_HEIGHT) continue;
-        int v = (int)(SPR / 2 + (y - r) * step);
-        if (v < 0 || v >= SPR) continue;
-        const uint16_t *srow = sp + v * SPR;
+        int Y = 2 * y + 1;
+        int v = (int)(n / 2 + (y + 0.5f) * step);
+        v = v < 0 ? 0 : v >= n ? n - 1 : v;
+        const uint16_t *srow = sp + v * n;
         uint16_t *drow = fb + sy * LCD_WIDTH;
-        for (int x = 0; x < d; x++) {
-            int sx = x0 + x;
+        for (int x = -r - 1; x <= r; x++) {
+            int sx = cx + x;
             if (sx < 0 || sx >= LCD_WIDTH) continue;
-            int u = (int)(SPR / 2 + (x - r) * step);
-            if (u < 0 || u >= SPR) continue;
+            int X = 2 * x + 1, d2 = X * X + Y * Y;
+            if (d2 >= out2) continue;
+            int u = (int)(n / 2 + (x + 0.5f) * step);
+            u = u < 0 ? 0 : u >= n ? n - 1 : u;
             uint16_t c = srow[u];
-            if (c != KEY) drow[sx] = c;
+            if (d2 <= in2) { drow[sx] = c; continue; }
+            // the round edge, anti-aliased at the size it's drawn
+            float a = r + 0.5f - sqrtf((float)d2) * 0.5f;
+            drow[sx] = mix565(c, drow[sx], (int)(a * 256));
         }
     }
 }
