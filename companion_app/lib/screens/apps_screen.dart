@@ -25,6 +25,7 @@ import 'safety_screen.dart';
 import 'sound_alerts_screen.dart';
 import 'wake_word_screen.dart';
 import 'watch_wifi_screen.dart';
+import 'wallet_screen.dart';
 import 'weather_screen.dart';
 import '../widgets/platform_notice.dart';
 
@@ -122,6 +123,14 @@ final appGroups = <AppGroup>[
   ]),
   AppGroup('Watch', [
     AppFeature(
+      'Wallet',
+      'Boarding passes, tickets and cards, ready to scan on the watch',
+      Icons.qr_code_2_rounded,
+      AppColors.accent2,
+      page: () => const WalletScreen(),
+      keywords: ['qr', 'barcode', 'ticket', 'boarding', 'loyalty', 'card', 'pass'],
+    ),
+    AppFeature(
       'Faces & display',
       'Pick and style the face, slots, brightness, photo and designed faces',
       Icons.palette_outlined,
@@ -214,7 +223,18 @@ final appGroups = <AppGroup>[
       Icons.spa_rounded,
       Color(0xFF2CCA70),
       page: () => const LifeScreen(),
-      keywords: ['habits', 'water', 'meditation', 'mindfulness', 'stretch', 'meals', 'diet', 'social', 'wellbeing', 'health'],
+      keywords: [
+        'habits',
+        'water',
+        'meditation',
+        'mindfulness',
+        'stretch',
+        'meals',
+        'diet',
+        'social',
+        'wellbeing',
+        'health',
+      ],
     ),
     AppFeature(
       'Activity',

@@ -1,6 +1,8 @@
 // The screenshots: each scenario sets up the watch, runs the UI for a
 // moment and saves the frame on screen.
 #include <Arduino.h>
+#include <string>
+#include <stdio.h>
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
@@ -28,6 +30,7 @@ extern Screen life_meal_screen;
 static Screen &life_meal_screen_ref() { return life_meal_screen; }
 #include "app_menu.h"
 #include "app_tiles.h"
+#include "app_wallet.h"
 #include "app_sos.h"
 #include "app_poweroff.h"
 #include "app_activity.h"
@@ -157,6 +160,21 @@ void sim_scenarios() {
         memcpy(g_app_settings.tiles, keep, sizeof(keep));
     }
     shot(&settings_home_screen, "settings_home");
+    // Wallet: three passes made by the app's own encoder (companion_app/test/wallet_codes_test.dart)
+    {
+        std::string path = __FILE__;
+        path = path.substr(0, path.find_last_of('/') + 1) + "wallet_sample.json";
+        FILE *f = fopen(path.c_str(), "r");
+        char line[1024];
+        while (f && fgets(line, sizeof(line), f)) {
+            JsonDocument d;
+            if (!deserializeJson(d, line)) wallet_on_link(d);
+        }
+        if (f) fclose(f);
+        shot(&wallet_screen, "wallet");
+        static const char *const N[3] = {"wallet_aztec", "wallet_qr", "wallet_barcode"};
+        for (int i = 0; i < 3; i++) { wallet_open_next(i); shot(&wallet_screen, N[i]); }
+    }
     shot(&activity_screen, "activity_rings");
     shot(&rings_celebrate_screen, "rings_closed", 1600);
     shot(&weather_screen, "weather");

@@ -20,6 +20,7 @@ import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import 'fitness_provider.dart';
 import 'home_provider.dart';
+import 'wallet_provider.dart';
 import 'look_provider.dart';
 import 'life_provider.dart';
 import 'usage_provider.dart';
@@ -528,6 +529,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         break;
       case 'usage':
         _ref.read(usageProvider.notifier).onPart(e);
+        break;
+      case 'wal':
+        await _ref.read(walletProvider.notifier).onWatch(e);
         break;
       case 'home':
         _ref.read(homeProvider.notifier).fromWatch(e);

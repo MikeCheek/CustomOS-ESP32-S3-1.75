@@ -14,6 +14,7 @@
 #include "app_weather.h"
 #include "app_workout.h"
 #include "app_assistant.h"
+#include "app_wallet.h"
 #include "watchface_registry.h"
 #include <Arduino.h>
 #include <string.h>
@@ -35,6 +36,7 @@ static const ActionInfo ACTIONS[HA_COUNT] = {
     {"activity", "Activity"},     {"weather", "Weather"},
     {"calendar", "Calendar"},     {"settings", "Settings"},
     {"face", "The face's own"},
+    {"wallet", "Wallet"},
 };
 static const char *const SLOT_KEYS[HS_COUNT] = {"tap", "double", "hold", "up", "down", "left", "right", "boot"};
 static const char *const SLOT_NAMES[HS_COUNT] = {"Tap", "Double-tap", "Touch and hold", "Swipe up",
@@ -173,6 +175,7 @@ void home_run(HomeAction a) {
     case HA_WEATHER:   open(&weather_screen); break;
     case HA_CALENDAR:  open(&calendar_screen); break;
     case HA_SETTINGS:  open(&settings_screen); break;
+    case HA_WALLET:    open(&wallet_screen); break;
     }
 }
 

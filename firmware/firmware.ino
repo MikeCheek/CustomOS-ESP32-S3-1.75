@@ -38,6 +38,7 @@
 #include "app_life.h"
 #include "usage_stats.h"
 #include "home_gestures.h"
+#include "app_wallet.h"
 #include "app_tips.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
@@ -646,6 +647,7 @@ void setup() {
     workout_init();                                        // saved workouts
     life_init();                                           // Life: plan and today
     usage_init();                                          // usage stats for Diagnostics
+    wallet_init();                                         // passes on the SD card
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);

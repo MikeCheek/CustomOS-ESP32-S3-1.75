@@ -6,6 +6,7 @@
 #include "phone_link.h"
 #include "watchface_registry.h"
 #include "app_tiles.h"
+#include "app_wallet.h"
 #include "hal_ble.h"
 #include "hal_power.h"
 #include "hal_rtc.h"
@@ -90,6 +91,7 @@ static void screen_name(char *out, int n) {
     for (int i = 0; i < watchface_count(); i++)
         if (watchface_get(i)->screen == s) { strlcpy(out, "Watch face", n); return; }
     if (s == &tiles_screen) { strlcpy(out, "Tiles", n); return; }
+    if (s == &wallet_screen) { strlcpy(out, "Wallet", n); return; }
     if (s->title && s->title[0]) { strlcpy(out, s->title, n); return; }
     strlcpy(out, "Other", n);
 }

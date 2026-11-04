@@ -64,6 +64,7 @@ const homeActions = [
   HomeAction('calendar', 'Calendar', Icons.event_outlined),
   HomeAction('settings', 'Settings', Icons.settings_outlined),
   HomeAction('face', 'The face\'s own', Icons.photo_outlined),
+  HomeAction('wallet', 'Wallet', Icons.qr_code_2_rounded),
 ];
 
 HomeAction homeAction(String key) => homeActions.firstWhere((a) => a.key == key, orElse: () => homeActions.first);

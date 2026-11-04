@@ -18,6 +18,7 @@
 #include "app_workout.h"
 #include "app_life.h"
 #include "app_tips.h"
+#include "app_wallet.h"
 
 struct IconPen;   // below: draws an icon's shapes at full size
 
@@ -651,6 +652,20 @@ static void icon_tips(IconPen *g, int cx, int cy, float br) {
     g->fillCircle(cx + 15, cy - 18, 2, IC(COLOR_WARN));   // a yellow disc
 }
 
+static void icon_wallet(IconPen *g, int cx, int cy, float br) {
+    // a pass with a QR code on it
+    uint16_t c = IC(COLOR_TEXT), d = IC(0x2B9F);
+    g->fillRoundRect(cx - 17, cy - 19, 34, 38, 6, c);
+    for (int k = 0; k < 3; k++) {   // the three finder squares
+        int x = k == 1 ? cx + 2 : cx - 13, y = k == 2 ? cy + 2 : cy - 15;
+        g->fillRoundRect(x, y, 11, 11, 2, d);
+        g->fillRect(x + 3, y + 3, 5, 5, c);
+    }
+    g->fillRect(cx + 3, cy + 3, 4, 4, d);
+    g->fillRect(cx + 9, cy + 9, 4, 4, d);
+    g->fillRect(cx + 9, cy + 3, 4, 3, d);
+}
+
 // In honeycomb order: the first one sits in the middle, the next six
 // around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
@@ -665,6 +680,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Alarms",        CAT_TOOLS, icon_alarm,         &alarms_screen, false, 0xFC60},
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"Reminders",     CAT_TOOLS, icon_reminders,     &reminders_screen},
+    {"Wallet",        CAT_TOOLS, icon_wallet,        &wallet_screen, false, 0x2B9F},
     {"Games",         CAT_TOOLS, nullptr,            nullptr, false, 0, CAT_GAMES},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
     {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},

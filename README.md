@@ -58,6 +58,13 @@ Every gesture on the face can be changed - on the watch (Settings > Home gesture
 | ![](docs/screenshots/tile_activity.png) | ![](docs/screenshots/tile_music.png) | ![](docs/screenshots/tile_timer.png) | ![](docs/screenshots/settings_home.png) |
 | Tiles: Activity | Tiles: Music | Tiles: Timer | Settings > Home gestures |
 
+**Wallet:** boarding passes, tickets and loyalty cards on the watch. In the app (Wallet), pick a screenshot or a photo of the code, or type it in; the watch shows it full screen at full brightness until you tap it. QR, Aztec, PDF417, Data Matrix, Code 128, EAN, UPC, Code 39.
+
+| | | | |
+|:-:|:-:|:-:|:-:|
+| ![](docs/screenshots/wallet.png) | ![](docs/screenshots/wallet_aztec.png) | ![](docs/screenshots/wallet_qr.png) | ![](docs/screenshots/wallet_barcode.png) |
+| Wallet | A boarding pass (Aztec) | A QR code | A loyalty card (Code 128) |
+
 Settings > System > Gesture tips (also shown once after an update) walks through all of these with little animations. Hold PWR for power off or Emergency SOS (5 s countdown, then the phone texts your emergency contact with its location). A red dot at the top of a face means unread notifications. Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
 
 ### In motion
