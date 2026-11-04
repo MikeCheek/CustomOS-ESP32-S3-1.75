@@ -77,6 +77,8 @@ static void send_report(const char *ev) {
     doc["gm"] = fitness_move_goal();
     doc["ge"] = fitness_exercise_goal();
     doc["gs"] = fitness_stand_goal();
+    doc["kg"] = g_app_settings.weight_kg;
+    doc["cm"] = g_app_settings.height_cm;
     if (!strcmp(ev, "hi")) {
         // Once per connection: firmware version, why it last reset, and
         // whether there's a crash report the app hasn't fetched yet.
@@ -187,6 +189,13 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "body")) {
+        // weight and height from the app's Activity screen
+        int kg = doc["kg"] | 0, cm = doc["cm"] | 0;
+        if (kg >= 30 && kg <= 250) g_app_settings.weight_kg = (uint8_t)kg;
+        if (cm >= 100 && cm <= 230) g_app_settings.height_cm = (uint8_t)cm;
+        nvs_save_settings(g_app_settings);
+        send_report("st");
     } else if (!strcmp(t, "life")) {
         life_on_plan(doc);
     } else if (!strcmp(t, "meals")) {

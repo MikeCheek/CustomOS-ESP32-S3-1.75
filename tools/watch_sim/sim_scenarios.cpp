@@ -4,6 +4,8 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+extern Screen settings_body_screen;
+#define settings_body_screen_ref settings_body_screen
 extern Screen contacts_screen;
 #define contacts_screen_ref contacts_screen
 extern Screen phone_screen;
@@ -186,6 +188,7 @@ void sim_scenarios() {
     sim_run(3000);
     sim_save("breathe");
     shot(&stretch_screen, "stretch", 4000);
+    shot(&settings_body_screen_ref, "body");
     shot(&contacts_screen_ref, "review_contacts");
     shot(&phone_screen_ref, "review_phone");
     shot(&gallery_screen_ref, "review_gallery");

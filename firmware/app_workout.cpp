@@ -54,11 +54,11 @@ const char *workout_type_name() { return TYPES[s_type].name; }
 
 float workout_km() {
     if (s_gps_used && s_gps_m > 0) return s_gps_m / 1000.0f;
-    return s_steps * TYPES[s_type].stride_m / 1000.0f;
+    return s_steps * TYPES[s_type].stride_m * fitness_stride_scale() / 1000.0f;
 }
 
 static float workout_kcal() {
-    float per_min = (TYPES[s_type].met_x10 / 10.0f - 1.0f) * 3.5f * 70.0f / 200.0f;
+    float per_min = (TYPES[s_type].met_x10 / 10.0f - 1.0f) * 3.5f * fitness_kg() / 200.0f;
     return per_min * workout_elapsed_s() / 60.0f;
 }
 

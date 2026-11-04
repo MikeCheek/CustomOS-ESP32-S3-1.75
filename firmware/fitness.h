@@ -34,6 +34,10 @@ void fitness_feed(Activity a, int cadence);     // every 5 s window (motion_upda
 void fitness_workout(bool on, int met_x10);
 
 float    fitness_move_kcal();
+// The wearer (Settings > Activity, or the app): weight for calories, height
+// for the stride (x height/175 cm on each workout type's stride).
+float    fitness_kg();
+float    fitness_stride_scale();
 uint32_t fitness_exercise_min();
 int      fitness_stand_hours();
 uint16_t fitness_move_goal();

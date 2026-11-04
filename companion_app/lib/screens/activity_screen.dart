@@ -230,6 +230,8 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             )
           else
             RowGroup(children: [for (final w in fit.workouts.take(30)) _WorkoutRow(w)]),
+          const SectionLabel('Your body'),
+          _BodyCard(fit: fit),
           const SizedBox(height: 12),
           const Text(
             'Move counts active calories, Exercise brisk walking, running and workouts, Stand the hours you moved for '
@@ -481,6 +483,115 @@ class _WeekBars extends StatelessWidget {
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// Weight and height, kept on the watch: calories from the weight, the
+/// stride (distance from steps) from the height. Metric or imperial.
+class _BodyCard extends ConsumerStatefulWidget {
+  final FitnessState fit;
+  const _BodyCard({required this.fit});
+  @override
+  ConsumerState<_BodyCard> createState() => _BodyCardState();
+}
+
+class _BodyCardState extends ConsumerState<_BodyCard> {
+  bool _imperial = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) setState(() => _imperial = p.getBool('units_imperial') ?? false);
+    });
+  }
+
+  String _w(int kg) => _imperial ? '${(kg * 2.20462).round()} lb' : '$kg kg';
+  String _h(int cm) {
+    if (!_imperial) return '$cm cm';
+    final inches = (cm / 2.54).round();
+    return '${inches ~/ 12}\' ${inches % 12}"';
+  }
+
+  Future<void> _edit() async {
+    var kg = widget.fit.weightKg.toDouble(), cm = widget.fit.heightCm.toDouble();
+    var imperial = _imperial;
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text('Your body', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                    ),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('kg, cm')),
+                        ButtonSegment(value: true, label: Text('lb, ft')),
+                      ],
+                      selected: {imperial},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (v) => set(() => imperial = v.first),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Weight  ${imperial ? '${(kg * 2.20462).round()} lb' : '${kg.round()} kg'}'),
+                Slider(value: kg, min: 30, max: 250, divisions: 220, onChanged: (v) => set(() => kg = v)),
+                Text(
+                  'Height  ${() {
+                    if (!imperial) return '${cm.round()} cm';
+                    final i = (cm / 2.54).round();
+                    return '${i ~/ 12}\' ${i % 12}"';
+                  }()}',
+                ),
+                Slider(value: cm, min: 100, max: 230, divisions: 130, onChanged: (v) => set(() => cm = v)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Only used on the watch for calories and distance from steps.',
+                  style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('units_imperial', imperial);
+    if (mounted) setState(() => _imperial = imperial);
+    await ref.read(fitnessProvider.notifier).setBody(kg.round(), cm.round());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final connected = ref.watch(bleProvider).isConnected;
+    return RowGroup(
+      children: [
+        NavRow(
+          icon: Icons.monitor_weight_outlined,
+          color: AppColors.accent2,
+          title: '${_w(widget.fit.weightKg)} · ${_h(widget.fit.heightCm)}',
+          subtitle: connected
+              ? 'For calories and distance from steps - tap to change'
+              : 'Connect the watch to change it',
+          onTap: connected ? _edit : null,
+        ),
       ],
     );
   }

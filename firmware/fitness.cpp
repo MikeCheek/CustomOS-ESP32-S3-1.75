@@ -97,15 +97,18 @@ void fitness_workout(bool on, int met_x10) {
     s_workout_met = met_x10;
 }
 
-// Active calories in one 5 s window: MET minus resting, for ~70 kg
-// (kcal/min = MET * 3.5 * 70 / 200).
+float fitness_kg() { return g_app_settings.weight_kg >= 30 ? g_app_settings.weight_kg : 70; }
+float fitness_stride_scale() { return (g_app_settings.height_cm >= 100 ? g_app_settings.height_cm : 175) / 175.0f; }
+
+// Active calories in one 5 s window: MET minus resting, for the wearer's
+// weight (kcal/min = MET * 3.5 * kg / 200, Settings > Activity).
 static float window_kcal(Activity a, int cadence) {
     float met = 1.0f;
     if (s_workout && s_workout_met > 0) met = s_workout_met / 10.0f;
     else if (a == ACT_RUN) met = 9.0f;
     else if (a == ACT_WALK) met = cadence >= 115 ? 4.3f : cadence >= 100 ? 3.5f : 2.8f;
     else if (a == ACT_MOVING) met = 2.0f;
-    float per_min = (met - 1.0f) * 3.5f * 70.0f / 200.0f;
+    float per_min = (met - 1.0f) * 3.5f * fitness_kg() / 200.0f;
     return per_min > 0 ? per_min / 12.0f : 0;
 }
 

@@ -411,8 +411,16 @@ static const char *desc_st_goal() {
 static bool get_st_remind() { return g_app_settings.stand_remind; }
 static void tap_st_remind() { g_app_settings.stand_remind = !g_app_settings.stand_remind; nvs_save_settings(g_app_settings); }
 
+extern Screen settings_body_screen;
+static const char *desc_body() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u kg, %u cm - for calories, distance", (unsigned)g_app_settings.weight_kg, (unsigned)g_app_settings.height_cm);
+    return b;
+}
+
 static SettingsRow ROWS_ACTIVITY[] = {
     { "Activity tracking", "Rings, walking, running all day", ROW_TOGGLE, get_act, tap_act, nullptr, nullptr },
+    { "Your body", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_body_screen, nullptr, nullptr, nullptr, desc_body },
     { "Move goal", "", ROW_ACTION, nullptr, tap_move_goal, nullptr, nullptr, nullptr, nullptr, desc_move_goal },
     { "Exercise goal", "", ROW_ACTION, nullptr, tap_ex_goal, nullptr, nullptr, nullptr, nullptr, desc_ex_goal },
     { "Stand goal", "", ROW_ACTION, nullptr, tap_st_goal, nullptr, nullptr, nullptr, nullptr, desc_st_goal },
@@ -662,6 +670,81 @@ Screen settings_brightness_screen = {
     "Brightness", GESTURE_MODE_EDGE,
     UI_FRAME_MS_DEFAULT,
     brightness_create, brightness_draw, brightness_touch, brightness_tick, nullptr, brightness_gesture
+};
+
+// =========================================================================
+//  Your body: weight and height (fitness.h - calories and stride)
+// =========================================================================
+static int s_body_press = -1;            // 0/1 weight -/+, 2/3 height -/+
+static uint32_t s_body_down_ms = 0, s_body_rep_ms = 0;
+
+static void body_step(int which) {
+    AppSettings &a = g_app_settings;
+    if (which == 0 && a.weight_kg > 30) a.weight_kg--;
+    else if (which == 1 && a.weight_kg < 250) a.weight_kg++;
+    else if (which == 2 && a.height_cm > 100) a.height_cm--;
+    else if (which == 3 && a.height_cm < 230) a.height_cm++;
+}
+
+static void body_draw() {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    const int CX = LCD_WIDTH / 2;
+    for (int i = 0; i < 2; i++) {
+        int y = 104 + i * 136;
+        g->fillRoundRect(CX - 170, y, 340, 120, 28, 0x18E3);
+        ui_print(CX - 146, y + 14, 1, COLOR_TEXT_DIM, i ? "HEIGHT" : "WEIGHT");
+        char b[16];
+        snprintf(b, sizeof(b), i ? "%u cm" : "%u kg", i ? (unsigned)g_app_settings.height_cm : (unsigned)g_app_settings.weight_kg);
+        ui_text_center(CX, y + 72, COLOR_TEXT, b, 4);
+        for (int k = 0; k < 2; k++) {
+            int x = k ? CX + 120 : CX - 120, id = i * 2 + k;
+            g->fillCircle(x, y + 72, 28, s_body_press == id ? COLOR_ACCENT : (uint16_t)0x31A6);
+            ui_text_center(x, y + 72, COLOR_TEXT, k ? "+" : "-", 3);
+        }
+    }
+    ui_text_center(CX, 390, COLOR_TEXT_DIM, "Calories from your weight,", 1);
+    ui_text_center(CX, 408, COLOR_TEXT_DIM, "distance from steps from your height", 1);
+}
+
+static int body_hit(int x, int y) {
+    const int CX = LCD_WIDTH / 2;
+    for (int i = 0; i < 2; i++)
+        for (int k = 0; k < 2; k++) {
+            int bx = k ? CX + 120 : CX - 120, by = 104 + i * 136 + 72;
+            if ((x - bx) * (x - bx) + (y - by) * (y - by) < 38 * 38) return i * 2 + k;
+        }
+    return -1;
+}
+
+static void body_touch(int x, int y, bool pressed) {
+    int h = body_hit(x, y);
+    if (pressed) {
+        if (s_body_press < 0 && h >= 0) { s_body_press = h; s_body_down_ms = s_body_rep_ms = millis(); body_step(h); }
+        else if (h != s_body_press) s_body_press = -1;   // slid off
+        return;
+    }
+    if (s_body_press >= 0) nvs_save_settings(g_app_settings);
+    s_body_press = -1;
+}
+
+static void body_tick() {
+    // held: faster and faster
+    if (s_body_press < 0) return;
+    uint32_t now = millis();
+    if (now - s_body_down_ms < 450) return;
+    uint32_t every = now - s_body_down_ms > 1800 ? 40 : 110;
+    if (now - s_body_rep_ms >= every) { s_body_rep_ms = now; body_step(s_body_press); }
+}
+
+static void body_gesture(Gesture g) {
+    if (g == GESTURE_SWIPE_LEFT || g == GESTURE_SWIPE_RIGHT) ui_pop_screen();
+}
+
+Screen settings_body_screen = {
+    "Your body", GESTURE_MODE_EDGE,
+    UI_FRAME_MS_DEFAULT,
+    nullptr, body_draw, body_touch, body_tick, nullptr, body_gesture,
 };
 
 // =========================================================================

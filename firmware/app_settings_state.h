@@ -97,6 +97,8 @@ struct AppSettings {
     bool developer_mode = false;             // the app menu also shows tests and diagnostics
     bool menu_list = false;                  // the app menu as an A-Z list instead of the honeycomb
     uint16_t move_goal = 300;                // fitness.h: active kcal a day
+    uint8_t weight_kg = 70;                  // for calories (fitness.h, workouts)
+    uint8_t height_cm = 175;                 // for the stride: distance from steps
     uint8_t exercise_goal = 30;              // minutes a day
     uint8_t stand_goal = 10;                 // hours a day
     bool stand_remind = true;

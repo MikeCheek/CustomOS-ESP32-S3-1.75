@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'ble_provider.dart';
+
 /// One day's activity rings, as the watch counted them (fitness.h).
 class RingDay {
   final DateTime date;
@@ -85,6 +87,7 @@ class FitnessState {
   final int moveGoal, exerciseGoal, standGoal;
   final List<RingDay> days; // before today, newest first
   final List<Workout> workouts; // newest first
+  final int weightKg, heightCm; // for calories and the stride, kept on the watch
   const FitnessState({
     this.today,
     this.moveGoal = 300,
@@ -92,6 +95,8 @@ class FitnessState {
     this.standGoal = 10,
     this.days = const [],
     this.workouts = const [],
+    this.weightKg = 70,
+    this.heightCm = 175,
   });
 
   FitnessState copyWith({
@@ -101,6 +106,8 @@ class FitnessState {
     int? standGoal,
     List<RingDay>? days,
     List<Workout>? workouts,
+    int? weightKg,
+    int? heightCm,
   }) => FitnessState(
     today: today ?? this.today,
     moveGoal: moveGoal ?? this.moveGoal,
@@ -108,13 +115,16 @@ class FitnessState {
     standGoal: standGoal ?? this.standGoal,
     days: days ?? this.days,
     workouts: workouts ?? this.workouts,
+    weightKg: weightKg ?? this.weightKg,
+    heightCm: heightCm ?? this.heightCm,
   );
 }
 
 /// The watch's rings and workouts, kept on the phone (the watch only keeps a week).
 class FitnessNotifier extends StateNotifier<FitnessState> {
   static const _kDays = 'fit_days', _kWorkouts = 'fit_workouts', _kGoals = 'fit_goals';
-  FitnessNotifier() : super(const FitnessState()) {
+  final Ref _ref;
+  FitnessNotifier(this._ref) : super(const FitnessState()) {
     _load();
   }
 
@@ -182,6 +192,8 @@ class FitnessNotifier extends StateNotifier<FitnessState> {
       moveGoal: (e['gm'] as num?)?.toInt(),
       exerciseGoal: (e['ge'] as num?)?.toInt(),
       standGoal: (e['gs'] as num?)?.toInt(),
+      weightKg: (e['kg'] as num?)?.toInt(),
+      heightCm: (e['cm'] as num?)?.toInt(),
     );
     _save();
   }
@@ -193,10 +205,17 @@ class FitnessNotifier extends StateNotifier<FitnessState> {
     await _save();
   }
 
+  /// Weight and height to the watch ({"t":"body"}); it answers with a report.
+  Future<void> setBody(int kg, int cm) async {
+    state = state.copyWith(weightKg: kg.clamp(30, 250), heightCm: cm.clamp(100, 230));
+    final ble = _ref.read(bleServiceProvider);
+    if (ble.hasPhoneLink) await ble.sendLink({'t': 'body', 'kg': state.weightKg, 'cm': state.heightCm});
+  }
+
   Future<void> deleteWorkout(Workout w) async {
     state = state.copyWith(workouts: state.workouts.where((o) => o.start != w.start).toList());
     await _save();
   }
 }
 
-final fitnessProvider = StateNotifierProvider<FitnessNotifier, FitnessState>((ref) => FitnessNotifier());
+final fitnessProvider = StateNotifierProvider<FitnessNotifier, FitnessState>((ref) => FitnessNotifier(ref));
