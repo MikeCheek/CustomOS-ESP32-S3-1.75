@@ -14,3 +14,5 @@ bool sleep_alarm_ringing();
 void sleep_load_demo();        // the simulator's screenshot only
 extern Screen sleep_screen;
 extern Screen sleep_alarm_screen;
+void sleeptrack_send();   // phone link: the last 30 nights ({"e":"sleep"})
+int  sleeptrack_last_night_min();   // asleep last night if it ended this morning, else -1

@@ -103,6 +103,10 @@ static void tap_wake_touch() { g_app_settings.wake_on_touch = !g_app_settings.wa
 
 static bool get_wrist_down() { return g_app_settings.wrist_down_sleep; }
 static void tap_wrist_down() { g_app_settings.wrist_down_sleep = !g_app_settings.wrist_down_sleep; nvs_save_settings(g_app_settings); }
+static bool get_ndim() { return g_app_settings.night_dim; }
+static void tap_ndim() { g_app_settings.night_dim = !g_app_settings.night_dim; nvs_save_settings(g_app_settings); }
+static bool get_brief() { return g_app_settings.morning_brief; }
+static void tap_brief() { g_app_settings.morning_brief = !g_app_settings.morning_brief; nvs_save_settings(g_app_settings); }
 static bool get_wake_motion() { return g_app_settings.wake_on_motion; }
 static void tap_wake_motion() { g_app_settings.wake_on_motion = !g_app_settings.wake_on_motion; nvs_save_settings(g_app_settings); }
 
@@ -370,8 +374,10 @@ static void tap_fall() {
 static SettingsRow ROWS_WAKE[] = {
     { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
     { "Lower wrist to sleep", "The screen goes off when you turn it away", ROW_TOGGLE, get_wrist_down, tap_wrist_down, nullptr, ICON_ROTATE },
+    { "Morning briefing", "The first look each morning: weather, sleep, the day", ROW_TOGGLE, get_brief, tap_brief, nullptr, nullptr },
     { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
+    { "Dim at bedtime", "A darker screen in the bedtime hours", ROW_TOGGLE, get_ndim, tap_ndim, nullptr, ICON_BRIGHTNESS },
     { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
     { "Sleep tracking", "From wrist movement, 20:00-12:00 (Sleep app)", ROW_TOGGLE, get_sleep_trk, tap_sleep_trk, nullptr, nullptr },
     { "Flick to go back", "Two quick wrist flicks go back a screen", ROW_TOGGLE, get_flick, tap_flick, nullptr, nullptr },

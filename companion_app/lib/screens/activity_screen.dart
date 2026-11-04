@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
 import '../providers/fitness_provider.dart';
+import '../providers/sleep_provider.dart';
 import 'health_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -216,6 +217,8 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                     child: _WeekBars(values: values, days: days, goal: _goal),
                   ),
           ),
+          const SectionLabel('Sleep'),
+          const _SleepCard(),
           SectionLabel(
             'Workouts',
             trailing: fit.workouts.isEmpty
@@ -607,6 +610,109 @@ class _BodyCardState extends ConsumerState<_BodyCard> {
           onTap: connected ? _edit : null,
         ),
       ],
+    );
+  }
+}
+
+/// The last nights from the watch: last night, the 14-night average, and
+/// bars (taller = longer, the darker part the still sleep).
+class _SleepCard extends ConsumerWidget {
+  const _SleepCard();
+
+  static String _hm(int m) => '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final nights = ref.watch(sleepProvider);
+    if (nights.isEmpty) {
+      return const Panel(
+        child: Text(
+          'Wear the watch to bed with sleep tracking on (Settings > Wake & quiet on the watch): '
+          'your nights show up here, and in Health when it\'s connected.',
+          style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4),
+        ),
+      );
+    }
+    final last = nights.first;
+    final recent = nights.take(14).toList();
+    final avg = recent.fold(0, (a, n) => a + n.asleepMin) ~/ recent.length;
+    final maxM = math.max(9 * 60, recent.map((n) => n.asleepMin).reduce(math.max));
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: StatTile(
+                  icon: Icons.bedtime_outlined,
+                  color: AppColors.accent,
+                  value: _hm(last.asleepMin),
+                  label: 'last night',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: StatTile(
+                  icon: Icons.insights_rounded,
+                  color: AppColors.accent2,
+                  value: _hm(avg),
+                  label: '${recent.length}-night average',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 90,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final n in recent.reversed)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            height: 70 * n.asleepMin / maxM,
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: n.asleepMin > 0 ? (n.stillMin / n.asleepMin).clamp(0.0, 1.0) : 0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: AppColors.accent,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][n.morning.weekday - 1],
+                            style: const TextStyle(color: AppColors.textFaint, fontSize: 10),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Last night: from ${last.start.hour}:${last.start.minute.toString().padLeft(2, '0')}, '
+            '${last.asleepMin > 0 ? (100 * last.stillMin / last.asleepMin).round() : 0}% still, '
+            '${last.awakeMin} min awake',
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12.5),
+          ),
+        ],
+      ),
     );
   }
 }

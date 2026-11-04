@@ -40,6 +40,8 @@
 #include "home_gestures.h"
 #include "app_wallet.h"
 #include "store.h"
+#include "app_briefing.h"
+#include "app_torch.h"
 #include "app_weather.h"
 #include "app_tips.h"
 #include "hal_sleep.h"
@@ -773,6 +775,23 @@ void loop() {
     life_update();               // Life: the day's nudges
     usage_update();              // how the watch is used (Diagnostics)
     weather_update();            // keeps a new weather push across restarts
+    briefing_update();           // the morning briefing, once a morning
+    {
+        // dimmer in the bedtime hours (not the flashlight or a Wallet code, which need it bright)
+        static uint32_t s_dim_ms = 0;
+        if (millis() - s_dim_ms > 1000) {
+            s_dim_ms = millis();
+            WatchTime t = rtc_now();
+            bool night = false;
+            if (g_app_settings.night_dim && t.valid) {
+                int m = t.hour * 60 + t.minute, a = g_app_settings.dnd_from_min, b = g_app_settings.dnd_to_min;
+                night = a <= b ? (m >= a && m < b) : (m >= a || m < b);
+            }
+            Screen *top = ui_active_screen();
+            if (top == &torch_screen || top == &wallet_screen) night = false;
+            display_set_brightness_cap(night ? 50 : 255);
+        }
+    }
     home_update();               // the app's Faces tab follows gesture changes made here
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder

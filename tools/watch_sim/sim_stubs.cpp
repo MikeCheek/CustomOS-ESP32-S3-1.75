@@ -120,6 +120,7 @@ void gps_enable() {}
 void gps_disable() {}
 GpsFix gps_get_fix() { return GpsFix{}; }
 void display_set_brightness(uint8_t) {}
+void display_set_brightness_cap(uint8_t) {}
 void display_sleep() {}
 void display_wakeup() {}
 

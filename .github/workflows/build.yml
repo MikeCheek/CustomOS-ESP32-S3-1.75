@@ -318,6 +318,8 @@ jobs:
   app-ios:
     if: github.event_name != 'pull_request'
     runs-on: macos-15
+    permissions:
+      contents: write   # the .ipa onto a tag's release
     defaults:
       run:
         working-directory: companion_app
@@ -333,6 +335,28 @@ jobs:
 
       - name: Build for iOS (no signing)
         run: flutter build ios --release --no-codesign
+
+      # An unsigned .ipa: an iPhone installs it once it's signed with an Apple
+      # ID - Sideloadly or AltStore do that (README, "iPhone"). A free Apple ID
+      # re-signs every 7 days and may leave out HealthKit.
+      - name: Pack an unsigned .ipa
+        run: |
+          fw=$(grep -oE 'FW_VERSION "[^"]+"' ../firmware/diag.h | cut -d'"' -f2)
+          rm -rf Payload && mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "AmoledWatch-ios-$fw-unsigned.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-ios
+          path: companion_app/AmoledWatch-ios-*-unsigned.ipa
+
+      # on a version tag, onto that release too (on its own, so a slow macOS
+      # queue never holds up the firmware and Android release)
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: companion_app/AmoledWatch-ios-*-unsigned.ipa
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

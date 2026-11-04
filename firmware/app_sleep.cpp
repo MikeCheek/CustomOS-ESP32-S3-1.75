@@ -3,6 +3,7 @@
  */
 #include "app_sleep.h"
 #include "store.h"
+#include "phone_link.h"
 #include "sleep_track.h"
 #include "config.h"
 #include "board_pins.h"
@@ -95,6 +96,63 @@ static void load_last() {
     p.end();
 }
 
+// ---- the last 30 nights (store.h "sleep_nights"), newest first ------------------------------
+struct SleepNight { uint32_t date; uint16_t start_min, asleep, deep, waso; };   // date: the morning's yyyymmdd
+static const int NIGHTS_MAX = 30;
+static SleepNight s_nights[NIGHTS_MAX];
+static int s_nights_n = -1;   // -1: not read yet
+
+static void nights_load() {
+    if (s_nights_n >= 0) return;
+    s_nights_n = 0;
+    int n = store_read("sleep_nights", s_nights, sizeof(s_nights));
+    if (n > 0 && n % (int)sizeof(SleepNight) == 0) s_nights_n = n / (int)sizeof(SleepNight);
+}
+
+static void nights_add(const SleepNight &x) {
+    nights_load();
+    if (s_nights_n > 0 && s_nights[0].date == x.date) s_nights[0] = x;   // the same morning again: the longer one wins below
+    else {
+        memmove(&s_nights[1], &s_nights[0], sizeof(SleepNight) * (NIGHTS_MAX - 1));
+        s_nights[0] = x;
+        if (s_nights_n < NIGHTS_MAX) s_nights_n++;
+    }
+    store_write("sleep_nights", s_nights, sizeof(SleepNight) * s_nights_n);
+}
+
+// {"e":"sleep","n":[[yyyymmdd, start min, asleep min, still min, awake min],...]}, 15 a message
+void sleeptrack_send() {
+    nights_load();
+    for (int o = 0; o < s_nights_n; o += 15) {
+        JsonDocument d;
+        d["e"] = "sleep";
+        JsonArray a = d["n"].to<JsonArray>();
+        for (int i = o; i < s_nights_n && i < o + 15; i++) {
+            JsonArray r = a.add<JsonArray>();
+            r.add(s_nights[i].date); r.add(s_nights[i].start_min); r.add(s_nights[i].asleep);
+            r.add(s_nights[i].deep); r.add(s_nights[i].waso);
+        }
+        phone_link_send(d);
+    }
+}
+
+// minutes asleep last night, if it ended this morning (-1: no night today)
+int sleeptrack_last_night_min() {
+    nights_load();
+    WatchTime t = rtc_now();
+    if (!t.valid || s_nights_n <= 0) return -1;
+    uint32_t today = (uint32_t)t.year * 10000 + t.month * 100 + t.day;
+    return s_nights[0].date == today ? s_nights[0].asleep : -1;
+}
+
+// minutes asleep a night, the last 7 (0: none yet)
+static int week_average() {
+    nights_load();
+    int n = s_nights_n < 7 ? s_nights_n : 7, sum = 0;
+    for (int i = 0; i < n; i++) sum += s_nights[i].asleep;
+    return n ? sum / n : 0;
+}
+
 static void finish_night() {
     if (!s_tracking) return;
     s_tracking = false;
@@ -104,6 +162,14 @@ static void finish_night() {
     memcpy((void *)s_last, (const void *)s_trk, sizeof(SleepTracker));
     s_last_start_min = s_start_min;
     save_last();
+    WatchTime t = rtc_now();
+    if (t.valid) {
+        SleepNight x = {(uint32_t)t.year * 10000 + t.month * 100 + t.day, (uint16_t)s_start_min, (uint16_t)asleep,
+                        (uint16_t)deep, (uint16_t)waso};
+        nights_load();
+        if (!(s_nights_n > 0 && s_nights[0].date == x.date && s_nights[0].asleep > x.asleep)) nights_add(x);
+        if (phone_link_active()) sleeptrack_send();
+    }
     DEBUG_PRINTF("[sleep] night saved: %d min asleep, %d deep\n", asleep, deep);
 }
 
@@ -221,7 +287,16 @@ static void sleep_draw() {
     s_trk->totals(asleep, deep, waso);
     bool tonight = s_tracking && asleep > 0;
     if (tonight || s_last->minutes() > 0) {
-        ui_text_center(CX, 88, COLOR_TEXT_DIM, tonight ? "Tonight so far" : "Last night", 1);
+        char lbl[48] = "";
+        int avg = week_average();
+        if (avg > 0) {
+            char hm[16];
+            fmt_hm(hm, sizeof(hm), avg);
+            snprintf(lbl, sizeof(lbl), "%s  -  %s average", tonight ? "Tonight so far" : "Last night", hm);
+        } else {
+            strlcpy(lbl, tonight ? "Tonight so far" : "Last night", sizeof(lbl));
+        }
+        ui_text_center(CX, 88, COLOR_TEXT_DIM, lbl, 1);
         draw_night(g, tonight ? *s_trk : *s_last, tonight ? s_start_min : s_last_start_min, 114);
     } else {
         ui_text_center(CX, 130, COLOR_TEXT, "No night yet", 2);

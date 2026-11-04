@@ -31,6 +31,7 @@ class HealthSync {
     ...types,
     if (Platform.isIOS) HealthDataType.MINDFULNESS,
     if (Platform.isAndroid) HealthDataType.DISTANCE_DELTA,
+    HealthDataType.SLEEP_ASLEEP,
   ];
 
   String get storeName => Platform.isIOS ? 'Apple Health' : 'Health Connect';
@@ -196,6 +197,30 @@ class HealthSync {
       }
     } catch (e) {
       debugPrint('[Health] workout: $e');
+    }
+  }
+
+  /// A night from the watch's sleep tracking, written once (keyed by its morning).
+  Future<void> onSleep({required DateTime start, required DateTime end, required int asleepMin}) async {
+    if (!await enabled() || asleepMin < 60 || !end.isAfter(start)) return;
+    final p = await SharedPreferences.getInstance();
+    final done = p.getStringList('health_sleep') ?? const <String>[];
+    final key = '${end.year}-${end.month}-${end.day}';
+    if (done.contains(key)) return;
+    try {
+      await _configure();
+      final ok = await _health.writeHealthData(
+        value: asleepMin.toDouble(),
+        type: HealthDataType.SLEEP_ASLEEP,
+        startTime: start,
+        endTime: end,
+      );
+      if (ok) {
+        await p.setStringList('health_sleep', [key, ...done].take(200).toList());
+        await _stamp(p);
+      }
+    } catch (e) {
+      debugPrint('[Health] sleep: $e');
     }
   }
 

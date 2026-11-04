@@ -20,6 +20,7 @@ import 'settings_provider.dart';
 import 'knowledge_provider.dart';
 import 'fitness_provider.dart';
 import 'home_provider.dart';
+import 'sleep_provider.dart';
 import 'wallet_provider.dart';
 import 'look_provider.dart';
 import 'life_provider.dart';
@@ -526,6 +527,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         break;
       case 'life':
         _ref.read(lifeProvider.notifier).onWatch(e);
+        break;
+      case 'sleep':
+        await _ref.read(sleepProvider.notifier).onWatch(e);
         break;
       case 'lh':
         _ref.read(lifeProvider.notifier).onHistory(e);

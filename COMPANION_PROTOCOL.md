@@ -181,6 +181,7 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | watch → phone | `{"e":"usage","p":4,"wk":[[20261103,95,120,38,1],...]}` | the last 7 days, newest first: date, screen-on minutes, wake-ups, battery % used unplugged, times charged (fw 3.5+) |
 | watch → phone | `{"e":"fh","h":[[20260801,312,24,9,6482],...]}` | after `hi`: the activity days past the status report's 7 (up to 90), 15 a message - same rows as `fh` in the report |
 | watch → phone | `{"e":"lh","h":[[...],...]}` | after the `life` report: the Life days past its 7 (up to 90), 15 a message - same rows as its `h` |
+| watch → phone | `{"e":"sleep","n":[[20261104,1392,366,209,7],...]}` | after `hi` and each morning: the last 30 nights, newest first, 15 a message - the morning's date, start (minutes after midnight), minutes asleep, still, awake |
 | watch → phone | `{"e":"sos"}` | Emergency SOS (fw 3.5+, hold PWR, slide): the phone rings and texts the emergency contact with its location, then answers `{"t":"sos","ok":1}` or `{"t":"sos","ok":0,"why":"..."}` |
 | phone → watch | `{"t":"woack","st":<start>}` | a workout arrived (see `wo`); the watch stops resending it |
 | watch → phone | `{"e":"wo","ty":"Outdoor Run","st":<start>,"du":1800,"m":5230,"kc":310,"stp":4800,"gps":1}` | a finished workout (fw 3.5+): start in local epoch seconds, seconds, metres (0 = none), active kcal, steps, GPS distance. Sent again on every `hi` until acked |

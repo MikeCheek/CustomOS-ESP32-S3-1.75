@@ -27,7 +27,9 @@ struct AppSettings {
     uint16_t sleep_timeout_s = 30;    // screen timeout; lowering the wrist turns it off sooner
     bool wake_on_touch = true;
     bool wake_on_motion = true;
-    bool wrist_down_sleep = true;      // lower the wrist (screen turned aside) to sleep
+    bool wrist_down_sleep = true;
+    bool morning_brief = true;
+    bool night_dim = true;             // dimmer during the bedtime hours (dnd_from_min..dnd_to_min)         // the first look each morning: weather, sleep, the day (app_briefing.h)      // lower the wrist (screen turned aside) to sleep
     // Skips the sleep_timeout_s auto-sleep entirely while the watch
     // is on charge (power_is_charging(), hal_power.h) - no reason to
     // dim/lock a watch sitting on its charger.

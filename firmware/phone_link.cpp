@@ -13,6 +13,7 @@
 #include "app_life.h"
 #include "usage_stats.h"
 #include "fitness.h"
+#include "app_sleep.h"
 #include "complications.h"
 #include "dnd.h"
 #include "hal_nvs.h"
@@ -122,6 +123,7 @@ static void handle(const char *msg) {
         home_send();              // ...and what each gesture on the face does
         wallet_send();            // the passes the watch has (the app sends what's missing)
         fitness_send_history();   // the rings' older days (the status report has the last 7)
+        sleeptrack_send();        // the last 30 nights
         life_send(true);          // the Life screen: today and the last days
     } else if (!strcmp(t, "bat")) {
         s_active = true;
@@ -323,7 +325,9 @@ void phone_link_update() {
     // Say hello shortly after connecting (the app subscribes first), then
     // report steps/battery every 5 minutes.
     uint32_t now = millis();
-    if (s_last_report_ms == 0 ? now - s_connected_ms > 2500 : now - s_last_report_ms > 300000) {
+    // every 5 minutes, or 15 with the screen off (each one wakes the radio and the phone's app)
+    uint32_t every = sleep_is_asleep() ? 900000UL : 300000UL;
+    if (s_last_report_ms == 0 ? now - s_connected_ms > 2500 : now - s_last_report_ms > every) {
         send_report(s_last_report_ms == 0 ? "hi" : "st");
     }
 }

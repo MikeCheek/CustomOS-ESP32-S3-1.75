@@ -70,6 +70,8 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUChar("height", s.height_cm);
     s_prefs.putBool("tips_seen", s.tips_seen);
     s_prefs.putBool("wrist_dn", s.wrist_down_sleep);
+    s_prefs.putBool("brief", s.morning_brief);
+    s_prefs.putBool("ndim", s.night_dim);
     s_prefs.putBytes("home_act", s.home_act, sizeof(s.home_act));
     s_prefs.putBytes("tiles", s.tiles, sizeof(s.tiles));
     s_prefs.putUChar("ex_goal", s.exercise_goal);
@@ -171,6 +173,8 @@ bool nvs_load_settings(AppSettings &s) {
     if (s.height_cm < 100 || s.height_cm > 230) s.height_cm = 175;
     s.tips_seen = s_prefs.getBool("tips_seen", false);
     s.wrist_down_sleep = s_prefs.getBool("wrist_dn", true);
+    s.morning_brief = s_prefs.getBool("brief", true);
+    s.night_dim = s_prefs.getBool("ndim", true);
     if (s_prefs.getBytesLength("home_act") == sizeof(s.home_act)) s_prefs.getBytes("home_act", s.home_act, sizeof(s.home_act));
     if (s_prefs.getBytesLength("tiles") == sizeof(s.tiles)) s_prefs.getBytes("tiles", s.tiles, sizeof(s.tiles));
     s.exercise_goal = s_prefs.getUChar("ex_goal", 30);
