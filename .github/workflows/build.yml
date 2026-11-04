@@ -1,10 +1,10 @@
-# Builds the watch firmware and the companion app on every push and pull
-# request. A tag like v2.9.0 also makes a GitHub release with both files.
+# Builds the watch firmware and the companion app for pull requests (each
+# push to a PR's branch runs it once - branch pushes don't trigger a second
+# build). A tag like v2.9.0 also makes a GitHub release with both files.
 name: build
 
 on:
   push:
-    branches: ["**"]
     tags: ["v*"]
   pull_request:
   # Run by hand (Actions > build > Run workflow) with a crash report's
