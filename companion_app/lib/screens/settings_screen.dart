@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -11,6 +12,7 @@ import 'ai_settings_screen.dart';
 import 'calendar_screen.dart';
 import 'dnd_replies_screen.dart';
 import '../app.dart';
+import 'health_screen.dart';
 import 'diagnostics_screen.dart';
 import 'firmware_update_screen.dart';
 import 'updates_screen.dart';
@@ -201,14 +203,21 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-          const SectionLabel('Safety'),
+          const SectionLabel('Health & safety'),
           RowGroup(
             children: [
               NavRow(
+                icon: Icons.favorite_rounded,
+                color: AppColors.danger,
+                title: Platform.isIOS ? 'Apple Health' : 'Health Connect',
+                subtitle: 'Steps, activity, workouts and more from the watch',
+                onTap: () => push(const HealthScreen()),
+              ),
+              NavRow(
                 icon: Icons.health_and_safety_outlined,
                 color: AppColors.danger,
-                title: 'Fall alerts',
-                subtitle: 'Who gets a text if you fall',
+                title: 'Fall alerts and SOS',
+                subtitle: 'Who gets a text if you fall or ask for help',
                 onTap: () => push(const SafetyScreen()),
               ),
             ],

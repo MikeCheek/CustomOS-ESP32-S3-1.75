@@ -37,6 +37,7 @@ dependencies:
   # AI models: downloads that keep going in the background and after the app closes,
   # resume, retries and notifications (WorkManager on Android, URLSession on iOS)
   background_downloader: 9.6.4
+  health: ^13.1.4
 
 dev_dependencies:
   flutter_test:

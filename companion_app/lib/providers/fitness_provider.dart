@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/health_sync.dart';
 import 'ble_provider.dart';
 
 /// One day's activity rings, as the watch counted them (fitness.h).
@@ -196,6 +198,9 @@ class FitnessNotifier extends StateNotifier<FitnessState> {
       heightCm: (e['cm'] as num?)?.toInt(),
     );
     _save();
+    // into Health Connect / Apple Health, when that's on (Settings > Health)
+    unawaited(HealthSync.instance.onReport(steps: today.steps, moveKcal: today.moveKcal));
+    if (e.containsKey('kg')) unawaited(HealthSync.instance.onBody(state.weightKg, state.heightCm));
   }
 
   Future<void> addWorkout(Map<String, dynamic> e) async {
@@ -203,6 +208,13 @@ class FitnessNotifier extends StateNotifier<FitnessState> {
     if (state.workouts.any((o) => o.start == w.start)) return; // sent again before our ack arrived
     state = state.copyWith(workouts: [w, ...state.workouts]..sort((a, b) => b.start.compareTo(a.start)));
     await _save();
+    await HealthSync.instance.onWorkout(
+      type: w.type,
+      start: w.start,
+      duration: w.duration,
+      meters: w.meters,
+      kcal: w.kcal,
+    );
   }
 
   /// Weight and height to the watch ({"t":"body"}); it answers with a report.

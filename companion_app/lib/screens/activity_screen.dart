@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
 import '../providers/fitness_provider.dart';
+import 'health_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -232,6 +234,18 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             RowGroup(children: [for (final w in fit.workouts.take(30)) _WorkoutRow(w)]),
           const SectionLabel('Your body'),
           _BodyCard(fit: fit),
+          const SizedBox(height: 10),
+          RowGroup(
+            children: [
+              NavRow(
+                icon: Icons.favorite_rounded,
+                color: AppColors.danger,
+                title: Platform.isIOS ? 'Apple Health' : 'Health Connect',
+                subtitle: 'Write the watch\'s steps, activity and workouts there',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HealthScreen())),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           const Text(
             'Move counts active calories, Exercise brisk walking, running and workouts, Stand the hours you moved for '

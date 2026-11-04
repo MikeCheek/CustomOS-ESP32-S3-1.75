@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/gemma_service.dart';
+import '../services/health_sync.dart';
 import '../services/life_plan.dart';
 import 'ble_provider.dart';
 
@@ -215,6 +216,7 @@ class LifeNotifier extends StateNotifier<LifeState> {
   void onWatch(Map<String, dynamic> e) {
     final today = LifeDay.fromWatch(e);
     if (today != null && today.date == _today() && _day != _today()) unawaited(_checkDay());
+    if (today != null && today.date == _today()) unawaited(HealthSync.instance.onMindful(today.mind));
     var days = state.days;
     final h = e['h'];
     if (h is List) {

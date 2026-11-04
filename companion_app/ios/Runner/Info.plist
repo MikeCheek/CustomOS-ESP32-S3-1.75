@@ -67,6 +67,10 @@
 	<string>To choose which contacts are on the watch.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>The watch emulator tilts with the phone (games, fall detection, sleep).</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>AmoledWatch reads nothing from Health; this permission only exists alongside writing.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>AmoledWatch adds the watch's steps, active energy, workouts, mindful minutes, weight and height to Apple Health.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
