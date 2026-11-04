@@ -759,6 +759,11 @@ static int      s_launch = -1;           // position in s_vis
 static uint32_t s_launch_ms = 0;
 static int      s_launch_x = 0, s_launch_y = 0, s_launch_r = 0;
 static const uint32_t LAUNCH_MS = 200;
+// coming back: the app shrinks into its icon (the launch in reverse)
+static int      s_return = -1;           // position in s_vis
+static uint32_t s_return_ms = 0;
+static int      s_opened = -1;           // the app opened from here, still open
+static const uint32_t RETURN_MS = 220;
 
 // the list (Settings > Display > Apps as a list)
 static int   s_order[MENU_COUNT];        // s_vis positions, A-Z
@@ -809,10 +814,17 @@ static void build_field() {
 
 static void menu_create() {
     s_folder = -1;
+    s_opened = s_return = -1;
+    ui_zoom_back_to(&menu_screen);
+    ui_zoom_back_to(&menu_folder_screen);
     build_field();
 }
 
+static int s_top_opened = -1;   // the folder icon, to close into when the folder goes
+
 static void folder_create() {
+    s_top_opened = s_opened;
+    s_opened = s_return = -1;
     s_top_pan_x = s_pan_x;
     s_top_pan_y = s_pan_y;
     s_folder = s_next_folder;
@@ -820,11 +832,13 @@ static void folder_create() {
 }
 
 static void folder_destroy() {
-    // back to the top level, where it was
+    // back to the top level, where it was - and the folder closes into its icon
     s_folder = -1;
     build_field();
     s_pan_x = s_top_pan_x;
     s_pan_y = s_top_pan_y;
+    s_opened = s_top_opened;   // menu_tick zooms the folder shut into its icon
+    s_return = -1;
 }
 
 // Where position k is drawn: fisheye from the middle. False when off screen.
@@ -895,7 +909,7 @@ static void draw_honeycomb(uint16_t *fb) {
         if (d2 < nearest) { nearest = d2; s_nearest_idx = k; }
         int sx, sy, r;
         if (!place(k, sx, sy, r)) continue;
-        if (k == s_launch) continue;   // drawn on top, growing
+        if (k == s_launch || k == s_return) continue;   // drawn on top, growing or shrinking
         blit_icon(fb, s_vis[k], sx, sy, r);
     }
 }
@@ -918,6 +932,18 @@ static void menu_draw() {
         int r = s_launch_r + (int)((LCD_WIDTH * 0.75f - s_launch_r) * e);
         blit_icon(fb, s_vis[s_launch], cx, cy, r);
         return;
+    }
+    if (s_return >= 0 && s_return < s_vis_n) {
+        int sx, sy, r;
+        if (place(s_return, sx, sy, r)) {
+            float t = (millis() - s_return_ms) / (float)RETURN_MS;
+            if (t > 1) t = 1;
+            float e = t * t * (3 - 2 * t);   // smoothstep: settles into the slot
+            int cx = LCD_WIDTH / 2 + (int)((sx - LCD_WIDTH / 2) * e);
+            int cy = LCD_HEIGHT / 2 + (int)((sy - LCD_HEIGHT / 2) * e);
+            int rr = (int)(LCD_WIDTH * 0.75f + (r - LCD_WIDTH * 0.75f) * e);
+            blit_icon(fb, s_vis[s_return], cx, cy, rr);
+        }
     }
     if (listing()) return;
     // which app is in the middle: its name in a pill at the bottom, following the pan
@@ -1004,9 +1030,19 @@ static void menu_touch(int x, int y, bool pressed) {
 }
 
 static void menu_tick() {
+    // back from the app opened here: play it closing into its icon
+    if (s_opened >= 0) {
+        if (!listing() && !ui_last_pop_was_drag()) {   // a drag back already showed the menu
+            s_return = s_opened;
+            s_return_ms = millis();
+        }
+        s_opened = -1;
+    }
+    if (s_return >= 0 && millis() - s_return_ms >= RETURN_MS) s_return = -1;
     if (s_launch >= 0) {
         if (millis() - s_launch_ms >= LAUNCH_MS) {
             const MenuEntry &e = MENU_ENTRIES[s_vis[s_launch]];
+            s_opened = s_launch;
             s_launch = -1;
             if (e.folder >= 0) {   // a folder opens as its own honeycomb
                 s_next_folder = e.folder;

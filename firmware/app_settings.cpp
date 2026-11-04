@@ -3,6 +3,7 @@
 #include "ui.h"
 #include "ui_font.h"
 #include "app_settings_state.h"
+#include <math.h>
 #include "haptics.h"
 #include "low_power.h"
 #include "app_calibration.h"
@@ -64,8 +65,8 @@ static float row_fade(int center_y) {
 static void draw_switch(Arduino_GFX *g, int x, int y_center, bool on, float fade) {
     int track_w = 50, track_h = 26;
     int ty = y_center - track_h / 2;
-    uint16_t track_c = fade_color(on ? COLOR_GOOD : COLOR_PANEL, fade);
-    uint16_t border_c = fade_color(on ? COLOR_GOOD : COLOR_TEXT_DIM, fade);
+    uint16_t track_c = fade_color(on ? COLOR_GOOD : 0x39E7, fade);
+    uint16_t border_c = track_c;
     // Border via an inset double-fill (border-color fill at full size,
     // then a 2px-smaller track-color fill on top) rather than
     // drawRoundRect - this project's own notes elsewhere document
@@ -470,46 +471,61 @@ static void page_create(SettingsPage &p) {
     p.back_armed = false;
 }
 
+// A row's icon: a coloured disc with the row's initial - one colour per
+// row, stable (from its label), like watchOS Settings' icons. Shapes and
+// text only: the 1-bit bitmaps stay out of this screen (see the history of
+// the watchdog crash that removed drawBitmap() here).
+static uint16_t row_color(const char *label) {
+    static const uint16_t P[] = {0x2A9F, 0xFC60, 0x2FC7, 0xF8AA, 0x7B1F, 0x1F5D, 0xFE60, 0x9F45, 0x5E3F};
+    uint32_t h = 2166136261u;
+    for (const char *c = label; *c; c++) h = (h ^ (uint8_t)*c) * 16777619u;
+    return P[h % (sizeof(P) / sizeof(P[0]))];
+}
+
 static void draw_settings_row(Arduino_GFX *g, int y, const SettingsRow &row) {
-    int x = (LCD_WIDTH - S_ROW_W) / 2;
     float fade = row_fade(y + S_ROW_H / 2);
     bool unavailable = row.available && !row.available();
     if (unavailable) fade = fade + (1.0f - fade) * 0.55f;   // greyed out
-    // Same inset-double-fill border technique as draw_switch() above -
-    // border-color fill at full size, panel-color fill 2px smaller on
-    // top, no drawRoundRect (see that function's comment for why).
-    g->fillRoundRect(x, y, S_ROW_W, S_ROW_H, 18, fade_color(COLOR_TEXT_DIM, fade));
-    g->fillRoundRect(x + 2, y + 2, S_ROW_W - 4, S_ROW_H - 4, 16, fade_color(COLOR_PANEL, fade));
+    // As wide as the round screen allows at this height (a list that
+    // follows the edge, like watchOS's), never wider than the full row.
+    int mid = y + S_ROW_H / 2 - LCD_HEIGHT / 2;
+    int far = abs(mid);   // by the row's middle: a gentle curve, as watchOS lists
+    int w = S_ROW_W + 24;
+    if (far < LCD_WIDTH / 2) {
+        int chord = 2 * (int)sqrtf((float)(LCD_WIDTH / 2) * (LCD_WIDTH / 2) - (float)far * far) - 20;
+        if (chord < w) w = chord;
+    }
+    if (w < 260) w = 260;
+    int x = (LCD_WIDTH - w) / 2;
+    g->fillRoundRect(x, y, w, S_ROW_H, 26, fade_color(0x18E3, fade));
 
-    int pad = 18;
-    int text_x = x + pad;
-    // Icon rendering removed here entirely (not just skipped while
-    // dragging) after a device crash traced to a watchdog timeout on
-    // this exact screen, right after a previous fix that specifically
-    // targeted a different crash type also on this screen.
-    // drawBitmap() is the single newest, least-tested code path in
-    // this project - nothing else here used it before this feature -
-    // and rather than keep narrowing around an increasingly specific
-    // guess with real device crashes at stake, this removes the most
-    // concrete remaining suspect outright. See the chat for the full
-    // reasoning and crash dumps this is responding to.
-    g->setTextSize(2);
-    g->setTextColor(fade_color(COLOR_TEXT, fade));
-    ui_print(text_x, y + 14, 2, fade_color(COLOR_TEXT, fade), row.label);
+    // the icon disc
+    uint16_t ic = row_color(row.label);
+    int icx = x + 34, icy = y + S_ROW_H / 2;
+    g->fillCircle(icx, icy, 19, fade_color(ic, fade));
+    char ini[5];
+    ui_first_char(row.label, ini);
+    ui_text_center(icx, icy, fade_color(COLOR_TEXT, fade), ini, 2);
 
-    g->setTextSize(1);
-    g->setTextColor(fade_color(COLOR_TEXT_DIM, fade));
-    ui_print(text_x, y + 44, 1, fade_color(COLOR_TEXT_DIM, fade), unavailable && row.unavailable_desc ? row.unavailable_desc : row.desc);
+    int text_x = x + 64;
+    int right = row.kind == ROW_TOGGLE ? 70 : 34;
+    char label[48], desc[72];
+    strlcpy(label, row.label, sizeof(label));
+    ui_fit(label, 2, w - 64 - right);
+    ui_print(text_x, y + 14, 2, fade_color(COLOR_TEXT, fade), label);
+    strlcpy(desc, unavailable && row.unavailable_desc ? row.unavailable_desc : (row.desc ? row.desc : ""), sizeof(desc));
+    ui_fit(desc, 1, w - 64 - right);
+    ui_print(text_x, y + 44, 1, fade_color(COLOR_TEXT_DIM, fade), desc);
 
     if (row.kind == ROW_TOGGLE) {
         bool on = row.get_value ? row.get_value() : false;
-        draw_switch(g, x + S_ROW_W - pad - 50, y + S_ROW_H / 2, on, fade);
+        draw_switch(g, x + w - 18 - 50, y + S_ROW_H / 2, on, fade);
     } else {
-        // Chevron for "opens a sub-screen" rows - one filled triangle
-        // instead of 4 separate line calls for the same arrow shape.
-        int cx = x + S_ROW_W - pad - 12, cy = y + S_ROW_H / 2;
+        // a chevron: opens a page (or cycles a value)
+        int cx = x + w - 26, cy = y + S_ROW_H / 2;
         uint16_t c = fade_color(COLOR_TEXT_DIM, fade);
-        g->fillTriangle(cx - 4, cy - 9, cx - 4, cy + 9, cx + 8, cy, c);
+        g->fillTriangle(cx - 5, cy - 8, cx - 5, cy + 8, cx + 4, cy, c);
+        g->fillTriangle(cx - 9, cy - 8, cx - 9, cy + 8, cx, cy, fade_color(0x18E3, fade));
     }
 }
 
@@ -552,7 +568,7 @@ static void page_touch(SettingsPage &p, int x, int y, bool pressed) {
     int row_x = (LCD_WIDTH - S_ROW_W) / 2;
     for (int i = 0; i < p.count; i++) {
         int ry = S_ROW_TOP + i * S_ROW_PITCH;
-        if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x && x <= row_x + S_ROW_W) {
+        if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x - 20 && x <= row_x + S_ROW_W + 20) {
             const SettingsRow &row = p.rows[i];
             if (row.available && !row.available()) { ui_show_toast(row.unavailable_desc ? row.unavailable_desc : "Not available", 1800); break; }
             if ((row.kind == ROW_TOGGLE || row.kind == ROW_ACTION) && row.on_tap) row.on_tap();

@@ -117,6 +117,11 @@ void ui_push(Screen *screen);
 // The same without the slide-in (the caller animated it itself, e.g. the
 // app menu's zoom from the icon).
 void ui_push_instant(Screen *screen);
+// Pops that land on `s` don't slide: the app menu (up to two screens) zooms
+// the app back into its icon instead.
+void ui_zoom_back_to(Screen *s);
+// True when the last pop was an edge-drag back (the screen below is already in view).
+bool ui_last_pop_was_drag();
 void ui_pop_screen();
 void ui_go_home();
 void ui_update();

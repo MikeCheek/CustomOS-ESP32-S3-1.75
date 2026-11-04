@@ -4,6 +4,22 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+extern Screen contacts_screen;
+#define contacts_screen_ref contacts_screen
+extern Screen phone_screen;
+#define phone_screen_ref phone_screen
+extern Screen gallery_screen;
+#define gallery_screen_ref gallery_screen
+extern Screen media_screen;
+#define media_screen_ref media_screen
+extern Screen pet_screen;
+#define pet_screen_ref pet_screen
+extern Screen diagnostics_screen;
+#define diagnostics_screen_ref diagnostics_screen
+extern Screen snake_screen;
+#define snake_screen_ref snake_screen
+extern Screen breakout_screen;
+#define breakout_screen_ref breakout_screen
 #include "app_life.h"
 extern Screen life_meal_screen;
 static Screen &life_meal_screen_ref() { return life_meal_screen; }
@@ -116,6 +132,10 @@ void sim_scenarios() {
     sim_tap(233, 233);                      // the middle app: zooms open
     sim_run(90);
     sim_save("menu_launch");
+    sim_run(600);                            // the app is open
+    ui_pop_screen();                         // BOOT: back into its icon
+    sim_run(110);
+    sim_save("menu_return");
     g_app_settings.menu_list = true;
     shot(&menu_screen, "menu_list");
     g_app_settings.menu_list = false;
@@ -166,6 +186,13 @@ void sim_scenarios() {
     sim_run(3000);
     sim_save("breathe");
     shot(&stretch_screen, "stretch", 4000);
+    shot(&contacts_screen_ref, "review_contacts");
+    shot(&phone_screen_ref, "review_phone");
+    shot(&gallery_screen_ref, "review_gallery");
+    shot(&media_screen_ref, "review_files");
+    shot(&pet_screen_ref, "review_pet");
+    shot(&diagnostics_screen_ref, "review_diagnostics");
+    shot(&snake_screen_ref, "review_snake", 600);
     shot(&smart_stack_screen, "smart_stack");
     // more from one app: they stack up
     sim_link("{\"t\":\"ntf\",\"id\":14,\"ap\":\"WhatsApp\",\"ti\":\"Marco\",\"tx\":\"Are you coming tonight?\",\"rp\":1}");

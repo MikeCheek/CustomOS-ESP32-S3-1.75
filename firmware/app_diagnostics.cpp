@@ -110,7 +110,6 @@ static void diag_draw() {
     Arduino_GFX *g = ui_gfx();
     if (!g || !s_lines) return;
     int off = ui_scroll_offset(&s_scroll);
-    if (TOP - 40 - off > -30) ui_text_center(CX, TOP - 30 - off, COLOR_ACCENT, "Diagnostics", 2);
     for (int i = 0; i < s_count; i++) {
         int y = s_lines[i].y - off;
         if (y < -LINE_H || y > LCD_HEIGHT) continue;

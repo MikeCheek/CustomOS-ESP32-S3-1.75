@@ -28,7 +28,7 @@ enum RecState { REC_IDLE, REC_RECORDING, REC_SELECT };
 
 static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 static const int ROW_W = 350, ROW_X = (LCD_WIDTH - ROW_W) / 2, ROW_H = 62, GAP = 6;
-static const int TOP = 84, PILL_H = 52, LIST_TOP = TOP + PILL_H + 14;
+static const int TOP = 92, PILL_H = 52, LIST_TOP = TOP + PILL_H + 34;   // the count sits between
 static const int REC_MAX = 200;
 
 struct RecInfo { uint32_t size; uint32_t secs; bool transcript; bool approx; bool selected; };
@@ -313,9 +313,11 @@ static void recorder_draw() {
             uint16_t c = pr ? COLOR_BAD : COLOR_TEXT;
             g->fillCircle(CX - 64, py + PILL_H / 2, 10, c);
             ui_print(CX - 40, py + PILL_H / 2 - 8, 2, c, "Record");
-            char cnt[32];
-            snprintf(cnt, sizeof(cnt), s_list.n == 1 ? "1 recording" : "%d recordings", s_list.n);
-            ui_text_center(CX, py - 12, COLOR_TEXT_DIM, cnt, 1);
+            if (s_list.n > 0) {
+                char cnt[32];
+                snprintf(cnt, sizeof(cnt), s_list.n == 1 ? "1 recording" : "%d recordings", s_list.n);
+                ui_text_center(CX, py + PILL_H + 16, COLOR_TEXT_DIM, cnt, 1);
+            }
         }
     }
 

@@ -1,5 +1,7 @@
 #include "ui.h"
 #include "app_face_nav.h"
+#include "hal_rtc.h"
+#include "clock_fmt.h"
 #include "app_notifications.h"
 #include "phone_images.h"
 #include "ui_font.h"
@@ -491,12 +493,16 @@ static bool snapshot_last_frame() {
     return true;
 }
 
+static bool s_dragged_back = false;   // the last pop followed the finger
+bool ui_last_pop_was_drag() { return s_dragged_back; }
+
 static void do_drag_commit() {
     Screen *scr = active_screen();
     int top_before = s_top;
     s_suppress_tr = true;
     if (scr && scr->on_gesture) scr->on_gesture(GESTURE_SWIPE_RIGHT);
     s_suppress_tr = false;
+    if (s_top != top_before) s_dragged_back = true;
     if (s_top != top_before || active_screen() != scr) s_snap_below_of = nullptr;
 }
 
@@ -627,16 +633,27 @@ void ui_push(Screen *screen) {
     }
 }
 
+// The app menu zooms an app open; going back to it then zooms the app shut
+// (the menu draws that), so that one pop doesn't slide.
+static Screen *s_zoom_back[2] = {nullptr, nullptr};
+void ui_zoom_back_to(Screen *s) {
+    if (s_zoom_back[0] == s || s_zoom_back[1] == s) return;
+    if (!s_zoom_back[0]) s_zoom_back[0] = s;
+    else s_zoom_back[1] = s;
+}
+
 // Shared by pop and go-home: slide the current screen off to the right,
 // revealing `to`.
 static bool begin_pop_slide(Screen *to) {
     if (s_tr != TR_NONE || s_drag != DRAG_IDLE) finish_transition();
     if (s_top <= 0) return false;
+    if (to && (to == s_zoom_back[0] || to == s_zoom_back[1])) return false;   // it zooms back itself
     return transitions_allowed(active_screen(), to) && snapshot_last_frame();
 }
 
 void ui_pop_screen() {
     if (s_top <= 0) return;
+    if (!s_suppress_tr) s_dragged_back = false;
     bool animate = begin_pop_slide(s_stack[s_top - 1].screen);
     if (s_top <= 0) return; // finishing a drag-back may already have popped
     if (s_stack[s_top].screen && s_stack[s_top].screen->on_destroy)
@@ -1082,33 +1099,19 @@ void ui_draw_list_row(int x, int y, int w, int h, const char *label,
                       const char *desc, bool selected) {
     if (!s_gfx) return;
     bool has_desc = desc && desc[0] != '\0';
-    // Rounded card, not a full stadium pill - list rows read better
-    // with a gentler curve than a circular-ended button/chip does,
-    // same distinction Wear OS's own Card vs Chip/Button components
-    // make.
-    int radius = h > 40 ? 18 : h / 2;
-    // Inset double-fill for the border rather than drawRoundRect -
-    // see draw_switch()'s comment in app_settings.cpp for why
-    // (drawFastHLine/drawFastVLine are documented elsewhere in this
-    // project as broken on this display driver, and
-    // Adafruit_GFX-derived drawRoundRect's outline typically
-    // implements its straight edges through exactly those calls).
-    // This helper is meant to be reusable, including in scrolling
-    // list contexts that redraw every frame, so it sticks to the
-    // confirmed-safe fill-only primitives from the start.
-    uint16_t border_c = selected ? COLOR_ACCENT : COLOR_TEXT_DIM;
-    uint16_t fill_c = selected ? COLOR_ACCENT : COLOR_PANEL;
-    s_gfx->fillRoundRect(x, y, w, h, radius, border_c);
-    if (w > 4 && h > 4) {
-        int inner_r = radius > 2 ? radius - 2 : 0;
-        s_gfx->fillRoundRect(x + 2, y + 2, w - 4, h - 4, inner_r, fill_c);
-    }
-
-    int pad = 16;
-    ui_print(x + pad, y + (has_desc ? 10 : (h - 16) / 2), 2, COLOR_TEXT, label);
-
+    // A filled card, no outline - the look of every list since the watchOS
+    // pass (Settings, Alarms, Workout...). Selected: the accent.
+    int radius = h > 40 ? 24 : h / 2;
+    s_gfx->fillRoundRect(x, y, w, h, radius, selected ? COLOR_ACCENT : (uint16_t)0x18E3);
+    int pad = 18;
+    char l[64], d[96];
+    strlcpy(l, label ? label : "", sizeof(l));
+    ui_fit(l, 2, w - 2 * pad);
+    ui_print(x + pad, y + (has_desc ? 10 : (h - 16) / 2), 2, COLOR_TEXT, l);
     if (has_desc) {
-        ui_print(x + pad, y + h - 22, 1, selected ? COLOR_TEXT : COLOR_TEXT_DIM, desc);
+        strlcpy(d, desc, sizeof(d));
+        ui_fit(d, 1, w - 2 * pad);
+        ui_print(x + pad, y + h - 22, 1, selected ? COLOR_TEXT : COLOR_TEXT_DIM, d);
     }
 }
 
@@ -1225,9 +1228,25 @@ TileRect ui_draw_header(const char *title) {
 static void ui_draw_battery_indicator() {
     if (!s_gfx) return;
     int pct = power_get_battery_percent();
+    bool charging = power_is_charging();
+    // In apps the corner shows the time, as watchOS does; the battery only
+    // when it matters (low, charging, Low Power Mode). Faces show the time
+    // themselves, so they keep the battery.
+    Screen *top = active_screen();
+    bool face = face_nav_is_face(top);
+    bool game = top && top->frame_ms == UI_FRAME_MS_GAME;   // no clock over a playfield
+    if (game && !(pct >= 0 && (pct <= 20 || charging))) return;
+    if (!face && !game && !(pct >= 0 && (pct <= 20 || charging || g_app_settings.low_power))) {
+        WatchTime t = rtc_now();
+        if (!t.valid) return;
+        char hm[8];
+        clock_hm(hm, sizeof(hm), t.hour, t.minute);
+        // at the top, above the title: the one spot of the round screen every app leaves free
+        ui_text_center(LCD_WIDTH / 2, 22, COLOR_TEXT, hm, 2);
+        return;
+    }
     if (pct < 0) return; // no battery reading available - stay silent rather than show 0%
 
-    bool charging = power_is_charging();
     uint16_t color = charging ? COLOR_ACCENT2 : g_app_settings.low_power ? COLOR_WARN : (pct > 20 ? COLOR_GOOD : COLOR_BAD);
 
     char buf[8];

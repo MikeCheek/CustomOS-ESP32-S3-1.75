@@ -197,32 +197,34 @@ static void sleep_draw() {
                        g_app_settings.sleep_track ? "Wear the watch to bed" : "Tracking is off", 1);
     }
 
-    // smart alarm row: [-]  7:00  [+]   and the on/off pill
-    int y = 292;
+    // the smart alarm, as one card: its switch, then the time with - and +
+    const int CY0 = 250;
+    g->fillRoundRect(CX - 170, CY0, 340, 132, 28, 0x18E3);
+    ui_print(CX - 146, CY0 + 18, 2, COLOR_TEXT, "Smart alarm");
+    bool aon = g_app_settings.alarm_on;
+    g->fillRoundRect(CX + 92, CY0 + 14, 56, 30, 15, s_press == 2 ? ui_dim(COLOR_GOOD, 0.6f) : aon ? COLOR_GOOD : 0x39E7);
+    g->fillCircle(aon ? CX + 133 : CX + 107, CY0 + 29, 12, COLOR_TEXT);
     char b[24];
     snprintf(b, sizeof(b), "%d:%02d", g_app_settings.alarm_min / 60, g_app_settings.alarm_min % 60);
-    uint16_t on = g_app_settings.alarm_on ? COLOR_TEXT : COLOR_TEXT_DIM;
-    g->fillCircle(CX - 110, y, 26, s_press == 0 ? COLOR_ACCENT : COLOR_PANEL);
-    ui_text_center(CX - 110, y, COLOR_TEXT, "-", 3);
-    g->fillCircle(CX + 110, y, 26, s_press == 1 ? COLOR_ACCENT : COLOR_PANEL);
-    ui_text_center(CX + 110, y, COLOR_TEXT, "+", 3);
-    ui_text_center(CX, y, on, b, 3);
-    g->fillRoundRect(CX - 90, y + 44, 180, 46, 23,
-                     s_press == 2 ? ui_dim(COLOR_ACCENT, 0.6f) : (g_app_settings.alarm_on ? COLOR_ACCENT : COLOR_PANEL));
-    ui_text_center(CX, y + 67, COLOR_TEXT, g_app_settings.alarm_on ? "Smart alarm on" : "Smart alarm off", 1);
-    if (g_app_settings.alarm_on) {
+    int ty = CY0 + 88;
+    g->fillCircle(CX - 110, ty, 28, s_press == 0 ? COLOR_ACCENT : 0x31A6);
+    ui_text_center(CX - 110, ty, COLOR_TEXT, "-", 3);
+    g->fillCircle(CX + 110, ty, 28, s_press == 1 ? COLOR_ACCENT : 0x31A6);
+    ui_text_center(CX + 110, ty, COLOR_TEXT, "+", 3);
+    ui_text_center(CX, ty, aon ? COLOR_TEXT : COLOR_TEXT_DIM, b, 4);
+    if (aon) {
         int e = (g_app_settings.alarm_min - ALARM_WINDOW + 1440) % 1440;
-        snprintf(b, sizeof(b), "from %d:%02d", e / 60, e % 60);
-        ui_text_center(CX, y + 104, COLOR_TEXT_DIM, b, 1);
+        snprintf(b, sizeof(b), "From %d:%02d if you stir", e / 60, e % 60);
+        ui_text_center(CX, CY0 + 152, COLOR_TEXT_DIM, b, 1);
     }
 }
 
 static void sleep_touch(int x, int y, bool pressed) {
     static int armed = -1;
     int hit = -1;
-    if (abs(y - 292) < 34 && abs(x - (CX - 110)) < 34) hit = 0;
-    else if (abs(y - 292) < 34 && abs(x - (CX + 110)) < 34) hit = 1;
-    else if (abs(x - CX) < 95 && y > 330 && y < 386) hit = 2;
+    if (abs(y - 338) < 36 && abs(x - (CX - 110)) < 36) hit = 0;
+    else if (abs(y - 338) < 36 && abs(x - (CX + 110)) < 36) hit = 1;
+    else if (y > 250 && y < 300 && x > CX - 170 && x < CX + 170) hit = 2;   // the top line: the switch
     if (pressed) { armed = hit; s_press = hit; return; }
     s_press = -1;
     if (armed < 0 || armed != hit) { armed = -1; return; }
