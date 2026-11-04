@@ -19,12 +19,14 @@
 #include "app_life.h"
 #include "app_tips.h"
 
+struct IconPen;   // below: draws an icon's shapes at full size
+
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
 
 struct MenuEntry {
     const char *label;
     MenuCategory category;
-    void (*icon_fn)(Arduino_GFX *g, int cx, int cy, float br);
+    void (*icon_fn)(IconPen *g, int cx, int cy, float br);
     Screen *screen;
     bool dev = false;   // only with Settings > System > Developer mode
     uint16_t disc = 0;  // the icon's disc colour (0: taken from its drawing)
@@ -90,7 +92,123 @@ static uint16_t blend565(uint16_t fg, uint16_t bg, float alpha) {
 }
 #define IC(color) blend565((uint16_t)(color), COLOR_PANEL, br)
 
-static void icon_settings(Arduino_GFX *g, int cx, int cy, float br) {
+// ---- The pen: the icons are drawn at their own (small) size, in pixels
+// around (cx, cy); the pen draws the same shapes scaled up into a big
+// buffer, as real shapes (circles, triangles, rounded rects, thick
+// lines), so the icon comes out sharp at any size instead of enlarged
+// pixels. A pixel p of the small drawing is centred at O + p * S.
+struct IconPen {
+    uint16_t *buf = nullptr;
+    int n = 0;            // the buffer is n x n
+    float s = 1, o = 0;   // scale and where the small drawing's 0 lands
+
+    float P(float p) const { return o + p * s; }   // a pixel's centre
+    void px(int x, int y, uint16_t c) { if (x >= 0 && y >= 0 && x < n && y < n) buf[y * n + x] = c; }
+    // every buffer pixel whose centre is in [x0,x1) x [y0,y1) that passes in(fx, fy)
+    template <typename F> void area(float x0, float y0, float x1, float y1, uint16_t c, F in) {
+        int ix0 = (int)floorf(x0), iy0 = (int)floorf(y0), ix1 = (int)ceilf(x1), iy1 = (int)ceilf(y1);
+        if (ix0 < 0) ix0 = 0;
+        if (iy0 < 0) iy0 = 0;
+        if (ix1 > n) ix1 = n;
+        if (iy1 > n) iy1 = n;
+        for (int y = iy0; y < iy1; y++)
+            for (int x = ix0; x < ix1; x++)
+                if (in(x + 0.5f, y + 0.5f)) buf[y * n + x] = c;
+    }
+
+    void fillRect(float x, float y, float w, float h, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f);
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) { return fx >= x0 && fx < x1 && fy >= y0 && fy < y1; });
+    }
+    void drawFastHLine(float x, float y, float w, uint16_t c) { fillRect(x, y, w, 1, c); }
+    void drawFastVLine(float x, float y, float h, uint16_t c) { fillRect(x, y, 1, h, c); }
+    void fillCircle(float x, float y, float r, uint16_t c) {
+        float cx = P(x), cy = P(y), R = (r + 0.5f) * s, R2 = R * R;
+        area(cx - R, cy - R, cx + R, cy + R, c, [&](float fx, float fy) { return (fx - cx) * (fx - cx) + (fy - cy) * (fy - cy) <= R2; });
+    }
+    void drawCircle(float x, float y, float r, uint16_t c) {
+        float cx = P(x), cy = P(y), Ro = (r + 0.5f) * s, Ri = (r - 0.5f) * s;
+        if (Ri < 0) Ri = 0;
+        area(cx - Ro, cy - Ro, cx + Ro, cy + Ro, c, [&](float fx, float fy) {
+            float d2 = (fx - cx) * (fx - cx) + (fy - cy) * (fy - cy);
+            return d2 <= Ro * Ro && d2 >= Ri * Ri;
+        });
+    }
+    void drawEllipse(float x, float y, float rx, float ry, uint16_t c) {
+        float cx = P(x), cy = P(y), ax = (rx + 0.5f) * s, ay = (ry + 0.5f) * s, bx = (rx - 0.5f) * s, by = (ry - 0.5f) * s;
+        area(cx - ax, cy - ay, cx + ax, cy + ay, c, [&](float fx, float fy) {
+            float u = (fx - cx) / ax, v = (fy - cy) / ay;
+            if (u * u + v * v > 1) return false;
+            if (bx <= 0 || by <= 0) return true;
+            u = (fx - cx) / bx; v = (fy - cy) / by;
+            return u * u + v * v >= 1;
+        });
+    }
+    // distance from (fx, fy) outside a rounded rect (<= 0 inside)
+    static float rr_dist(float fx, float fy, float x0, float y0, float x1, float y1, float r) {
+        float qx = fabsf(fx - (x0 + x1) / 2) - ((x1 - x0) / 2 - r), qy = fabsf(fy - (y0 + y1) / 2) - ((y1 - y0) / 2 - r);
+        float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+        float in = qx > qy ? qx : qy;
+        return sqrtf(ox * ox + oy * oy) + (in < 0 ? in : 0) - r;
+    }
+    void fillRoundRect(float x, float y, float w, float h, float r, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f), R = r * s;
+        float lim = ((x1 - x0) < (y1 - y0) ? (x1 - x0) : (y1 - y0)) / 2;
+        if (R > lim) R = lim;
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) { return rr_dist(fx, fy, x0, y0, x1, y1, R) <= 0; });
+    }
+    void drawRoundRect(float x, float y, float w, float h, float r, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f), R = r * s;
+        float lim = ((x1 - x0) < (y1 - y0) ? (x1 - x0) : (y1 - y0)) / 2;
+        if (R > lim) R = lim;
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) {
+            float d = rr_dist(fx, fy, x0, y0, x1, y1, R);
+            return d <= 0 && d > -s;   // one small pixel wide
+        });
+    }
+    // a line one small pixel wide, with round ends
+    void drawLine(float xa, float ya, float xb, float yb, uint16_t c) {
+        float ax = P(xa), ay = P(ya), bx = P(xb), by = P(yb), hw = 0.5f * s * 1.08f;
+        float dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        float lx = (ax < bx ? ax : bx) - hw, ly = (ay < by ? ay : by) - hw, hx = (ax > bx ? ax : bx) + hw, hy = (ay > by ? ay : by) + hw;
+        area(lx, ly, hx, hy, c, [&](float fx, float fy) {
+            float t = l2 > 0 ? ((fx - ax) * dx + (fy - ay) * dy) / l2 : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            float ex = fx - (ax + t * dx), ey = fy - (ay + t * dy);
+            return ex * ex + ey * ey <= hw * hw;
+        });
+    }
+    // the small triangle covered its edge pixels too: grow it by half a pixel
+    void fillTriangle(float xa, float ya, float xb, float yb, float xc, float yc, uint16_t c) {
+        float X[3] = {P(xa), P(xb), P(xc)}, Y[3] = {P(ya), P(yb), P(yc)};
+        float area2 = (X[1] - X[0]) * (Y[2] - Y[0]) - (Y[1] - Y[0]) * (X[2] - X[0]);
+        if (fabsf(area2) < 1e-3f) { drawLine(xa, ya, xb, yb, c); drawLine(xb, yb, xc, yc, c); return; }
+        float sg = area2 > 0 ? 1.0f : -1.0f, grow = 0.5f * s;
+        float lx = X[0], hx = X[0], ly = Y[0], hy = Y[0];
+        for (int i = 1; i < 3; i++) {
+            lx = X[i] < lx ? X[i] : lx; hx = X[i] > hx ? X[i] : hx;
+            ly = Y[i] < ly ? Y[i] : ly; hy = Y[i] > hy ? Y[i] : hy;
+        }
+        float len[3];
+        for (int i = 0; i < 3; i++) {
+            int j = (i + 1) % 3;
+            len[i] = sqrtf((X[j] - X[i]) * (X[j] - X[i]) + (Y[j] - Y[i]) * (Y[j] - Y[i]));
+            if (len[i] < 1e-3f) len[i] = 1e-3f;
+        }
+        area(lx - grow, ly - grow, hx + grow, hy + grow, c, [&](float fx, float fy) {
+            for (int i = 0; i < 3; i++) {
+                int j = (i + 1) % 3;
+                // signed distance to edge i (positive inside)
+                float e = sg * ((X[j] - X[i]) * (fy - Y[i]) - (Y[j] - Y[i]) * (fx - X[i])) / len[i];
+                if (e < -grow) return false;
+            }
+            return true;
+        });
+    }
+};
+
+
+static void icon_settings(IconPen *g, int cx, int cy, float br) {
     // Gear: circle with teeth
     g->fillCircle(cx, cy, 20, IC(COLOR_ACCENT));
     g->fillCircle(cx, cy, 12, IC(COLOR_BG));
@@ -102,7 +220,7 @@ static void icon_settings(Arduino_GFX *g, int cx, int cy, float br) {
     }
 }
 
-static void icon_snake(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_snake(IconPen *g, int cx, int cy, float br) {
     // Snake body
     uint16_t c = IC(COLOR_GOOD);
     int sx[] = {-12, -4, 4, 12};
@@ -113,40 +231,40 @@ static void icon_snake(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 14, cy - 2, 3, IC(COLOR_TEXT)); // eye
 }
 
-static void icon_reaction(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_reaction(IconPen *g, int cx, int cy, float br) {
     // Lightning bolt
     g->fillTriangle(cx - 2, cy - 18, cx + 10, cy - 4, cx + 2, cy - 4, IC(COLOR_ACCENT3));
     g->fillTriangle(cx + 2, cy - 4, cx - 10, cy + 18, cx - 2, cy + 4, IC(COLOR_ACCENT3));
 }
 
-static void icon_dodger(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_dodger(IconPen *g, int cx, int cy, float br) {
     // Shield shape
     g->fillTriangle(cx, cy - 18, cx + 16, cy - 6, cx - 16, cy - 6, IC(COLOR_BAD));
     g->fillRoundRect(cx - 16, cy - 6, 32, 20, 0, IC(COLOR_BAD));
     g->fillTriangle(cx, cy + 18, cx + 16, cy + 4, cx - 16, cy + 4, IC(COLOR_BAD));
 }
 
-static void icon_simon(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_simon(IconPen *g, int cx, int cy, float br) {
     // Diamond
     g->fillTriangle(cx, cy - 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT));
     g->fillTriangle(cx, cy + 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT2));
 }
 
-static void icon_piano(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_piano(IconPen *g, int cx, int cy, float br) {
     // Piano keys: four white keys, three black ones on top
     for (int k = 0; k < 4; k++) g->fillRoundRect(cx - 21 + k * 11, cy - 16, 10, 32, 2, IC(COLOR_TEXT));
     for (int k = 0; k < 3; k++) g->fillRect(cx - 14 + k * 11, cy - 16, 6, 19, IC(COLOR_BG));
     g->fillCircle(cx + 15, cy - 12, 4, IC(COLOR_ACCENT));
 }
 
-static void icon_plane(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_plane(IconPen *g, int cx, int cy, float br) {
     // Paper-plane silhouette: nose + swept wings
     g->fillTriangle(cx, cy - 18, cx - 14, cy + 14, cx + 14, cy + 14, IC(COLOR_GOOD));
     g->fillTriangle(cx - 22, cy + 12, cx, cy - 2, cx - 12, cy + 16, IC(COLOR_GOOD));
     g->fillTriangle(cx + 22, cy + 12, cx, cy - 2, cx + 12, cy + 16, IC(COLOR_GOOD));
 }
 
-static void icon_breakout(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_breakout(IconPen *g, int cx, int cy, float br) {
     // A row of colored bricks, a paddle, and a ball
     g->fillRoundRect(cx - 22, cy - 18, 14, 8, 2, IC(COLOR_GOOD));
     g->fillRoundRect(cx - 6, cy - 18, 14, 8, 2, IC(COLOR_WARN));
@@ -155,7 +273,7 @@ static void icon_breakout(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 16, cy + 16, 32, 7, 3, IC(COLOR_ACCENT));
 }
 
-static void icon_blackjack(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_blackjack(IconPen *g, int cx, int cy, float br) {
     // Two overlapping playing cards, a small red diamond pip on each
     uint16_t card_c = IC(COLOR565(0xF0, 0xF0, 0xE8));
     uint16_t pip_c = IC(COLOR565(0xE0, 0x30, 0x30));
@@ -165,14 +283,14 @@ static void icon_blackjack(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 6, cy + 10, cx + 2, cy + 4, cx + 10, cy + 4, pip_c);
 }
 
-static void icon_cavern(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_cavern(IconPen *g, int cx, int cy, float br) {
     // A small cluster of colored crystals - a circle, a square and a triangle
     g->fillCircle(cx - 12, cy + 6, 9, IC(COLOR565(0x50, 0x90, 0xFF)));
     g->fillRect(cx + 2, cy - 2, 16, 16, IC(COLOR565(0xFF, 0xD8, 0x30)));
     g->fillTriangle(cx - 2, cy - 16, cx - 12, cy - 2, cx + 8, cy - 2, IC(COLOR565(0xB0, 0x60, 0xF0)));
 }
 
-static void icon_pet(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_pet(IconPen *g, int cx, int cy, float br) {
     // A small friendly face - round head, two ears, two eyes
     uint16_t body = IC(COLOR565(0xFF, 0xB8, 0x6B));
     g->fillCircle(cx, cy, 16, body);
@@ -183,7 +301,7 @@ static void icon_pet(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx - 3, cy + 6, cx + 3, cy + 6, cx, cy + 10, IC(COLOR565(0x66, 0x33, 0x11)));
 }
 
-static void icon_flappy(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_flappy(IconPen *g, int cx, int cy, float br) {
     // A little bird between two green pipe gaps
     uint16_t pipe = IC(COLOR_GOOD);
     g->fillRoundRect(cx - 24, cy - 22, 10, 16, 2, pipe);
@@ -194,7 +312,7 @@ static void icon_flappy(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 8, cy, cx + 16, cy - 3, cx + 16, cy + 3, IC(COLOR_BAD));
 }
 
-static void icon_fruitninja(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_fruitninja(IconPen *g, int cx, int cy, float br) {
     // Two sliced fruit halves with a diagonal slice line
     g->fillCircle(cx - 8, cy - 4, 11, IC(COLOR_BAD));
     g->fillCircle(cx + 9, cy + 6, 9, IC(COLOR_WARN));
@@ -203,7 +321,7 @@ static void icon_fruitninja(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawLine(cx - 21, cy + 17, cx + 23, cy - 15, line);
 }
 
-static void icon_runner(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_runner(IconPen *g, int cx, int cy, float br) {
     // A small runner figure over 3 converging lane lines
     uint16_t lane = IC(COLOR_PANEL);
     g->drawLine(cx - 20, cy + 18, cx - 4, cy - 20, lane);
@@ -214,14 +332,14 @@ static void icon_runner(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy - 12, 6, body);
 }
 
-static void icon_maze(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_maze(IconPen *g, int cx, int cy, float br) {
     // Converging corridor walls with a small enemy silhouette ahead
     g->fillTriangle(cx - 22, cy + 18, cx - 6, cy + 18, cx - 2, cy - 4, IC(COLOR_ACCENT));
     g->fillTriangle(cx + 22, cy + 18, cx + 6, cy + 18, cx + 2, cy - 4, IC(COLOR_ACCENT));
     g->fillRoundRect(cx - 5, cy - 2, 10, 14, 3, IC(COLOR_BAD));
 }
 
-static void icon_recorder(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_recorder(IconPen *g, int cx, int cy, float br) {
     // Microphone
     uint16_t c = IC(COLOR_BAD);
     g->fillRoundRect(cx - 6, cy - 16, 12, 22, 6, c);
@@ -230,7 +348,7 @@ static void icon_recorder(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 8, cy + 22, 16, 3, 1, c);
 }
 
-static void icon_notifications(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_notifications(IconPen *g, int cx, int cy, float br) {
     // Bell
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 12, cy - 14, 24, 20, 10, c);
@@ -238,7 +356,7 @@ static void icon_notifications(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 10, 2, IC(COLOR_BG));
 }
 
-static void icon_ble(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_ble(IconPen *g, int cx, int cy, float br) {
     // Bluetooth rune
     uint16_t c = IC(COLOR_ACCENT);
     g->fillRoundRect(cx - 3, cy - 16, 6, 32, 2, c);
@@ -248,7 +366,7 @@ static void icon_ble(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 14, 3, c);
 }
 
-static void icon_battery(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_battery(IconPen *g, int cx, int cy, float br) {
     uint16_t c = IC(COLOR_GOOD);
     g->drawRoundRect(cx - 16, cy - 10, 32, 20, 4, c);
     g->fillRect(cx + 16, cy - 4, 4, 8, c);
@@ -256,7 +374,7 @@ static void icon_battery(Arduino_GFX *g, int cx, int cy, float br) {
 }
 
 
-static void icon_espnow(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_espnow(IconPen *g, int cx, int cy, float br) {
     // A small joystick base + stick, with radiating "wireless" arcs
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 14, cy + 6, 28, 10, 4, c);
@@ -266,7 +384,7 @@ static void icon_espnow(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawCircle(cx, cy - 12, 24, IC(COLOR_TEXT_DIM));
 }
 
-static void icon_bambu(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_bambu(IconPen *g, int cx, int cy, float br) {
     // A simple gantry-style 3D printer frame with a small printed
     // object on the bed - fillRect/fillTriangle only, no drawRect
     // outline (see this project's established note elsewhere on why).
@@ -278,7 +396,7 @@ static void icon_bambu(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx, cy - 2, cx - 8, cy + 8, cx + 8, cy + 8, IC(COLOR_ACCENT2)); // printed object
 }
 
-static void icon_media(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_media(IconPen *g, int cx, int cy, float br) {
     // Play note
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillCircle(cx - 4, cy + 10, 6, c);
@@ -286,7 +404,7 @@ static void icon_media(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 6, cy - 14, cx + 18, cy - 10, cx + 6, cy - 6, c);
 }
 
-static void icon_gallery(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_gallery(IconPen *g, int cx, int cy, float br) {
     // Photo: frame, sun and two hills
     uint16_t c = IC(COLOR_GOOD);
     g->fillRoundRect(cx - 18, cy - 14, 36, 28, 5, c);
@@ -296,7 +414,7 @@ static void icon_gallery(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 8, cy - 5, 3, IC(COLOR_WARN));
 }
 
-static void icon_music(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_music(IconPen *g, int cx, int cy, float br) {
     // Two beamed notes
     uint16_t c = IC(COLOR_ACCENT);
     g->fillCircle(cx - 9, cy + 11, 6, c);
@@ -307,7 +425,7 @@ static void icon_music(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx - 5, cy - 12, cx + 17, cy - 9, cx - 5, cy - 6, c);
 }
 
-static void icon_assistant(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_assistant(IconPen *g, int cx, int cy, float br) {
     // A speech bubble with a sound wave
     uint16_t c = IC(COLOR_ACCENT);
     g->fillRoundRect(cx - 20, cy - 16, 40, 28, 12, c);
@@ -317,14 +435,14 @@ static void icon_assistant(Arduino_GFX *g, int cx, int cy, float br) {
     for (int k = 0; k < 5; k++) g->fillRoundRect(cx - 12 + k * 6, cy - 2 - H[k] / 2, 3, H[k], 1, w);
 }
 
-static void icon_sleep(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_sleep(IconPen *g, int cx, int cy, float br) {
     // a crescent moon and a small star
     g->fillCircle(cx - 2, cy, 18, IC(COLOR_ACCENT2));
     g->fillCircle(cx + 7, cy - 6, 15, IC(COLOR_PANEL));
     g->fillCircle(cx + 14, cy + 10, 3, IC(COLOR_TEXT));
 }
 
-static void icon_draw(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_draw(IconPen *g, int cx, int cy, float br) {
     // a hand-drawn "A" stroke with the pen dot at its end
     static const int8_t P[][2] = {{-16, 16}, {-8, -2}, {0, -16}, {8, -2}, {16, 16}};
     for (int i = 0; i + 1 < 5; i++)
@@ -334,7 +452,7 @@ static void icon_draw(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 16, cy + 16, 5, IC(COLOR_TEXT));
 }
 
-static void icon_activity(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_activity(IconPen *g, int cx, int cy, float br) {
     // a running figure: head, body, arms and legs as dots
     uint16_t c = IC(COLOR_ACCENT3);
     g->fillCircle(cx + 4, cy - 16, 5, c);
@@ -342,7 +460,7 @@ static void icon_activity(Arduino_GFX *g, int cx, int cy, float br) {
     for (auto &p : P) g->fillCircle(cx + p[0], cy + p[1], 3, c);
 }
 
-static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_phone(IconPen *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 11, cy - 20, 22, 40, 5, c);
@@ -353,7 +471,7 @@ static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx + 21, cy - 10, 3, 20, w);
 }
 
-static void icon_calendar(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_calendar(IconPen *g, int cx, int cy, float br) {
     // Calendar page with a red header and two rings
     g->fillRoundRect(cx - 18, cy - 16, 36, 34, 6, IC(COLOR_TEXT));
     g->fillRoundRect(cx - 18, cy - 16, 36, 12, 5, IC(COLOR_BAD));
@@ -365,7 +483,7 @@ static void icon_calendar(Arduino_GFX *g, int cx, int cy, float br) {
             g->fillRect(cx - 12 + c * 9, cy + 1 + r * 8, 6, 5, IC(COLOR_PANEL));
 }
 
-static void icon_navigation(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_navigation(IconPen *g, int cx, int cy, float br) {
     // Turn arrow on a green sign
     g->fillRoundRect(cx - 20, cy - 20, 40, 40, 10, IC(COLOR_GOOD));
     uint16_t c = IC(COLOR_BG);
@@ -374,14 +492,14 @@ static void icon_navigation(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 15, cy + 1, cx + 5, cy - 9, cx + 5, cy + 11, c);
 }
 
-static void icon_contacts(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_contacts(IconPen *g, int cx, int cy, float br) {
     // Person
     uint16_t c = IC(COLOR_ACCENT);
     g->fillCircle(cx, cy - 8, 9, c);
     g->fillRoundRect(cx - 14, cy + 4, 28, 16, 8, c);
 }
 
-static void icon_files(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_files(IconPen *g, int cx, int cy, float br) {
     // Folder
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 16, cy - 6, 32, 22, 4, c);
@@ -389,7 +507,7 @@ static void icon_files(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 12, cy, 24, 12, 2, IC(COLOR_BG));
 }
 
-static void icon_tests(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_tests(IconPen *g, int cx, int cy, float br) {
     // Wrench
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 3, cy - 16, 6, 28, 2, c);
@@ -397,7 +515,7 @@ static void icon_tests(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 10, 4, IC(COLOR_BG));
 }
 
-static void icon_calibration(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_calibration(IconPen *g, int cx, int cy, float br) {
     // Crosshair/target
     uint16_t c = IC(COLOR_ACCENT2);
     g->drawCircle(cx, cy, 18, c);
@@ -409,7 +527,7 @@ static void icon_calibration(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx + 16, cy - 2, 10, 4, 1, c);
 }
 
-static void icon_sprite_test(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_sprite_test(IconPen *g, int cx, int cy, float br) {
     // A little placeholder figure over a checkerboard - a stand-in for
     // "testing bitmap sprites", not a real game icon
     uint16_t c1 = IC(COLOR_PANEL), c2 = IC(COLOR_TEXT_DIM);
@@ -421,7 +539,7 @@ static void icon_sprite_test(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx + 3, cy + 2, 10, 10, 3, IC(COLOR_GOOD));
 }
 
-static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_ninjadungeon(IconPen *g, int cx, int cy, float br) {
     // A hooded ninja silhouette over a stone-block dungeon wall
     uint16_t wall = IC(COLOR565(0x55, 0x55, 0x60));
     g->fillRect(cx - 22, cy - 20, 44, 14, wall);
@@ -434,7 +552,7 @@ static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx - 3, cy - 6, 6, 3, IC(COLOR_TEXT));
 }
 
-static void icon_timer(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_timer(IconPen *g, int cx, int cy, float br) {
     // a stopwatch-style dial with a quarter swept
     uint16_t c = IC(COLOR_WARN);
     g->fillCircle(cx, cy + 3, 19, c);
@@ -443,7 +561,7 @@ static void icon_timer(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 5, cy - 22, 10, 5, 2, c);
 }
 
-static void icon_stopwatch(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_stopwatch(IconPen *g, int cx, int cy, float br) {
     uint16_t c = IC(COLOR_WARN);
     g->fillCircle(cx, cy + 3, 19, c);
     g->fillCircle(cx, cy + 3, 15, IC(COLOR_PANEL));
@@ -454,7 +572,7 @@ static void icon_stopwatch(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx + 13, cy - 17, 6, 6, 2, c);
 }
 
-static void icon_alarm(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_alarm(IconPen *g, int cx, int cy, float br) {
     // an alarm clock: two bells on top, legs
     uint16_t c = IC(COLOR_WARN);
     g->fillCircle(cx - 14, cy - 15, 7, c);
@@ -467,7 +585,7 @@ static void icon_alarm(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawLine(cx + 12, cy + 17, cx + 16, cy + 22, c);
 }
 
-static void icon_worldclock(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_worldclock(IconPen *g, int cx, int cy, float br) {
     // a globe: meridians and the equator
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillCircle(cx, cy, 20, c);
@@ -479,7 +597,7 @@ static void icon_worldclock(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawEllipse(cx, cy, 8, 17, c);
 }
 
-static void icon_weather(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_weather(IconPen *g, int cx, int cy, float br) {
     // the sun behind a cloud
     g->fillCircle(cx - 6, cy - 7, 11, IC(COLOR_WARN));
     uint16_t c = IC(COLOR_TEXT);
@@ -492,7 +610,7 @@ static void icon_weather(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx - 19, cy + 17, 2, IC(COLOR_ACCENT2));
 }
 
-static void icon_reminders(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_reminders(IconPen *g, int cx, int cy, float br) {
     // three rows with a dot each
     uint16_t c = IC(COLOR_ACCENT3);
     for (int i = 0; i < 3; i++) {
@@ -502,7 +620,7 @@ static void icon_reminders(Arduino_GFX *g, int cx, int cy, float br) {
     }
 }
 
-static void icon_workout(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_workout(IconPen *g, int cx, int cy, float br) {
     // a runner in mid-stride
     uint16_t c = IC(0x9F45);
     g->fillCircle(cx + 5, cy - 16, 5, c);
@@ -515,7 +633,7 @@ static void icon_workout(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawLine(cx + 3, cy - 7, cx - 8, cy - 4, c);
 }
 
-static void icon_life(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_life(IconPen *g, int cx, int cy, float br) {
     // a heart with a leaf: living well
     uint16_t c = IC(COLOR_TEXT);
     g->fillCircle(cx - 8, cy - 5, 10, c);
@@ -524,7 +642,7 @@ static void icon_life(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 15, cy - 18, 3, IC(0x2CCA));   // keeps the disc green
 }
 
-static void icon_tips(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_tips(IconPen *g, int cx, int cy, float br) {
     // a lit bulb
     uint16_t c = IC(COLOR_TEXT);
     g->fillCircle(cx, cy - 5, 14, c);
@@ -592,21 +710,18 @@ static const int MENU_COUNT = sizeof(MENU_ENTRIES) / sizeof(MENU_ENTRIES[0]);
 //  Icons: drawn once into a small image each, in one style
 // =========================================================================
 //
-// Every icon is drawn by its function above at its own (small) scale,
-// then rebuilt into a 128x128 image in one style: a disc in the icon's own
-// colour (lighter at the top) with the drawing in white on it - the look
-// of watchOS's app icons, whatever colours each drawing used. The rebuild
-// enlarges the drawing smoothly (its outline is interpolated and cut
-// again, so curves and diagonals come out smooth instead of in steps),
-// anti-aliases it, and dithers the gradient so it doesn't band in 16-bit
-// colour. A half-size copy is kept for small icons, and the disc's round
+// Every icon is drawn by its function above, through the pen at full
+// size (twice the image's, then averaged: sharp and anti-aliased), into a
+// 104x104 image in one style: a disc in the icon's own colour (lighter at
+// the top) with the drawing in white on it - the look of watchOS's app
+// icons, whatever colours each drawing used. The gradient is dithered so it
+// doesn't band in 16-bit colour. A half-size copy is kept for small icons, and the disc's round
 // edge is worked out at the size it's drawn, so it's smooth at any size:
 // smaller toward the edge of the honeycomb, growing when an app opens,
 // small in the list.
-static const int SPR = 128, SPR_R = 62;          // the image, and its disc
-static const int MIP = 64, MIP_R = 31;           // the half-size copy
-static const int SRC = 84;                       // the drawing, at its own scale
-static const float GLYPH = 1.45f;                // how much bigger it's drawn on the disc
+static const int SPR = 104, SPR_R = 50;          // the image, and its disc: the honeycomb's full size, pixel for pixel
+static const int MIP = 52, MIP_R = 25;           // the half-size copy: the list's size
+static const float GLYPH = 1.17f;                // how much bigger than written it's drawn on the disc
 static uint16_t *s_spr[MENU_COUNT], *s_mip[MENU_COUNT];
 
 static void rgb(uint16_t c, int &r, int &g, int &b) { r = (c >> 11) << 3; g = ((c >> 5) & 0x3F) << 2; b = (c & 0x1F) << 3; }
@@ -623,19 +738,24 @@ static inline uint16_t dither565(float r, float g, float b, int x, int y) {
 }
 
 static void make_sprite(int i) {
-    static Arduino_Canvas *canvas = nullptr;
-    if (!canvas) {
-        canvas = new Arduino_Canvas(SRC, SRC, nullptr);
-        if (!canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) { delete canvas; canvas = nullptr; return; }
-    }
-    uint16_t *px = canvas->getFramebuffer();
-    canvas->fillScreen(COLOR_PANEL);
-    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(canvas, SRC / 2, SRC / 2, 1.0f);
+    // the drawing, at twice the sprite's size (each sprite pixel the
+    // average of four: smooth edges), as shapes - sharp, not enlarged
+    static const int BIG = SPR * 2;
+    static uint16_t *big = nullptr;
+    if (!big) big = (uint16_t *)heap_caps_malloc(BIG * BIG * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!big) return;
+    for (int k = 0; k < BIG * BIG; k++) big[k] = COLOR_PANEL;
+    IconPen pen;
+    pen.buf = big;
+    pen.n = BIG;
+    pen.s = GLYPH * 2;
+    pen.o = BIG / 2.0f;
+    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(&pen, 0, 0, 1.0f);
 
     // The drawing's own colour (its most saturated pixels) becomes the disc's.
     long sr = 0, sg = 0, sb = 0, sw = 0;
-    for (int k = 0; k < SRC * SRC; k++) {
-        uint16_t c = px[k];
+    for (int k = 0; k < BIG * BIG; k += 3) {   // a third of them is plenty
+        uint16_t c = big[k];
         if (c == COLOR_PANEL) continue;
         int r, g, b;
         rgb(c, r, g, b);
@@ -651,27 +771,17 @@ static void make_sprite(int i) {
     int mx = tr > tg ? (tr > tb ? tr : tb) : (tg > tb ? tg : tb);
     if (mx < 150 && mx > 0) { tr = tr * 150 / mx; tg = tg * 150 / mx; tb = tb * 150 / mx; }
 
-    // Per pixel of the drawing: is something drawn there (cov), and how
-    // white it is (tone: its darker parts become a shade of the disc).
-    uint8_t *cov = (uint8_t *)heap_caps_malloc(SRC * SRC * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     uint16_t *out = (uint16_t *)heap_caps_malloc(SPR * SPR * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     uint16_t *mip = (uint16_t *)heap_caps_malloc(MIP * MIP * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!cov || !out || !mip) { free(cov); free(out); free(mip); return; }
-    uint8_t *tone = cov + SRC * SRC;
-    for (int k = 0; k < SRC * SRC; k++) {
-        uint16_t c = px[k];
-        if (c == COLOR_PANEL) { cov[k] = 0; tone[k] = 0; continue; }
+    if (!out || !mip) { free(out); free(mip); return; }
+    // how white a pixel of the drawing is: its darker parts become a shade of the disc
+    auto tone = [](uint16_t c) -> float {
+        if (c == COLOR_PANEL) return 0.0f;
         int r, g, b;
         rgb(c, r, g, b);
         int luma = (r * 3 + g * 6 + b) / 10;
-        float a = luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
-        cov[k] = 255;
-        tone[k] = (uint8_t)(a * 255);
-    }
-    auto at = [&](const uint8_t *m, int x, int y) -> float {
-        return (x < 0 || y < 0 || x >= SRC || y >= SRC) ? 0.0f : m[y * SRC + x] / 255.0f;
+        return luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
     };
-
     for (int y = 0; y < SPR; y++) {
         // disc: lighter at the top, deeper at the bottom
         float k = 1.08f - 0.38f * (y + 0.5f) / SPR;
@@ -679,27 +789,9 @@ static void make_sprite(int i) {
         if (dr > 255) dr = 255;
         if (dg > 255) dg = 255;
         if (db > 255) db = 255;
-        float v = SRC / 2.0f + (y + 0.5f - SPR / 2.0f) / GLYPH - 0.5f;
-        int y0 = (int)floorf(v);
-        float fy = v - y0;
+        const uint16_t *r0 = big + (y * 2) * BIG, *r1 = r0 + BIG;
         for (int x = 0; x < SPR; x++) {
-            float u = SRC / 2.0f + (x + 0.5f - SPR / 2.0f) / GLYPH - 0.5f;
-            int x0 = (int)floorf(u);
-            float fx = u - x0;
-            float w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-            float c00 = at(cov, x0, y0), c10 = at(cov, x0 + 1, y0), c01 = at(cov, x0, y0 + 1), c11 = at(cov, x0 + 1, y0 + 1);
-            float c = c00 * w00 + c10 * w10 + c01 * w01 + c11 * w11;
-            float a = 0;
-            if (c > 0) {
-                // the outline: cut the smooth coverage at half, ~1 pixel soft
-                float s = (c - 0.5f) * GLYPH * 1.1f + 0.5f;
-                s = s < 0 ? 0 : s > 1 ? 1 : s;
-                if (s > 0) {
-                    float t = (at(tone, x0, y0) * w00 + at(tone, x0 + 1, y0) * w10 + at(tone, x0, y0 + 1) * w01 +
-                               at(tone, x0 + 1, y0 + 1) * w11) / c;
-                    a = s * (t > 1 ? 1 : t);
-                }
-            }
+            float a = (tone(r0[x * 2]) + tone(r0[x * 2 + 1]) + tone(r1[x * 2]) + tone(r1[x * 2 + 1])) * 0.25f;
             out[y * SPR + x] = dither565(255 * a + dr * (1 - a), 255 * a + dg * (1 - a), 255 * a + db * (1 - a), x, y);
         }
     }
@@ -714,7 +806,6 @@ static void make_sprite(int i) {
             }
             mip[y * MIP + x] = dither565(r / 4.0f, g / 4.0f, b / 4.0f, x, y);
         }
-    free(cov);
     s_spr[i] = out;
     s_mip[i] = mip;
 }
@@ -776,6 +867,7 @@ static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
     const uint16_t *sp = small ? s_mip[i] : s_spr[i];
     int n = small ? MIP : SPR;
     float step = (float)(small ? MIP_R : SPR_R) / r;
+    bool big = r > SPR_R + 2;
     int in2 = (2 * r - 1) * (2 * r - 1), out2 = (2 * r + 1) * (2 * r + 1);
     for (int y = -r - 1; y <= r; y++) {
         int sy = cy + y;
@@ -783,16 +875,38 @@ static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
         int Y = 2 * y + 1;
         int v = (int)(n / 2 + (y + 0.5f) * step);
         v = v < 0 ? 0 : v >= n ? n - 1 : v;
-        const uint16_t *srow = sp + v * n;
+        const uint16_t *srow = sp + v * n, *srow1 = srow;
+        int wv = 0;
+        if (big) {
+            int fv = (int)((n / 2.0f + (y + 0.5f) * step - 0.5f) * 256);
+            int v0 = fv >> 8;
+            wv = fv & 255;
+            if (fv < 0) { v0 = 0; wv = 0; }
+            if (v0 >= n - 1) { v0 = n - 2; wv = 255; }
+            srow = sp + v0 * n;
+            srow1 = srow + n;
+        }
         uint16_t *drow = fb + sy * LCD_WIDTH;
         for (int x = -r - 1; x <= r; x++) {
             int sx = cx + x;
             if (sx < 0 || sx >= LCD_WIDTH) continue;
             int X = 2 * x + 1, d2 = X * X + Y * Y;
             if (d2 >= out2) continue;
-            int u = (int)(n / 2 + (x + 0.5f) * step);
-            u = u < 0 ? 0 : u >= n ? n - 1 : u;
-            uint16_t c = srow[u];
+            uint16_t c;
+            if (big) {
+                // drawn bigger than the image (an app zooming open): blend the
+                // four nearest pixels instead of enlarging them
+                int fu = (int)((n / 2.0f + (x + 0.5f) * step - 0.5f) * 256);
+                int u0 = fu >> 8, wu = fu & 255;
+                if (fu < 0) { u0 = 0; wu = 0; }
+                if (u0 >= n - 1) { u0 = n - 2; wu = 255; }
+                const uint16_t *a0 = srow + u0, *a1 = srow1 + u0;
+                c = mix565(mix565(a1[1], a1[0], wu), mix565(a0[1], a0[0], wu), wv);
+            } else {
+                int u = (int)(n / 2 + (x + 0.5f) * step);
+                u = u < 0 ? 0 : u >= n ? n - 1 : u;
+                c = srow[u];
+            }
             if (d2 <= in2) { drow[sx] = c; continue; }
             // the round edge, anti-aliased at the size it's drawn
             float a = r + 0.5f - sqrtf((float)d2) * 0.5f;
