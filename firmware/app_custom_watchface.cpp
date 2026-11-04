@@ -312,21 +312,7 @@ static void custom_wf_draw() {
     pet_step_and_draw(g); // drawn last so widgets never paint over it
 }
 
-static void custom_wf_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            ui_push(&smart_stack_screen);
-            break;
-        default:
-            break;
-    }
-}
+static void custom_wf_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 static void custom_wf_touch(int x, int y, bool pressed) {
     pet_handle_touch(x, y, pressed);

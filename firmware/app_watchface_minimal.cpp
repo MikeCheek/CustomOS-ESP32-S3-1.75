@@ -45,21 +45,7 @@ static void watchface_minimal_draw() {
     comp_draw_slots(g, LCD_HEIGHT / 2 + 120, 38);
 }
 
-static void watchface_minimal_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            ui_push(&smart_stack_screen);
-            break;
-        default:
-            break;
-    }
-}
+static void watchface_minimal_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 static void watchface_minimal_touch(int x, int y, bool pressed) {
     pet_handle_touch(x, y, pressed);

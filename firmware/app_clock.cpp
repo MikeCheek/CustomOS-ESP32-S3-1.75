@@ -723,6 +723,24 @@ static int city_offset(const City &c, int64_t utc) {
     return c.std_off;
 }
 
+// The cities shown, with the time there now (the Tiles). 0 until the phone
+// told the watch its time zone.
+int clock_world_times(const char **names, int *hour, int *minute, int max) {
+    if (s_utc_off == -1440) return 0;
+    int64_t utc = (int64_t)calendar_now() - (int64_t)s_utc_off * 60;
+    int n = 0;
+    for (int i = 0; i < CITY_N && n < max; i++) {
+        if (!((s_city_mask >> i) & 1)) continue;
+        int64_t l = utc + (int64_t)city_offset(CITIES[i], utc) * 60;
+        int sod = (int)(((l % 86400) + 86400) % 86400);
+        names[n] = CITIES[i].name;
+        hour[n] = sod / 3600;
+        minute[n] = sod / 60 % 60;
+        n++;
+    }
+    return n;
+}
+
 static UiScroll s_wc_scroll;
 static bool s_wc_edit = false;
 static const int WC_ROW = 84, WC_TOP = 92;

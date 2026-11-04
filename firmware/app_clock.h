@@ -26,6 +26,7 @@ uint32_t stopwatch_ms();
 // The next alarm that will ring: minutes from now (false: none on).
 bool clock_next_alarm(uint32_t &minutes_from_now, int &hour, int &minute);
 bool clock_alarm_ringing();
+int  clock_world_times(const char **names, int *hour, int *minute, int max);   // the cities shown, time there now
 
 extern Screen timer_screen;
 extern Screen stopwatch_screen;

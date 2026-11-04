@@ -7,6 +7,8 @@
 #include "haptics.h"
 #include "low_power.h"
 #include "app_tips.h"
+#include "app_tiles.h"
+#include "home_gestures.h"
 #include "app_calibration.h"
 #include "app_wifi_setup.h"
 #include "app_usb.h"
@@ -440,10 +442,48 @@ static SettingsRow ROWS_SYSTEM[] = {
 };
 
 extern Screen settings_display_screen, settings_sound_screen, settings_connect_screen, settings_power_screen,
-    settings_wake_screen, settings_system_screen, settings_activity_screen;
+    settings_wake_screen, settings_system_screen, settings_activity_screen, settings_home_screen;
+
+// ---- Home gestures (home_gestures.h): what each one on the face does
+static void tap_home_style() {
+    int n = home_style_count(), st = home_style();
+    home_apply_style(st >= n ? 0 : (st + 1) % n);
+}
+static const char *desc_home_style() {
+    static char b[48];
+    int st = home_style();
+    snprintf(b, sizeof(b), "%s - tap to change", home_style_name(st));
+    return b;
+}
+#define HOME_ROW_FNS(slot)                                                                    \
+    static void tap_home_##slot() { home_cycle_action(slot); }                                \
+    static const char *desc_home_##slot() { return home_action_name(home_action(slot)); }
+HOME_ROW_FNS(HS_TAP)
+HOME_ROW_FNS(HS_DOUBLE)
+HOME_ROW_FNS(HS_HOLD)
+HOME_ROW_FNS(HS_UP)
+HOME_ROW_FNS(HS_DOWN)
+HOME_ROW_FNS(HS_LEFT)
+HOME_ROW_FNS(HS_RIGHT)
+HOME_ROW_FNS(HS_BOOT)
+#define HOME_ROW(label, slot) \
+    { label, "", ROW_ACTION, nullptr, tap_home_##slot, nullptr, nullptr, nullptr, nullptr, desc_home_##slot }
+static SettingsRow ROWS_HOME[] = {
+    { "Style", "", ROW_ACTION, nullptr, tap_home_style, nullptr, nullptr, nullptr, nullptr, desc_home_style },
+    HOME_ROW("Tap", HS_TAP),
+    HOME_ROW("Double-tap", HS_DOUBLE),
+    HOME_ROW("Touch and hold", HS_HOLD),
+    HOME_ROW("Swipe up", HS_UP),
+    HOME_ROW("Pull down from the top", HS_DOWN),
+    HOME_ROW("Swipe in from the right", HS_LEFT),
+    HOME_ROW("Swipe in from the left", HS_RIGHT),
+    HOME_ROW("BOOT button", HS_BOOT),
+    { "Tiles", "Which and in what order: the app's Faces tab", ROW_SUBSCREEN, nullptr, nullptr, &tiles_screen, nullptr },
+};
 
 static SettingsRow ROWS_ROOT[] = {
     { "Display", "Brightness, always-on, watchface", ROW_SUBSCREEN, nullptr, nullptr, &settings_display_screen, ICON_BRIGHTNESS },
+    { "Home gestures", "Tap, swipes and BOOT on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_home_screen, ICON_TOUCH },
     { "Sound & haptics", "Volume, microphone, effects", ROW_SUBSCREEN, nullptr, nullptr, &settings_sound_screen, ICON_VOLUME },
     { "Connections", "Bluetooth, WiFi, GPS", ROW_SUBSCREEN, nullptr, nullptr, &settings_connect_screen, ICON_BLUETOOTH },
     { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
@@ -613,6 +653,7 @@ SETTINGS_PAGE(settings_sound_screen, "Sound", ROWS_SOUND)
 SETTINGS_PAGE(settings_connect_screen, "Connections", ROWS_CONNECT)
 SETTINGS_PAGE(settings_power_screen, "Battery", ROWS_BATTERY)
 SETTINGS_PAGE(settings_wake_screen, "Wake & quiet", ROWS_WAKE)
+SETTINGS_PAGE(settings_home_screen, "Home gestures", ROWS_HOME)
 SETTINGS_PAGE(settings_system_screen, "System", ROWS_SYSTEM)
 SETTINGS_PAGE(settings_voice_screen, "Voice", ROWS_VOICE)
 

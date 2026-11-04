@@ -129,6 +129,13 @@ struct AppSettings {
     bool activity_track = true;              // app_activity.h: still / walking / running all day
     bool flick_back = false;                 // two quick wrist flicks = back
 
+    // ---- Home gestures (home_gestures.h) ------------------------------------
+    // HomeAction per HomeSlot: tap, double-tap, hold, up, down, from the
+    // right, from the left, BOOT - the Standard style.
+    uint8_t home_act[8] = {1, 11, 6, 3, 4, 5, 2, 4};
+    // TileKind in order, TILE_END after the last shown
+    uint8_t tiles[10] = {0, 1, 2, 3, 4, 5, 6, 0xFF, 0xFF, 0xFF};
+
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced
     // What Saver/Ultra switched off, restored when going back to a normal mode.

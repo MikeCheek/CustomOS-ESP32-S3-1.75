@@ -5,6 +5,7 @@
 #include "diag.h"
 #include "phone_link.h"
 #include "watchface_registry.h"
+#include "app_tiles.h"
 #include "hal_ble.h"
 #include "hal_power.h"
 #include "hal_rtc.h"
@@ -74,6 +75,7 @@ static void screen_name(char *out, int n) {
     if (!s) return;
     for (int i = 0; i < watchface_count(); i++)
         if (watchface_get(i)->screen == s) { strlcpy(out, "Watch face", n); return; }
+    if (s == &tiles_screen) { strlcpy(out, "Tiles", n); return; }
     if (s->title && s->title[0]) { strlcpy(out, s->title, n); return; }
     strlcpy(out, "Other", n);
 }

@@ -27,6 +27,7 @@ extern Screen breakout_screen;
 extern Screen life_meal_screen;
 static Screen &life_meal_screen_ref() { return life_meal_screen; }
 #include "app_menu.h"
+#include "app_tiles.h"
 #include "app_sos.h"
 #include "app_poweroff.h"
 #include "app_activity.h"
@@ -50,6 +51,7 @@ void sim_save(const char *name);
 void sim_tap(int x, int y);
 void sim_link(const char *json);
 
+extern Screen settings_home_screen;
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
     flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
     fall_alert_screen, sleep_screen, draw_screen, activity_screen;
@@ -142,6 +144,19 @@ void sim_scenarios() {
     g_app_settings.menu_list = true;
     shot(&menu_screen, "menu_list");
     g_app_settings.menu_list = false;
+    // Tiles (swipe in from the right on the face) and the gesture settings
+    {
+        static const uint8_t ALL[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        uint8_t keep[10];
+        memcpy(keep, g_app_settings.tiles, sizeof(keep));
+        memcpy(g_app_settings.tiles, ALL, sizeof(ALL));
+        static const char *const N[10] = {"tile_activity", "tile_weather", "tile_next", "tile_music", "tile_timer",
+                                          "tile_life", "tile_world", "tile_alarm", "tile_reminders", "tile_battery"};
+        for (int i = 0; i < 10; i++) { tiles_set_page(i); shot(&tiles_screen, N[i]); }
+        tiles_set_page(0);
+        memcpy(g_app_settings.tiles, keep, sizeof(keep));
+    }
+    shot(&settings_home_screen, "settings_home");
     shot(&activity_screen, "activity_rings");
     shot(&rings_celebrate_screen, "rings_closed", 1600);
     shot(&weather_screen, "weather");

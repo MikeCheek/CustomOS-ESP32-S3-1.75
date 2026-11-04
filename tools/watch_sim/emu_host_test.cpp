@@ -161,7 +161,10 @@ int main(int argc, char **argv) {
         char lb[1024];
         while (emu_link_pop(lb, sizeof(lb)) > 0) listed |= strstr(lb, "\"e\":\"pf\"") && strstr(lb, "\"test\"");
         if (!listed) { printf("FAIL: no photo face list for the app\n"); return 1; }
-        // a tap on the face: the next photo (the green subject)
+        // with the tap set to the face's own (home gestures), a tap on the
+        // Photo face shows the next photo (the green subject)
+        emu_link_push("{\"t\":\"home\",\"a\":{\"tap\":\"face\"}}"); run(20);
+        while (emu_link_pop(lb, sizeof(lb)) > 0) {}
         emu_touch(120, 380, 1); run(60); emu_touch(120, 380, 0);
         run(400);
         emu_frame_rgba(f);

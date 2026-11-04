@@ -267,21 +267,7 @@ static void watchface_destroy() {
 extern Screen menu_screen;
 extern Screen notifications_screen;
 
-static void watchface_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            ui_push(&smart_stack_screen);   // touch and hold changes the face
-            break;
-        default:
-            break;
-    }
-}
+static void watchface_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 Screen watchface_screen = {
     nullptr,                // title (root screen, no back button)

@@ -37,6 +37,7 @@
 #include "app_workout.h"
 #include "app_life.h"
 #include "usage_stats.h"
+#include "home_gestures.h"
 #include "app_tips.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
@@ -765,6 +766,7 @@ void loop() {
     look_update();               // the app's Faces tab follows changes made here
     life_update();               // Life: the day's nudges
     usage_update();              // how the watch is used (Diagnostics)
+    home_update();               // the app's Faces tab follows gesture changes made here
     low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder
     workout_update();            // a running workout: steps, GPS distance
@@ -785,9 +787,9 @@ void loop() {
     if (!was_asleep && !asleep) {
         if (boot_evt == BTN_EVENT_SHORT_PRESS) {
             // BOOT = back: closes the top panel first if it's down. On a
-            // face (nothing to go back to) it opens Control Center.
+            // face (nothing to go back to) it does what it's set to (home_gestures.h).
             if (ui_top_panel_is_open()) ui_top_panel_close();
-            else if (face_nav_is_face(ui_active_screen())) ui_top_panel_open();
+            else if (face_nav_is_face(ui_active_screen())) home_run_slot(HS_BOOT);   // Control Center by default
             else ui_pop_screen();
         } else if (boot_evt == BTN_EVENT_LONG_PRESS) {
             if (ui_top_panel_is_open()) ui_top_panel_close();

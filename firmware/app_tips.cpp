@@ -1,5 +1,6 @@
 // Tips: every gesture and button, shown - see app_tips.h.
 #include "app_tips.h"
+#include "home_gestures.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui_font.h"
@@ -15,23 +16,25 @@
 static const int CX = LCD_WIDTH / 2;
 static const int WX = CX, WY = 168, WR = 86;   // the little watch
 
-enum TipKind : uint8_t { T_SWIPE, T_HOLD, T_EDGE, T_BUTTON, T_PAN, T_FLICK };
+enum TipKind : uint8_t { T_SWIPE, T_HOLD, T_EDGE, T_BUTTON, T_PAN, T_FLICK, T_TAP };
 struct Tip {
     const char *title, *line1, *line2;
     TipKind kind;
     int8_t dx, dy;          // swipe direction
     uint8_t button;         // 0 BOOT, 1 PWR
     const char *press;      // the button's three ways, or nullptr
+    int8_t slot = -1;       // a home gesture (home_gestures.h): line1 is what it's set to
 };
 
 static const Tip TIPS[] = {
-    {"Swipe left", "Your apps, in a honeycomb", "Drag around, tap one to open", T_SWIPE, -1, 0, 0, nullptr},
-    {"Swipe up", "The Smart Stack", "What matters now, on cards", T_SWIPE, 0, -1, 0, nullptr},
-    {"Swipe right", "Your notifications", "Swipe one left to clear it", T_SWIPE, 1, 0, 0, nullptr},
-    {"Swipe down", "Control Center", "Quiet, torch, brightness...", T_SWIPE, 0, 1, 0, nullptr},
-    {"Touch and hold", "Change the watch face", "Swipe between them, tap to wear", T_HOLD, 0, 0, 0, nullptr},
+    {"Tap the face", "", "Change any of these: Settings > Home gestures", T_TAP, 0, 0, 0, nullptr, HS_TAP},
+    {"Swipe in from the right", "", "On the watch face", T_SWIPE, -1, 0, 0, nullptr, HS_LEFT},
+    {"Swipe up", "", "On the watch face", T_SWIPE, 0, -1, 0, nullptr, HS_UP},
+    {"Swipe in from the left", "", "On the watch face", T_SWIPE, 1, 0, 0, nullptr, HS_RIGHT},
+    {"Pull down from the top", "", "Anywhere else: Control Center", T_SWIPE, 0, 1, 0, nullptr, HS_DOWN},
+    {"Touch and hold", "", "On the watch face", T_HOLD, 0, 0, 0, nullptr, HS_HOLD},
     {"From the left edge", "Back, in any app", "Drag it, and let go", T_EDGE, 1, 0, 0, nullptr},
-    {"Side button", "On a face: Control Center", "In an app: back", T_BUTTON, 0, 0, 0, "Hold: home   Twice: assistant"},
+    {"Side button", "", "In an app: back", T_BUTTON, 0, 0, 0, "Hold: home   Twice: assistant", HS_BOOT},
     {"Power button", "Press: lock the screen", "Hold: power off or Emergency SOS", T_BUTTON, 0, 0, 1, nullptr},
     {"Flick twice", "Two quick wrist flicks: back", "Settings > Wake & quiet", T_FLICK, 0, 0, 0, nullptr},
 };
@@ -86,6 +89,13 @@ static void draw_demo(Arduino_GFX *g, const Tip &t, int ox) {
         return;
     }
     ui_text_center(cx, WY - 6, ui_dim(COLOR_TEXT, 0.5f), "10:09", 3);
+    if (t.kind == T_TAP) {
+        // a quick tap, then a second one when double-tap does something
+        bool dbl = home_action(HS_DOUBLE) != HA_NONE;
+        bool down = (ph > 0.2f && ph < 0.3f) || (dbl && ph > 0.4f && ph < 0.5f);
+        finger(g, cx, WY + 30, down);
+        return;
+    }
     if (t.kind == T_HOLD) {
         // the finger rests, a ring fills, the face shrinks into the switcher
         bool down = ph > 0.1f && ph < 0.8f;
@@ -134,7 +144,15 @@ static void tips_draw() {
         const Tip &t = TIPS[p];
         draw_demo(g, t, ox);
         ui_text_center(CX + ox, 292, COLOR_TEXT, t.title, 3);
-        ui_text_center(CX + ox, 330, COLOR_TEXT, t.line1, 2);
+        char l1[64];
+        if (t.slot >= 0) {
+            const char *a = home_action_name(home_action((HomeSlot)t.slot));
+            if (t.slot == HS_BOOT) snprintf(l1, sizeof(l1), "On a face: %s", a);
+            else if (t.slot == HS_TAP && home_action(HS_DOUBLE) != HA_NONE)
+                snprintf(l1, sizeof(l1), "%s - twice: %s", a, home_action_name(home_action(HS_DOUBLE)));
+            else strlcpy(l1, a, sizeof(l1));
+        } else strlcpy(l1, t.line1, sizeof(l1));
+        ui_text_center(CX + ox, 330, COLOR_TEXT, l1, 2);
         ui_text_center(CX + ox, 356, COLOR_TEXT_DIM, t.line2, 1);
         if (t.press) ui_text_center(CX + ox, 376, COLOR_ACCENT, t.press, 1);
     }

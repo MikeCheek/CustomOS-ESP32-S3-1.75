@@ -2,6 +2,8 @@
  * app_face_nav.h
  * Getting around from the watch face, the watchOS way:
  *
+ * (what each gesture does can be changed: home_gestures.h - the defaults:)
+ *
  *   swipe up         the Smart Stack - cards for what matters now (a timer
  *                    running, music playing, the next event, weather,
  *                    activity, messages, battery); tap one to open its app
@@ -23,3 +25,9 @@ bool face_nav_is_face(const Screen *s);
 // of ~0.6 s opens the face switcher. True when the touch was taken.
 void face_nav_touch(Screen *face, int x, int y, bool pressed);
 void face_nav_poll();
+
+// A swipe on a face (the faces' on_gesture, and the pull-down from ui.cpp).
+void face_nav_gesture(Gesture g);
+void face_nav_open_switcher();
+void face_nav_wear(int i);          // wear face i now
+bool face_nav_tap_is_faces();       // a tap does the face's own thing (the Photo face's next photo)

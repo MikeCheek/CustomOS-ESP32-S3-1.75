@@ -384,7 +384,8 @@ static void photo_draw() {
     }
 }
 
-// A tap (not a swipe): the next photo.
+// A tap (not a swipe): the next photo - when the home tap is set to the
+// face's own (home_gestures.h); otherwise the tap opens what it's set to.
 static void photo_touch(int x, int y, bool pressed) {
     static bool down = false;
     static int sx = 0, sy = 0;
@@ -393,18 +394,12 @@ static void photo_touch(int x, int y, bool pressed) {
     if (!pressed && down) {
         down = false;
         int dx = x - sx, dy = y - sy;
-        if (millis() - t0 < 400 && dx * dx + dy * dy < 24 * 24 && photo_face_count() > 1) photo_face_next();
+        if (millis() - t0 < 400 && dx * dx + dy * dy < 24 * 24 && photo_face_count() > 1 && face_nav_tap_is_faces())
+            photo_face_next();
     }
 }
 
-static void photo_gesture(Gesture g) {
-    switch (g) {
-    case GESTURE_SWIPE_LEFT: ui_push(&menu_screen); break;
-    case GESTURE_SWIPE_RIGHT: ui_push(&notifications_screen); break;
-    case GESTURE_SWIPE_UP: ui_push(&smart_stack_screen); break;
-    default: break;
-    }
-}
+static void photo_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 Screen photo_watchface_screen = {
     nullptr, GESTURE_MODE_EDGE,

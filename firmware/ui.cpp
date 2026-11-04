@@ -905,9 +905,9 @@ void ui_poll_gestures() {
         if (touch_swipe_down_detected()) {
             // Root screens (watchface): swipe-down opens top panel
             // Non-root screens: also open top panel (consistent UX)
-            if (s_top == 0) {
-                // Root screen: swipe-down opens panel
-                ui_top_panel_open();
+            // On a face: what the pull-down is set to (home_gestures.h)
+            if (face_nav_is_face(scr)) {
+                face_nav_gesture(GESTURE_SWIPE_DOWN);
                 return;
             }
             // Non-root: swipe-down opens panel too

@@ -10,6 +10,8 @@
 #include "app_navigation.h"
 #include "app_notifications.h"
 #include "complications.h"
+#include "home_gestures.h"
+#include "app_pet.h"
 #include "app_clock.h"
 #include "app_weather.h"
 #include "app_reminders.h"
@@ -607,41 +609,105 @@ Screen face_switch_screen = {
 };
 
 // =========================================================================
-//  Touch and hold on a face
+//  Touches on a face: tap, double-tap, touch and hold (home_gestures.h)
 // =========================================================================
 static Screen  *s_hold_face = nullptr;
 static int      s_hold_x = 0, s_hold_y = 0;
 static uint32_t s_hold_ms = 0;
 static const uint32_t HOLD_MS = 600;
+static const uint32_t TAP_MS = 350;      // a press shorter than this that didn't move is a tap
+static const uint32_t DOUBLE_MS = 300;   // a second tap within this is a double-tap
+static bool     s_tap_ok = false;        // this press can still be a tap
+static uint32_t s_tap_wait_ms = 0;       // a tap waiting to see if a second one comes
+static int      s_tap_x = 0, s_tap_y = 0;
+static uint32_t s_not_face_ms = 0;       // the last time no face was showing (just woke, just came back)
 
-void face_nav_touch(Screen *face, int x, int y, bool pressed) {
-    if (!pressed) { s_hold_face = nullptr; return; }
-    if (!s_hold_face) {
-        s_hold_face = face;
-        s_hold_x = x;
-        s_hold_y = y;
-        s_hold_ms = millis();
-        return;
-    }
-    int dx = x - s_hold_x, dy = y - s_hold_y;
-    if (dx * dx + dy * dy > 16 * 16) s_hold_face = (Screen *)1;   // moved: a swipe or a drag, not a hold
-}
+void face_nav_wear(int i) { wear(i); }
 
-void face_nav_poll() {
-    if (!s_hold_face || s_hold_face == (Screen *)1) return;
-    if (millis() - s_hold_ms < HOLD_MS) return;
-    Screen *face = s_hold_face;
-    s_hold_face = nullptr;
-    if (!ui_screen_on_top(face)) return;
-    // the face lets go (eyes, the pet) as if the finger had lifted
-    if (face->on_touch) face->on_touch(s_hold_x, s_hold_y, false);
-    touch_cancel_swipes();
+void face_nav_open_switcher() {
     int cur = watchface_current();
     uint16_t *b = pv_buf(cur);
-    if (b && ui_framebuffer()) {
+    if (b && ui_framebuffer() && face_nav_is_face(ui_active_screen())) {
         downscale_into(b, ui_framebuffer());   // the face as it is now
         s_pv_ok[cur] = true;
     }
     sleep_register_activity();
     ui_push_instant(&face_switch_screen);
+}
+
+void face_nav_gesture(Gesture g) {
+    s_tap_wait_ms = 0;
+    switch (g) {
+    case GESTURE_SWIPE_UP:    home_run_slot(HS_UP); break;
+    case GESTURE_SWIPE_DOWN:  home_run_slot(HS_DOWN); break;
+    case GESTURE_SWIPE_LEFT:  home_run_slot(HS_LEFT); break;    // from the right edge
+    case GESTURE_SWIPE_RIGHT: home_run_slot(HS_RIGHT); break;   // from the left edge
+    default: break;
+    }
+}
+
+static void face_tap(int x, int y) {
+    uint32_t now = millis();
+    if (home_action(HS_DOUBLE) == HA_NONE) { home_run_slot(HS_TAP); return; }
+    int dx = x - s_tap_x, dy = y - s_tap_y;
+    if (s_tap_wait_ms && now - s_tap_wait_ms < DOUBLE_MS && dx * dx + dy * dy < 60 * 60) {
+        s_tap_wait_ms = 0;
+        sleep_register_activity();
+        home_run_slot(HS_DOUBLE);
+        return;
+    }
+    s_tap_wait_ms = now ? now : 1;   // wait: is a second one coming?
+    s_tap_x = x;
+    s_tap_y = y;
+}
+
+void face_nav_touch(Screen *face, int x, int y, bool pressed) {
+    if (!pressed) {
+        bool was_press = s_hold_face && s_hold_face != (Screen *)1;
+        if (was_press && s_tap_ok && millis() - s_hold_ms < TAP_MS && face_nav_is_face(ui_active_screen()))
+            face_tap(s_hold_x, s_hold_y);
+        s_hold_face = nullptr;
+        s_tap_ok = false;
+        return;
+    }
+    if (!s_hold_face) {
+        s_hold_face = face;
+        s_hold_x = x;
+        s_hold_y = y;
+        s_hold_ms = millis();
+        // not a tap: the finger that woke the watch, the pet being picked up
+        s_tap_ok = s_hold_ms - s_not_face_ms > 400 && !pet_hit(x, y);
+        return;
+    }
+    if (s_hold_face == (Screen *)1) return;
+    int dx = x - s_hold_x, dy = y - s_hold_y;
+    if (dx * dx + dy * dy > 16 * 16) { s_hold_face = (Screen *)1; s_tap_ok = false; }   // moved: a swipe or a drag
+}
+
+// The tap action for a face's own tap: true when the face should do its
+// thing (the next photo) on a tap.
+bool face_nav_tap_is_faces() { return home_action(HS_TAP) == HA_FACE_OWN; }
+
+void face_nav_poll() {
+    uint32_t now = millis();
+    Screen *top = ui_active_screen();
+    if (sleep_is_asleep() || !face_nav_is_face(top) || ui_top_panel_is_open()) { s_not_face_ms = now; s_tap_wait_ms = 0; }
+    if (s_tap_wait_ms && now - s_tap_wait_ms >= DOUBLE_MS) {   // no second tap: it was one
+        s_tap_wait_ms = 0;
+        sleep_register_activity();
+        home_run_slot(HS_TAP);
+    }
+    if (!s_hold_face || s_hold_face == (Screen *)1) return;
+    if (now - s_hold_ms < HOLD_MS) return;
+    Screen *face = s_hold_face;
+    s_hold_face = (Screen *)1;   // held: not a tap, and once
+    s_tap_ok = false;
+    if (!ui_screen_on_top(face)) return;
+    if (pet_hit(s_hold_x, s_hold_y)) return;   // holding the pet is dragging it
+    // the face lets go (eyes, the pet) as if the finger had lifted
+    if (face->on_touch) face->on_touch(s_hold_x, s_hold_y, false);
+    touch_cancel_swipes();
+    sleep_register_activity();
+    if (home_action(HS_HOLD) == HA_FACES) face_nav_open_switcher();
+    else home_run_slot(HS_HOLD);
 }

@@ -216,6 +216,16 @@ void pet_draw_icon(Arduino_GFX *g, int cx, int cy) {
     draw_pet_creature(g, cx, cy, 0, PET_PAUSE, 1.0f, s_species);
 }
 
+// True when (x, y) is on the pet (a touch there picks it up, not a tap).
+bool pet_hit(int x, int y) {
+    if (!g_app_settings.face_pet) return false;
+    if (!s_inited) pet_init_once(millis());
+    int cx, cy;
+    pet_current_pos(&cx, &cy);
+    int dx = x - cx, dy = y - cy;
+    return dx * dx + dy * dy <= (int)(PET_GRAB_R * PET_GRAB_R);
+}
+
 bool pet_handle_touch(int x, int y, bool pressed) {
     if (!g_app_settings.face_pet) return false;
     if (!s_inited) pet_init_once(millis());
