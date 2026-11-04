@@ -1,6 +1,7 @@
 # Builds the watch firmware and the companion app for pull requests (each
 # push to a PR's branch runs it once - branch pushes don't trigger a second
 # build). A tag like v2.9.0 also makes a GitHub release with both files.
+# The iPhone build runs only for tags and manual runs (see app-ios).
 name: build
 
 on:
@@ -311,7 +312,11 @@ jobs:
   # needs an Apple developer account and its certificates - not set up),
   # so this checks that the Swift code, the pods and the watch emulator's
   # C++ (ios/WatchEmu, fetched by the Podfile) all compile.
+  # Only for version tags and manual runs (Actions > build > Run workflow):
+  # macOS time costs 10x the Linux minutes, and PRs already build the same
+  # Dart code for Android.
   app-ios:
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     defaults:
       run:
