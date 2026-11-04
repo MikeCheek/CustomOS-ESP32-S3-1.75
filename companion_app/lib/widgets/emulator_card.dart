@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -58,6 +59,17 @@ class _EmulatorCardState extends ConsumerState<EmulatorCard> {
   }
 
   void _open() => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmulatorScreen()));
+
+  Future<void> _float() async {
+    final want = !_ctl.floating;
+    final ok = await _ctl.float(want);
+    if (want && !ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Allow "Display over other apps" for this app, then turn it on again')),
+      );
+    }
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +166,24 @@ class _EmulatorCardState extends ConsumerState<EmulatorCard> {
                 ),
               ],
             ),
+            if (Platform.isAndroid)
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _float,
+                child: Row(
+                  children: [
+                    Switch(value: _ctl.floating, onChanged: (_) => _float()),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Float over other apps - drag the rim to move it, pinch to resize, push it past a side '
+                        'to tuck it away, drop it on ✕ to close',
+                        style: TextStyle(color: AppColors.text, fontSize: 12.5, height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ],
       ),

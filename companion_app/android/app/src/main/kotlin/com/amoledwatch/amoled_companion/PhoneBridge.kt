@@ -82,7 +82,10 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     }
 
     init {
-        MethodChannel(messenger, "com.amoledwatch.native").setMethodCallHandler { call, result ->
+        val native = MethodChannel(messenger, "com.amoledwatch.native")
+        // the floating watch was dropped on its ✕: tell the app (it slows the emulator again)
+        EmuOverlay.onClosed = { main.post { native.invokeMethod("overlayClosed", null) } }
+        native.setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
                     "isNotificationListenerEnabled" -> result.success(isNotificationListenerEnabled())
@@ -199,6 +202,12 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                             result.success(false)   // no browser
                         }
                     }
+                    // ---- the emulated watch floating over other apps (EmuOverlay) ----
+                    "overlayCan" -> result.success(EmuOverlay.canDraw(app))
+                    "overlayAsk" -> { EmuOverlay.askPermission(app); result.success(null) }
+                    "overlayShow" -> result.success(EmuOverlay.show(app))
+                    "overlayHide" -> { EmuOverlay.hide(); result.success(null) }
+                    "overlayShowing" -> result.success(EmuOverlay.showing)
                     // ---- images for the watch (WatchImages) ----
                     "appIconJpeg" -> result.success(WatchImages.appIconJpeg(app, call.argument<String>("package") ?: ""))
                     "albumArtJpeg" -> {

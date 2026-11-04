@@ -17,6 +17,10 @@
 #include "app_weather.h"
 #include "app_wallet.h"
 #include <Arduino.h>
+#include <atomic>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include <Arduino_GFX_Library.h>
 #include "config.h"
 #include "board_pins.h"
@@ -149,8 +153,32 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     return 1;
 }
 
+// Touches and buttons from the Android overlay (EmuOverlay.kt) come on the
+// UI thread; they wait here and are handed to the watch at the next step,
+// on the thread that runs it.
+struct OverlayInput { int16_t a, b, c; uint8_t kind; };   // kind 0 touch (x, y, down), 1 button (which, event)
+static OverlayInput s_oin[64];
+static std::atomic<int> s_oin_w{0}, s_oin_r{0};
+static void overlay_push(uint8_t kind, int a, int b, int c) {
+    int w = s_oin_w.load(), next = (w + 1) % 64;
+    if (next == s_oin_r.load()) return;   // full: dropped
+    s_oin[w] = {(int16_t)a, (int16_t)b, (int16_t)c, kind};
+    s_oin_w.store(next);
+}
+extern "C" void emu_touch(int x, int y, int down);
+extern "C" void emu_button(int which, int event);
+static void overlay_drain() {
+    while (s_oin_r.load() != s_oin_w.load()) {
+        OverlayInput in = s_oin[s_oin_r.load()];
+        s_oin_r.store((s_oin_r.load() + 1) % 64);
+        if (in.kind == 0) emu_touch(in.a, in.b, in.c);
+        else emu_button(in.a, in.b);
+    }
+}
+
 __attribute__((visibility("default"))) void emu_step() {
     if (!s_t0) return;
+    overlay_drain();
     phone_link_update();
     notifications_update();
     assistant_timer_update();
@@ -337,5 +365,26 @@ __attribute__((visibility("default"))) int emu_store_selftest() {
     store_remove("test/roundtrip");
     return ok ? 1 : 0;
 }
+
+#ifdef __ANDROID__
+// ---- the floating watch over other apps (EmuOverlay.kt), through JNI -----------------
+// The frame into a direct ByteBuffer (RGBA, the order Bitmap.copyPixelsFromBuffer
+// takes) when it changed since `seq`; returns the frame's number.
+JNIEXPORT jint JNICALL Java_com_amoledwatch_amoled_1companion_EmuOverlay_nativeFrame(JNIEnv *env, jclass, jobject buf, jint seq) {
+    uint32_t now = emu_frame_seq();
+    if ((jint)now == seq && now != 0) return seq;
+    void *p = env->GetDirectBufferAddress(buf);
+    if (!p || env->GetDirectBufferCapacity(buf) < (jlong)FB_PIXELS * 4) return seq;
+    emu_frame_rgba((uint8_t *)p);
+    return (jint)now;
+}
+JNIEXPORT void JNICALL Java_com_amoledwatch_amoled_1companion_EmuOverlay_nativeTouch(JNIEnv *, jclass, jint x, jint y, jint down) {
+    overlay_push(0, x, y, down);
+}
+JNIEXPORT void JNICALL Java_com_amoledwatch_amoled_1companion_EmuOverlay_nativeButton(JNIEnv *, jclass, jint which, jint ev) {
+    overlay_push(1, which, ev, 0);
+}
+JNIEXPORT jint JNICALL Java_com_amoledwatch_amoled_1companion_EmuOverlay_nativeSize(JNIEnv *, jclass) { return LCD_WIDTH; }
+#endif
 
 }  // extern "C"

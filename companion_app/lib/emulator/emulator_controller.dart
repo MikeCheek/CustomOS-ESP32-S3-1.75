@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -6,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/ble_provider.dart';
 import '../services/memo_player.dart';
+import '../services/native_service.dart';
 import '../services/phone_recorder.dart';
 import 'watch_emulator.dart';
 
@@ -96,7 +98,40 @@ class EmulatorController {
 
   void _schedule() {
     _timer?.cancel();
-    _timer = Timer.periodic(Duration(milliseconds: _visible ? 16 : 100), (_) => _tick());
+    _timer = Timer.periodic(Duration(milliseconds: _visible || _floating ? 16 : 100), (_) => _tick());
+  }
+
+  // ---- floating over other apps (Android: a round watch you move, resize and tuck away) ----
+  bool _floating = false;
+  StreamSubscription<void>? _closedSub;
+  bool get floating => _floating;
+
+  /// Shows the watch over every app. False when Android still needs the
+  /// "Display over other apps" permission (its settings page opens then).
+  Future<bool> float(bool on) async {
+    if (!Platform.isAndroid) return false;
+    final n = NativeService();
+    if (!on) {
+      await n.overlayHide();
+      _floating = false;
+      if (running) _schedule();
+      _changes.add(null);
+      return true;
+    }
+    if (!await n.overlayCan()) {
+      await n.overlayAsk();
+      return false;
+    }
+    if (!running) await start();
+    _closedSub ??= n.overlayClosed.listen((_) {
+      _floating = false;
+      if (running) _schedule();
+      _changes.add(null);
+    });
+    _floating = await n.overlayShow();
+    if (running) _schedule();
+    _changes.add(null);
+    return _floating;
   }
 
   void _tick() {

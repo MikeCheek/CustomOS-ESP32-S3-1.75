@@ -33,6 +33,28 @@ class NativeService {
     }
   }
 
+  // ---- the emulated watch floating over other apps (Android) -------------------------
+  final _overlayClosed = StreamController<void>.broadcast();
+  bool _handlerSet = false;
+
+  /// The floating watch was dropped on its ✕.
+  Stream<void> get overlayClosed {
+    if (!_handlerSet) {
+      _handlerSet = true;
+      _method.setMethodCallHandler((call) async {
+        if (call.method == 'overlayClosed') _overlayClosed.add(null);
+        return null;
+      });
+    }
+    return _overlayClosed.stream;
+  }
+
+  Future<bool> overlayCan() async => (await _call<bool>('overlayCan')) ?? false;
+  Future<void> overlayAsk() => _call('overlayAsk');
+  Future<bool> overlayShow() async => (await _call<bool>('overlayShow')) ?? false;
+  Future<void> overlayHide() => _call('overlayHide');
+  Future<bool> overlayShowing() async => (await _call<bool>('overlayShowing')) ?? false;
+
   // ---- notifications ---------------------------------------------------------
 
   Future<bool> isNotificationListenerEnabled() async => (await _call<bool>('isNotificationListenerEnabled')) ?? false;
