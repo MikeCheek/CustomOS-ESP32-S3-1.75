@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -70,6 +71,33 @@ class LifeNotifier extends StateNotifier<LifeState> {
   final Ref _ref;
   LifeNotifier(this._ref) : super(const LifeState()) {
     _load();
+    // A new day: fresh meal ideas to the watch, no reconnect needed. Checked
+    // every few minutes rather than one long timer, which a phone that slept
+    // through midnight would fire late or not at all.
+    _day = _today();
+    _clock = Timer.periodic(const Duration(minutes: 5), (_) => _checkDay());
+  }
+
+  Timer? _clock;
+  late DateTime _day;
+  static DateTime _today() {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day);
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  /// Past midnight: yesterday's ideas go, today's are written and sent.
+  Future<void> _checkDay() async {
+    final t = _today();
+    if (t == _day || !mounted) return;
+    _day = t;
+    state = state.copyWith(shuffle: 0, aiIdeas: null);
+    await sendAll();
   }
 
   /// What a set of ideas was written for: the day, the food preferences and how many times "Others" was tapped.
@@ -186,6 +214,7 @@ class LifeNotifier extends StateNotifier<LifeState> {
 
   void onWatch(Map<String, dynamic> e) {
     final today = LifeDay.fromWatch(e);
+    if (today != null && today.date == _today() && _day != _today()) unawaited(_checkDay());
     var days = state.days;
     final h = e['h'];
     if (h is List) {

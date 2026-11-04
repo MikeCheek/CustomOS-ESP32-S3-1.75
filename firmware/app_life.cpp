@@ -247,7 +247,10 @@ void life_update() {
     uint32_t ms = millis();
     if (ms - last < 5000) return;
     last = ms;
+    uint32_t before = s_today.date;
     roll_day();
+    // a new day: tell the phone, which sends that day's meal ideas
+    if (before && s_today.date != before && phone_link_active()) life_send(false);
     uint32_t ex = fitness_exercise_min();
     s_today.train = (uint8_t)(ex > 255 ? 255 : ex);   // kept for the history
     int m = now_min();
