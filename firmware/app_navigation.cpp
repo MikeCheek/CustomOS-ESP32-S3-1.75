@@ -1,3 +1,5 @@
+#include "haptics.h"
+#include <ctype.h>
 #include "app_navigation.h"
 #include "dnd.h"
 #include "config.h"
@@ -116,6 +118,15 @@ void navigation_on_link(JsonDocument &doc, bool icon_msg) {
 
     // A new maneuver wakes the watch and shows it - but never on top of a
     // call.
+    // the turn, felt: four even taps right, three pairs left, a rise on arrival
+    if (new_step && !starting) {
+        char low[sizeof(s_instr)];
+        for (size_t i = 0; i < sizeof(low); i++) low[i] = (char)tolower((unsigned char)s_instr[i]);
+        if (strstr(low, "arriv") || strstr(low, "destination")) haptic(HAP_ARRIVED);
+        else if (strstr(low, "left") || strstr(low, "sinistra")) haptic(HAP_TURN_LEFT);
+        else if (strstr(low, "right") || strstr(low, "destra")) haptic(HAP_TURN_RIGHT);
+        else haptic(HAP_NOTIFY);
+    }
     if (new_step && !s_dismissed) {
         sleep_register_activity();
         if (!ui_screen_in_stack(&navigation_screen) && phone_link_call().state == CALL_NONE) {

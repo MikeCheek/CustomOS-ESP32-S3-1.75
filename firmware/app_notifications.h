@@ -45,5 +45,12 @@ void notifications_on_digest(const char *text, const char *err);
 void notifications_on_translation(uint32_t id, const char *text, const char *err);
 
 int notifications_history_count(); // 0..NOTIF_HISTORY_SIZE
+// New since the Notifications screen was last opened (the red dot on the faces).
+uint32_t notifications_unread();
+// Dismissed on the watch and the phone, all of them.
+void notifications_clear_all();
+// Muted apps (until midnight): listed, but no pop-up or sound.
+bool notifications_app_muted(const char *app);
+void notifications_mute_app(const char *app, bool on);
 // idx: 0 = most recent. Returns false if idx is out of range.
 bool notifications_get_history(int idx, NotifHistoryItem &out);

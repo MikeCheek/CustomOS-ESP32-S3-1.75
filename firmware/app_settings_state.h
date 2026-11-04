@@ -99,7 +99,12 @@ struct AppSettings {
     uint16_t move_goal = 300;                // fitness.h: active kcal a day
     uint8_t exercise_goal = 30;              // minutes a day
     uint8_t stand_goal = 10;                 // hours a day
-    bool stand_remind = true;                // at ten to the hour, if you haven't moved in it
+    bool stand_remind = true;
+    bool sound_cues = true;                  // haptics.h: a tone pattern per kind of event
+    uint8_t text_size = 0;                   // 0 default, 1 large, 2 larger (ui_font.cpp)
+    bool low_power = false;                  // Low Power Mode (low_power.h)
+    bool lp_prev_aod = false, lp_prev_wx = false, lp_prev_wake = false;   // what it turned off
+    uint8_t lp_prev_mode = 1;                // at ten to the hour, if you haven't moved in it
 
     // ---- Voice (voice_sr.cpp) --------------------------------------------------
     bool voice_wake = false;                 // listen for the wake word (more battery)

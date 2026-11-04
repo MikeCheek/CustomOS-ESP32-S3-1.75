@@ -69,6 +69,11 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUChar("ex_goal", s.exercise_goal);
     s_prefs.putUChar("st_goal", s.stand_goal);
     s_prefs.putBool("st_remind", s.stand_remind);
+    s_prefs.putBool("cues", s.sound_cues);
+    s_prefs.putUChar("text_sz", s.text_size);
+    s_prefs.putBool("lowpwr", s.low_power);
+    s_prefs.putUChar("lp_prev", (uint8_t)((s.lp_prev_aod ? 1 : 0) | (s.lp_prev_wx ? 2 : 0) | (s.lp_prev_wake ? 4 : 0)));
+    s_prefs.putUChar("lp_mode", s.lp_prev_mode);
     s_prefs.putBool("vw_on", s.voice_wake);
     s_prefs.putBool("vw_sleep", s.voice_wake_asleep);
     s_prefs.putBool("v_clean", s.voice_clean);
@@ -156,6 +161,14 @@ bool nvs_load_settings(AppSettings &s) {
     s.stand_goal = s_prefs.getUChar("st_goal", 10);
     if (s.stand_goal < 1 || s.stand_goal > 16) s.stand_goal = 10;
     s.stand_remind = s_prefs.getBool("st_remind", true);
+    s.sound_cues = s_prefs.getBool("cues", true);
+    s.text_size = s_prefs.getUChar("text_sz", 0) % 3;
+    s.low_power = s_prefs.getBool("lowpwr", false);
+    {
+        uint8_t lp = s_prefs.getUChar("lp_prev", 0);
+        s.lp_prev_aod = lp & 1; s.lp_prev_wx = lp & 2; s.lp_prev_wake = lp & 4;
+    }
+    s.lp_prev_mode = s_prefs.getUChar("lp_mode", 1) % 4;
     s.voice_wake = s_prefs.getBool("vw_on", false);
     s.voice_wake_asleep = s_prefs.getBool("vw_sleep", false);
     s.voice_clean = s_prefs.getBool("v_clean", true);

@@ -6,6 +6,7 @@
 #include "app_weather.h"
 #include "app_reminders.h"
 #include "app_workout.h"
+#include "app_sos.h"
 #include "fitness.h"
 #include "complications.h"
 #include "dnd.h"
@@ -182,6 +183,8 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "sos")) {
+        sos_on_reply((doc["ok"] | 0) != 0, doc["why"] | "");
     } else if (!strcmp(t, "woack")) {
         workout_on_ack(doc["st"] | 0u);
     } else if (!strcmp(t, "tz")) {

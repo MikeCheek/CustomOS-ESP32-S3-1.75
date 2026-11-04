@@ -22,7 +22,9 @@
 #include "hal_audio.h"
 #include "hal_sleep.h"
 #include "hal_touch.h"
+#include "hal_rtc.h"
 #include <Arduino_GFX_Library.h>
+#include <Preferences.h>
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <string.h>
@@ -93,6 +95,88 @@ static Card &add(CardKind k, Screen *open, uint16_t color, const char *title) {
     c.progress = -1;
     strlcpy(c.title, title, sizeof(c.title));
     return c;
+}
+
+// ---- the order: what matters now ---------------------------------------------------------------
+// Each card gets a score: running things first (a workout, a timer,
+// directions, music), then what this time of day is about (weather and the
+// day's events in the morning, the rings in the evening, the alarm at
+// night, a low battery whenever), plus what you tend to open at this time
+// of day - taps are counted per card and quarter of the day, kept in NVS.
+static uint8_t s_taps[4][CARD_BATTERY + 1];
+static bool s_taps_loaded = false;
+
+static void load_taps() {
+    if (s_taps_loaded) return;
+    s_taps_loaded = true;
+    Preferences p;
+    if (!p.begin("stack", true)) return;
+    p.getBytes("taps", s_taps, sizeof(s_taps));
+    p.end();
+}
+
+static int quarter_now() {
+    WatchTime t = rtc_now();
+    return t.valid ? t.hour / 6 : 2;
+}
+
+static void count_tap(CardKind k) {
+    uint8_t *row = s_taps[quarter_now()];
+    if (row[k] == 255)
+        for (int i = 0; i <= CARD_BATTERY; i++) row[i] /= 2;   // keeps learning, recent habits weigh more
+    row[k]++;
+    Preferences p;
+    if (!p.begin("stack", false)) return;
+    p.putBytes("taps", s_taps, sizeof(s_taps));
+    p.end();
+}
+
+static int card_score(const Card &c) {
+    WatchTime t = rtc_now();
+    int h = t.valid ? t.hour : 12;
+    bool morning = h >= 6 && h < 10, evening = h >= 17 && h < 22, night = h >= 21 || h < 5;
+    int s = 0;
+    switch (c.kind) {
+    case CARD_WORKOUT:   s = 200; break;
+    case CARD_TIMER:     s = 190; break;
+    case CARD_NAV:       s = 185; break;
+    case CARD_STOPWATCH: s = 170; break;
+    case CARD_MUSIC:     s = 150; break;
+    case CARD_EVENT: {
+        // soon: high; later today: middling, more so in the morning
+        bool soon = strstr(c.sub, "in ") != nullptr || strncmp(c.sub, "Now", 3) == 0;
+        s = soon ? 160 : 60 + (morning ? 40 : 0);
+        break;
+    }
+    case CARD_ALARM:     s = 50 + (night ? 90 : 0); break;
+    case CARD_WEATHER:   s = 70 + (morning ? 60 : 0) + (strstr(c.sub, "Rain") || strstr(c.sub, "Storm") || strstr(c.sub, "Snow") ? 25 : 0); break;
+    case CARD_ACTIVITY: {
+        float mv = fitness_move_kcal() / fitness_move_goal();
+        s = 60 + (evening ? 50 : 0) + (mv >= 0.7f && mv < 1.0f ? 30 : 0);   // nearly there: a nudge
+        break;
+    }
+    case CARD_REMINDERS: s = 55 + (h >= 8 && h < 12 ? 25 : 0); break;
+    case CARD_NOTIFS:    s = 50 + (int)(notifications_unread() > 6 ? 30 : notifications_unread() * 5); break;
+    case CARD_BATTERY: {
+        int p = power_get_battery_percent();
+        s = 10 + (p >= 0 && p <= 20 && !power_is_charging() ? 140 : 0) + (power_is_charging() ? 60 : 0);
+        break;
+    }
+    }
+    int taps = s_taps[quarter_now()][c.kind];
+    int learned = 0;
+    while (taps > 0 && learned < 40) { learned += 8; taps >>= 1; }   // ~8 x log2(taps)
+    return s + learned;
+}
+
+static void sort_cards() {
+    int sc[14];
+    for (int i = 0; i < s_card_n; i++) sc[i] = card_score(s_cards[i]);
+    for (int i = 1; i < s_card_n; i++)   // insertion sort: stable, a handful of cards
+        for (int j = i; j > 0 && sc[j] > sc[j - 1]; j--) {
+            Card t = s_cards[j]; s_cards[j] = s_cards[j - 1]; s_cards[j - 1] = t;
+            int x = sc[j]; sc[j] = sc[j - 1]; sc[j - 1] = x;
+        }
 }
 
 // What matters now first: things running, then soon, then the usual.
@@ -204,9 +288,11 @@ static void build_cards() {
         else snprintf(c.sub, sizeof(c.sub), "Watch");
         c.progress = p < 0 ? -1 : p / 100.0f;
     }
+    sort_cards();
 }
 
 static void stack_create() {
+    load_taps();
     build_cards();
     s_scroll = s_scroll_vel = 0;
     s_st_drag = false;
@@ -305,6 +391,7 @@ static void stack_touch(int x, int y, bool pressed) {
         int cy = card_y(i);
         if (y >= cy && y < cy + CARD_H && s_cards[i].open) {
             sleep_register_activity();
+            count_tap(s_cards[i].kind);
             ui_push(s_cards[i].open);
             return;
         }

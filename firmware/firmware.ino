@@ -29,6 +29,8 @@
 #include "hal_buttons.h"
 #include "app_face_nav.h"
 #include "app_clock.h"
+#include "haptics.h"
+#include "low_power.h"
 #include "app_reminders.h"
 #include "fitness.h"
 #include "app_workout.h"
@@ -750,6 +752,8 @@ void loop() {
     calendar_update();           // event reminders (works without the phone)
     assistant_timer_update();    // the assistant's timer rings, awake or asleep
     clock_update();              // alarms ring, awake or asleep
+    haptics_update();            // the cue patterns, on time
+    low_power_update();          // the 10% offer, off again at 80%
     fitness_update();            // rings: new day, saving, stand reminder
     workout_update();            // a running workout: steps, GPS distance
     voice_update();              // the wake word, awake or asleep

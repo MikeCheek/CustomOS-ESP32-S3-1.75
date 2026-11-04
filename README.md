@@ -32,6 +32,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Timer | Stopwatch with laps | Alarms | World clock |
 | ![](docs/screenshots/weather.png) | ![](docs/screenshots/reminders.png) | ![](docs/screenshots/workout_types.png) | |
 | Weather | Reminders (memo to-dos) | Workout types | |
+| ![](docs/screenshots/notifications_grouped.png) | ![](docs/screenshots/notifications_swipe.png) | ![](docs/screenshots/power_sos.png) | ![](docs/screenshots/sos_countdown.png) |
+| Notifications stacked by app | Swipe left to clear | Hold PWR: power off or SOS | Emergency SOS |
 
 ### Getting around
 
@@ -43,7 +45,7 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Swipe down, or BOOT | Control Center (the quick panel) |
 | Swipe right | Notifications |
 
-Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
+Hold PWR for power off or Emergency SOS (5 s countdown, then the phone texts your emergency contact with its location). A red dot at the top of a face means unread notifications. Elsewhere BOOT is back (hold: home, twice: the assistant). Tests and diagnostics are under Settings > System > Developer mode.
 
 ### In motion
 

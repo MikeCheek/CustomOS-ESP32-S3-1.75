@@ -3,6 +3,8 @@
 #include "ui.h"
 #include "ui_font.h"
 #include "app_settings_state.h"
+#include "haptics.h"
+#include "low_power.h"
 #include "app_calibration.h"
 #include "app_wifi_setup.h"
 #include "app_usb.h"
@@ -222,6 +224,14 @@ static const char *desc_photo_rotate() {
     static const char *const M[] = {"Tap the face for the next photo", "A new photo every hour", "A new photo every day"};
     return M[g_app_settings.photo_rotate % 3];
 }
+static void tap_text_size() {
+    g_app_settings.text_size = (g_app_settings.text_size + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_text_size() {
+    static const char *const M[] = {"Default", "Large - bigger body text", "Larger - biggest body text"};
+    return M[g_app_settings.text_size % 3];
+}
 static bool get_clock24() { return g_app_settings.clock_24h; }
 static void tap_clock24() { g_app_settings.clock_24h = !g_app_settings.clock_24h; nvs_save_settings(g_app_settings); }
 
@@ -233,6 +243,7 @@ static SettingsRow ROWS_DISPLAY[] = {
     { "Watchface slots", "Steps, events, weather... on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_comp_screen, ICON_BRIGHTNESS },
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
+    { "Text size", "", ROW_ACTION, nullptr, tap_text_size, nullptr, nullptr, nullptr, nullptr, desc_text_size },
     { "24-hour clock", "Off: 9:05 PM", ROW_TOGGLE, get_clock24, tap_clock24, nullptr, nullptr },
     { "Apps as a list", "The app menu A-Z instead of the honeycomb", ROW_TOGGLE, get_menu_list, tap_menu_list, nullptr, nullptr },
     { "Photo face", "", ROW_ACTION, nullptr, tap_photo_rotate, nullptr, nullptr, nullptr, nullptr, desc_photo_rotate },
@@ -300,6 +311,13 @@ static SettingsRow ROWS_VOICE[] = {
     { "Skip silences", "The Recorder leaves out long pauses", ROW_TOGGLE, get_skip_sil, tap_skip_sil, nullptr, nullptr },
 };
 
+static bool get_cues() { return g_app_settings.sound_cues; }
+static void tap_cues() {
+    g_app_settings.sound_cues = !g_app_settings.sound_cues;
+    nvs_save_settings(g_app_settings);
+    if (g_app_settings.sound_cues) haptic(HAP_NOTIFY);   // what a message sounds like
+}
+
 static SettingsRow ROWS_SOUND[] = {
     { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
     { "Voice", "Wake word, commands, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
@@ -307,6 +325,7 @@ static SettingsRow ROWS_SOUND[] = {
     { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
     { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
     { "Haptic on Touch", "Vibrate briefly on every tap", ROW_TOGGLE, get_haptic, tap_haptic, nullptr, ICON_VIBRATION },
+    { "Sound cues", "A short pattern per event: messages, turns, goals", ROW_TOGGLE, get_cues, tap_cues, nullptr, ICON_SOUND },
 };
 
 static SettingsRow ROWS_CONNECT[] = {
@@ -318,7 +337,10 @@ static SettingsRow ROWS_CONNECT[] = {
       gps_row_available, "No GPS module on this board" },
 };
 
+static void tap_low_power() { low_power_set(!low_power_on()); }
+
 static SettingsRow ROWS_BATTERY[] = {
+    { "Low Power Mode", "Saver mode, always-on and wake word off", ROW_TOGGLE, low_power_on, tap_low_power, nullptr, ICON_BATTERY },
     { "Battery Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_battery_screen, ICON_BATTERY },
     // desc is filled in live with the selected mode (page_draw)
     { "Deep sleep", "Sleep between Bluetooth events, screen off", ROW_TOGGLE, get_pwr_save, tap_pwr_save, nullptr, ICON_BATTERY,

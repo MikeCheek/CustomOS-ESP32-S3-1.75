@@ -1,4 +1,5 @@
 // Reminders - see app_reminders.h.
+#include "haptics.h"
 #include "app_reminders.h"
 #include "config.h"
 #include "board_pins.h"
@@ -172,6 +173,7 @@ static void rem_touch(int x, int y, bool pressed) {
     if (s_pending_n < 8) strlcpy(s_pending[s_pending_n++], s_items[i].k, sizeof(s_pending[0]));
     s_ticked = i;
     s_ticked_ms = millis();
+    haptic(HAP_SUCCESS);
 }
 
 static void rem_gesture(Gesture g) {

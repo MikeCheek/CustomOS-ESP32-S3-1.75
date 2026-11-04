@@ -1,4 +1,5 @@
 // Workout app - see app_workout.h.
+#include "haptics.h"
 #include "app_workout.h"
 #include "config.h"
 #include "board_pins.h"
@@ -146,6 +147,7 @@ static void start(int type, uint32_t back_s, uint32_t back_steps) {
     s_prompted_end = false;
     gps_on(true);
     fitness_workout(true, TYPES[type].met_x10);
+    haptic(HAP_START);
 }
 
 static void set_paused(bool p) {
@@ -154,6 +156,7 @@ static void set_paused(bool p) {
     else { s_stretch_ms = millis(); s_last_steps = imu_get_step_count(); s_have_last = false; }
     s_paused = p;
     fitness_workout(!p, TYPES[s_type].met_x10);
+    haptic(p ? HAP_STOP : HAP_START);
 }
 
 static WoRecord s_summary;
@@ -249,7 +252,7 @@ void workout_feed(Activity a, int cadence) {
     s_detect_back_s = 600;
     s_detect_steps = (uint32_t)(cadence * 10);
     sleep_register_activity();
-    audio_play_sfx(988, 60);
+    haptic(HAP_REMINDER);
     if (!ui_screen_on_top(&workout_detect_screen)) ui_push(&workout_detect_screen);
 }
 
@@ -300,7 +303,6 @@ static void list_tick() {
     if (s_countdown_type >= 0 && millis() - s_countdown_ms >= 3000) {
         start(s_countdown_type, 0, 0);
         s_countdown_type = -1;
-        audio_play_sfx(1568, 200);
         ui_pop_screen();
         ui_push_instant(&workout_live_screen);
     }

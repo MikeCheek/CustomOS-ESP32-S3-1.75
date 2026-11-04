@@ -1,4 +1,5 @@
 // Timer, Stopwatch, Alarms and World clock - see app_clock.h.
+#include "haptics.h"
 #include "app_clock.h"
 #include "config.h"
 #include "board_pins.h"
@@ -151,11 +152,12 @@ static void timer_touch(int x, int y, bool pressed) {
     } else if (s_tm_custom) {
         if (t == 1) s_tm_custom_min = custom_step(s_tm_custom_min, -1);
         else if (t == 2) s_tm_custom_min = custom_step(s_tm_custom_min, +1);
-        else if (t == 3) { assistant_timer_set(s_tm_custom_min * 60); s_tm_custom = false; }
+        else if (t == 3) { assistant_timer_set(s_tm_custom_min * 60); s_tm_custom = false; haptic(HAP_START); }
     } else if (t == 18) {
         s_tm_custom = true;
     } else if (t >= 10) {
         assistant_timer_set(PRESETS[t - 10] * 60);
+        haptic(HAP_START);
     }
 }
 
@@ -236,13 +238,14 @@ static void sw_touch(int x, int y, bool pressed) {
     int id = Btn{CX - 150, 316, 140, 60}.hit(x, y) ? 1 : Btn{CX + 10, 316, 140, 60}.hit(x, y) ? 2 : -1;
     int t = s_sw_taps.feed(id, pressed);
     if (t == 2) {
-        if (s_sw_run) { s_sw_acc = stopwatch_ms(); s_sw_run = false; }
-        else { s_sw_start = millis(); s_sw_run = true; }
+        if (s_sw_run) { s_sw_acc = stopwatch_ms(); s_sw_run = false; haptic(HAP_STOP); }
+        else { s_sw_start = millis(); s_sw_run = true; haptic(HAP_START); }
     } else if (t == 1) {
         if (s_sw_run) {
             uint32_t now = stopwatch_ms();
             if (s_lap_n == MAX_LAPS) { memmove(s_laps, s_laps + 1, sizeof(s_laps[0]) * (MAX_LAPS - 1)); s_lap_n--; }
             s_laps[s_lap_n++] = now - s_lap_mark;
+            haptic(HAP_CLICK);
             s_lap_mark = now;
         } else {
             s_sw_acc = 0; s_lap_n = 0; s_lap_mark = 0;

@@ -12,6 +12,8 @@
 #include "phone_link.h"
 #include "app_notifications.h"
 #include "app_clock.h"
+#include "haptics.h"
+#include "low_power.h"
 #include "fitness.h"
 #include "app_workout.h"
 #include "app_reminders.h"
@@ -50,6 +52,7 @@ void sim_run(uint32_t ms) {
         phone_link_update();
         notifications_update();
         clock_update();
+        haptics_update();
         fitness_update();
         workout_update();
         ui_update();

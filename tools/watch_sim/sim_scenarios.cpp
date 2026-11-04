@@ -4,6 +4,8 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+#include "app_sos.h"
+#include "app_poweroff.h"
 #include "app_activity.h"
 #include "fitness.h"
 #include "app_workout.h"
@@ -141,6 +143,30 @@ void sim_scenarios() {
     sim_run(60000);
     sim_save("workout_live");
     shot(&smart_stack_screen, "smart_stack");
+    // more from one app: they stack up
+    sim_link("{\"t\":\"ntf\",\"id\":14,\"ap\":\"WhatsApp\",\"ti\":\"Marco\",\"tx\":\"Are you coming tonight?\",\"rp\":1}");
+    sim_link("{\"t\":\"ntf\",\"id\":15,\"ap\":\"WhatsApp\",\"ti\":\"Family\",\"tx\":\"Mum: dinner on Sunday?\",\"rp\":1}");
+    sim_run(4000);
+    home();
+    sim_save("watchface_unread");
+    shot(&notifications_screen, "notifications_grouped");
+    sim_tap(233, 92 + 28 + 50);             // the WhatsApp stack: fans out
+    sim_run(400);
+    sim_save("notifications_expanded");
+    // a row dragged left, halfway through
+    ui_handle_touch(380, 92 + 28 + 40 + 8 + 50, true);
+    sim_run(40);
+    for (int x = 370; x >= 230; x -= 20) { ui_handle_touch(x, 92 + 28 + 40 + 8 + 50, true); sim_run(30); }
+    sim_save("notifications_swipe");
+    ui_handle_touch(230, 92 + 28 + 40 + 8 + 50, false);
+    sim_run(400);
+    shot(&poweroff_screen, "power_sos");
+    shot(&sos_screen, "sos_countdown", 2300);
+    sim_run(4000);
+    sim_save("sos_sent");
+    g_app_settings.low_power = true;
+    shot(&activity_screen, "low_power_status");
+    g_app_settings.low_power = false;
     home();
     ui_handle_touch(233, 300, true);        // touch and hold the face
     sim_run(900);

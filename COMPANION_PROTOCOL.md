@@ -162,6 +162,7 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | phone → watch | `{"t":"sr","id":123,"l":["Sure, see you at 8!","Can I tell you later?","What should I bring?"]}` | smart replies for notification `id` (app 3.5+): up to 3, 38 chars each, written by the phone's LLM; shown after "Dictate", before the quick replies. The watch keeps them for its last 6 messages |
 | phone → watch | `{"t":"tz","o":60}` | the phone's offset from UTC in minutes, sent after `hi` (fw 3.5+: the World clock) |
 | phone → watch | `{"t":"wxh","hi":21,"lo":12,"h":[[14,19.5,61],...]}` | today's high/low and the next 12 hours (hour, °C, WMO code) for the Weather app (fw 3.5+), after each weather push |
+| watch → phone | `{"e":"sos"}` | Emergency SOS (fw 3.5+, hold PWR, slide): the phone rings and texts the emergency contact with its location, then answers `{"t":"sos","ok":1}` or `{"t":"sos","ok":0,"why":"..."}` |
 | phone → watch | `{"t":"woack","st":<start>}` | a workout arrived (see `wo`); the watch stops resending it |
 | watch → phone | `{"e":"wo","ty":"Outdoor Run","st":<start>,"du":1800,"m":5230,"kc":310,"stp":4800,"gps":1}` | a finished workout (fw 3.5+): start in local epoch seconds, seconds, metres (0 = none), active kcal, steps, GPS distance. Sent again on every `hi` until acked |
 | phone → watch | `{"t":"tmr","s":600}` | a timer asked for on the phone's assistant (app 3.5+): set on the watch, `0` cancels |

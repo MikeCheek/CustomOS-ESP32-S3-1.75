@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "app_face_nav.h"
+#include "app_notifications.h"
 #include "phone_images.h"
 #include "ui_font.h"
 #include "board_pins.h"
@@ -994,6 +995,9 @@ void ui_update() {
     // own content (see ui_draw_battery_indicator() for why top-right).
     // After the slide composite, so it stays put while screens move.
     if (!scr->hide_status && !covered) ui_draw_battery_indicator();
+    // the faces: a red dot at the top while there are unread notifications (watchOS)
+    if (!covered && face_nav_is_face(scr) && notifications_unread() > 0)
+        s_gfx->fillCircle(LCD_WIDTH / 2, 16, 6, COLOR_BAD);
 
     // Toast overlay
     ui_draw_toast();
@@ -1224,7 +1228,7 @@ static void ui_draw_battery_indicator() {
     if (pct < 0) return; // no battery reading available - stay silent rather than show 0%
 
     bool charging = power_is_charging();
-    uint16_t color = charging ? COLOR_ACCENT2 : (pct > 20 ? COLOR_GOOD : COLOR_BAD);
+    uint16_t color = charging ? COLOR_ACCENT2 : g_app_settings.low_power ? COLOR_WARN : (pct > 20 ? COLOR_GOOD : COLOR_BAD);
 
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", pct);

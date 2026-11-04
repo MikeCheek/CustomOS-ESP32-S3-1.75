@@ -1,4 +1,5 @@
 // Activity rings - see fitness.h.
+#include "haptics.h"
 #include "fitness.h"
 #include "config.h"
 #include "board_pins.h"
@@ -153,8 +154,7 @@ void fitness_update() {
         s_reminded_hour != t.hour && !(s_stand_mask & (1u << t.hour)) && !dnd_active()) {
         s_reminded_hour = t.hour;
         sleep_register_activity();
-        audio_play_sfx(880, 60);
-        audio_play_sfx(1175, 90);
+        haptic(HAP_REMINDER);
         ui_show_toast("Time to stand - move around for a minute", 6000);
     }
     if (s_dirty && ms - s_saved_ms > 10 * 60000UL) save();
@@ -192,9 +192,7 @@ static uint32_t s_cel_ms = 0;
 
 static void cel_create() {
     s_cel_ms = millis();
-    audio_play_sfx(1047, 90);
-    audio_play_sfx(1319, 90);
-    audio_play_sfx(1568, 160);
+    haptic(HAP_SUCCESS);
 }
 
 static void cel_tick() {

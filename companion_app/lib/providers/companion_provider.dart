@@ -496,6 +496,16 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       case 'fall':
         unawaited(_onFall(e['ok'] == 1));
         break;
+      case 'sos':
+        // Emergency SOS from the watch (hold PWR): the same alert, other words
+        if (e['ok'] == 1) {
+          await _native.findPhone(false);
+        } else {
+          final c = await Safety.contact();
+          if (c.phone.isEmpty) await _ble.sendLink({'t': 'sos', 'ok': 0, 'why': 'No emergency contact set in the app'});
+          unawaited(_onFall(false, sos: true));
+        }
+        break;
       case 'todo':
         if (e['d'] == 1) await _onWatchTodo(e['k'] as String? ?? '');
         break;
@@ -860,7 +870,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   /// The watch asked "Did you fall?" and got no answer: ring this phone and
   /// text the emergency contact (Settings > Safety). ok: it was fine after all.
-  Future<void> _onFall(bool ok) async {
+  Future<void> _onFall(bool ok, {bool sos = false}) async {
     if (ok) {
       await _native.findPhone(false);
       return;
@@ -870,9 +880,11 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     if (c.phone.isEmpty) return;
     try {
       final loc = await _native.lastLocation();
-      await _native.sendSms(c.phone, Safety.alertText(DateTime.now(), lat: loc?['lat'], lon: loc?['lon']));
+      await _native.sendSms(c.phone, Safety.alertText(DateTime.now(), lat: loc?['lat'], lon: loc?['lon'], sos: sos));
+      if (sos) await _ble.sendLink({'t': 'sos', 'ok': 1});
     } catch (e) {
-      print('[Companion] fall alert text failed: $e');
+      print('[Companion] ${sos ? 'SOS' : 'fall alert'} text failed: $e');
+      if (sos) await _ble.sendLink({'t': 'sos', 'ok': 0});
     }
   }
 
