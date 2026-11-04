@@ -53,6 +53,10 @@ void power_set_screen_off(bool off);
 // Something needs the chip awake while the screen is off (audio, GPS, a
 // transfer or update in progress).
 void power_set_keep_awake(bool keep);
+// Screen on but calm (ui_is_calm): the CPU slows between redraws (80 MHz;
+// in the PlatformIO build DFS goes down to 40) instead of running at the
+// battery mode's maximum, and is back up at the next touch.
+void power_set_ui_calm(bool calm);
 // Battery % when the USB cable last came out (or at boot on battery) and
 // the time since. False while plugged in.
 bool power_since_unplugged(int *start_pct, uint32_t *elapsed_ms);

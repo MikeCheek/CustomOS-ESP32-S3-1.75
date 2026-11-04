@@ -10,14 +10,14 @@
 #include "ui.h"
 
 static const BatteryProfile PROFILES[BATT_MODE_COUNT] = {
-    { "Performance", "Full brightness, 5 min timeout",   "Fastest CPU, everything on",
-      COLOR_WARN,    255, 300, false, false, false, false, 240 },
-    { "Balanced",    "Normal brightness, 2 min timeout", "Everything on (default)",
-      COLOR_ACCENT2, DEFAULT_BRIGHTNESS, 120, false, false, false, false, 240 },
-    { "Saver",       "Dimmer, 1 min timeout",            "Wi-Fi, GPS, auto-rotate off",
-      COLOR_GOOD,    100, 60,  true,  false, true,  false, 240 },
-    { "Ultra saver", "Very dim, 30 s timeout, 160 MHz",  "Radios off except Bluetooth",
-      COLOR_ACCENT,  40,  30,  true,  true,  true,  true,  160 },
+    { "Performance", "Full brightness, 1 min timeout",   "Fastest CPU, everything on",
+      COLOR_WARN,    255, 60,  false, false, false, false, 240 },
+    { "Balanced",    "Normal brightness, 30 s timeout", "Everything on (default)",
+      COLOR_ACCENT2, DEFAULT_BRIGHTNESS, 30,  false, false, false, false, 240 },
+    { "Saver",       "Dimmer, 20 s timeout",             "Wi-Fi, GPS, auto-rotate off",
+      COLOR_GOOD,    100, 20,  true,  false, true,  false, 240 },
+    { "Ultra saver", "Very dim, 15 s timeout, 160 MHz",  "Radios off except Bluetooth",
+      COLOR_ACCENT,  40,  15,  true,  true,  true,  true,  160 },
 };
 
 const BatteryProfile &battery_profile(BatteryMode m) {

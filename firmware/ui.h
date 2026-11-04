@@ -125,6 +125,9 @@ bool ui_last_pop_was_drag();
 void ui_pop_screen();
 void ui_go_home();
 void ui_update();
+// The screen is idling at a slow frame rate (no touch for 2 s on a screen
+// that allows it): the CPU may slow down between redraws.
+bool ui_is_calm();
 // True if the currently active screen has suppress_idle set (see the
 // Screen struct above) - for games where long touch-free stretches
 // are normal gameplay, not idleness.

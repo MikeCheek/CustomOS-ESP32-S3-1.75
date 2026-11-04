@@ -161,6 +161,8 @@ void power_set_screen_off(bool off) { s_screen_off = off; }
 
 static bool s_keep_awake = false;
 void power_set_keep_awake(bool keep) { s_keep_awake = keep; }
+static bool s_ui_calm = false;
+void power_set_ui_calm(bool calm) { s_ui_calm = calm; }
 
 // USB cable in (serial log, charging): checked every 2 s, it's an I2C read.
 // Also notes when the cable came out, for the "since unplugged" drain on
@@ -250,7 +252,7 @@ void power_update_sleep_policy() {
                      !espnow_is_enabled() && !usb_mode_blocks_light_sleep() && !vbus;
     if (may_sleep != !s_awake_held) DEBUG_PRINTF("[power] light sleep %s\n", may_sleep ? "allowed" : "blocked");
     hold(s_lock_awake, s_awake_held, !may_sleep);
-    hold(s_lock_ui, s_ui_held, !s_screen_off);
+    hold(s_lock_ui, s_ui_held, !s_screen_off && !s_ui_calm);   // calm: DFS takes it down between redraws
 }
 
 #else
@@ -266,7 +268,7 @@ void power_update_sleep_policy() {
     uint32_t want = cpu_cap_mhz();
     // Screen off: nothing to render - the lowest clock that keeps the
     // radios and the 80 MHz APB bus happy is plenty.
-    if (s_screen_off) want = 80;
+    if (s_screen_off || s_ui_calm) want = 80;   // ...and the same while a calm screen idles
     if (getCpuFrequencyMhz() == want) return;
     if (setCpuFrequencyMhz(want)) DEBUG_PRINTF("[power] CPU now %lu MHz\n", (unsigned long)want);
 }

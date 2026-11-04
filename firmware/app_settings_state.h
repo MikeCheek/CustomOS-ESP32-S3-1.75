@@ -24,9 +24,10 @@ struct AppSettings {
     // Screen timeout in seconds, set by the battery mode (battery_mode.h).
     // 0 = never auto-sleep. Display is fully hardware-powered-off while
     // asleep (see hal_display.cpp's display_sleep()), not just dimmed.
-    uint16_t sleep_timeout_s = 120;
+    uint16_t sleep_timeout_s = 30;    // screen timeout; lowering the wrist turns it off sooner
     bool wake_on_touch = true;
     bool wake_on_motion = true;
+    bool wrist_down_sleep = true;      // lower the wrist (screen turned aside) to sleep
     // Skips the sleep_timeout_s auto-sleep entirely while the watch
     // is on charge (power_is_charging(), hal_power.h) - no reason to
     // dim/lock a watch sitting on its charger.

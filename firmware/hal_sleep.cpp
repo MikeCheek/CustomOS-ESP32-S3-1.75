@@ -28,11 +28,34 @@ static uint32_t s_last_motion_check_ms = 0;
 static const uint32_t MOTION_CHECK_PERIOD_MS = 200;
 static const float MOTION_THRESHOLD_G = 0.35f;
 
+// Raise to wake: a movement, then within a second the screen facing up
+// (gravity mostly through the glass, |z| > 0.45 g) - so a swinging arm
+// hanging down (walking) no longer wakes it.
+static uint32_t s_moved_ms = 0;
 static bool check_motion_now() {
     ImuSample s = imu_read();
     if (!s.valid) return false;
+    uint32_t now = millis();
     float mag = sqrtf(s.ax * s.ax + s.ay * s.ay + s.az * s.az);
-    return fabsf(mag - 1.0f) > MOTION_THRESHOLD_G;
+    if (fabsf(mag - 1.0f) > MOTION_THRESHOLD_G) s_moved_ms = now ? now : 1;
+    bool facing = fabsf(s.az) > 0.45f && fabsf(mag - 1.0f) < 0.4f;
+    return s_moved_ms && now - s_moved_ms < 1000 && facing;
+}
+
+// Lower the wrist to sleep: with no touch for 3 s, the screen turned to
+// the side (|z| < 0.35 g: the arm hanging, or turned away) for 1.2 s puts
+// the watch to sleep - most screen-on time is the timeout running out.
+static uint32_t s_down_since = 0, s_last_down_check_ms = 0;
+static bool wrist_down(uint32_t now) {
+    if (now - s_last_down_check_ms < 200) return false;
+    s_last_down_check_ms = now;
+    ImuSample s = imu_read();
+    if (!s.valid) { s_down_since = 0; return false; }
+    float mag = sqrtf(s.ax * s.ax + s.ay * s.ay + s.az * s.az);
+    bool down = fabsf(s.az) < 0.35f && fabsf(mag - 1.0f) < 0.35f;
+    if (!down) { s_down_since = 0; return false; }
+    if (!s_down_since) s_down_since = now ? now : 1;
+    return now - s_down_since >= 1200;
 }
 
 void sleep_init() {
@@ -78,6 +101,18 @@ bool sleep_update() {
         // sitting on its charger isn't "put down" in the sense this
         // timeout exists to catch.
         bool charging_exempt = g_app_settings.stay_awake_charging && power_is_charging();
+        if (g_app_settings.wrist_down_sleep && !ui_current_screen_suppresses_idle() && !charging_exempt &&
+            now - s_last_activity_ms >= 3000 && wrist_down(now)) {
+#if FEATURE_NVS
+            nvs_save_steps(imu_get_step_count());
+#endif
+            s_down_since = 0;
+            s_moved_ms = 0;
+            s_asleep = true;
+            aod_sleep_display();
+            return s_asleep;
+        }
+        if (now - s_last_activity_ms < 3000) s_down_since = 0;
         if (g_app_settings.sleep_timeout_s > 0 && !ui_current_screen_suppresses_idle() && !charging_exempt) {
             uint32_t timeout_ms = (uint32_t)g_app_settings.sleep_timeout_s * 1000UL;
             if (now - s_last_activity_ms >= timeout_ms) {
@@ -107,6 +142,7 @@ bool sleep_update() {
     if (g_app_settings.wake_on_motion && (now - s_last_motion_check_ms) >= MOTION_CHECK_PERIOD_MS) {
         s_last_motion_check_ms = now;
         if (check_motion_now()) {
+            s_moved_ms = 0;
             sleep_register_activity();
             return s_asleep;
         }

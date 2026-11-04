@@ -781,6 +781,15 @@ void loop() {
 #if FEATURE_BLE
     ble_set_low_power(asleep);
 #endif
+    {
+        // a calm screen (a face ticking once a second): the CPU slows between
+        // redraws - not while sound plays or records (decoding needs the clock)
+        bool calm = !asleep && ui_is_calm() && sleep_ms_since_activity() >= 2000;   // a touch: full speed at once
+#if FEATURE_AUDIO
+        calm = calm && !audio_is_playing() && !audio_is_recording();
+#endif
+        power_set_ui_calm(calm);
+    }
     usb_mode_update();           // cable poll (2 Hz) + drive eject handling
     power_update_sleep_policy(); // CPU clock + light sleep for this state (hal_power.cpp)
 

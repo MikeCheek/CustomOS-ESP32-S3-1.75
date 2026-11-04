@@ -101,6 +101,8 @@ static void tap_dnd_bed() { g_app_settings.dnd_bedtime = !g_app_settings.dnd_bed
 static bool get_wake_touch() { return g_app_settings.wake_on_touch; }
 static void tap_wake_touch() { g_app_settings.wake_on_touch = !g_app_settings.wake_on_touch; nvs_save_settings(g_app_settings); }
 
+static bool get_wrist_down() { return g_app_settings.wrist_down_sleep; }
+static void tap_wrist_down() { g_app_settings.wrist_down_sleep = !g_app_settings.wrist_down_sleep; nvs_save_settings(g_app_settings); }
 static bool get_wake_motion() { return g_app_settings.wake_on_motion; }
 static void tap_wake_motion() { g_app_settings.wake_on_motion = !g_app_settings.wake_on_motion; nvs_save_settings(g_app_settings); }
 
@@ -367,6 +369,7 @@ static void tap_fall() {
 
 static SettingsRow ROWS_WAKE[] = {
     { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
+    { "Lower wrist to sleep", "The screen goes off when you turn it away", ROW_TOGGLE, get_wrist_down, tap_wrist_down, nullptr, ICON_ROTATE },
     { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
     { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
@@ -488,7 +491,7 @@ static SettingsRow ROWS_ROOT[] = {
     { "Connections", "Bluetooth, WiFi, GPS", ROW_SUBSCREEN, nullptr, nullptr, &settings_connect_screen, ICON_BLUETOOTH },
     { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
     // desc: the battery mode, live (page_draw)
-    { "Wake & quiet", "Raise to wake, bedtime, fall detection", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "Wake & quiet", "Raise to wake, lower to sleep, bedtime", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
     { "Activity", "Rings, goals, stand reminders", ROW_SUBSCREEN, nullptr, nullptr, &settings_activity_screen, nullptr },
     { "System", "USB, updates, diagnostics", ROW_SUBSCREEN, nullptr, nullptr, &settings_system_screen, ICON_POWER },
 };

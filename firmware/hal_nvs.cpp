@@ -69,6 +69,7 @@ bool nvs_save_settings(const AppSettings &s) {
     s_prefs.putUChar("weight", s.weight_kg);
     s_prefs.putUChar("height", s.height_cm);
     s_prefs.putBool("tips_seen", s.tips_seen);
+    s_prefs.putBool("wrist_dn", s.wrist_down_sleep);
     s_prefs.putBytes("home_act", s.home_act, sizeof(s.home_act));
     s_prefs.putBytes("tiles", s.tiles, sizeof(s.tiles));
     s_prefs.putUChar("ex_goal", s.exercise_goal);
@@ -116,8 +117,9 @@ bool nvs_load_settings(AppSettings &s) {
     }
     s.touch_feedback = s_prefs.getBool("touch_fb", true);
     // "sleep_s" replaced the old whole-minutes "sleep_min" key.
-    if (s_prefs.isKey("sleep_s")) s.sleep_timeout_s = s_prefs.getUShort("sleep_s", 120);
-    else s.sleep_timeout_s = (uint16_t)(s_prefs.getInt("sleep_min", 2) * 60);
+    if (s_prefs.isKey("sleep_s")) s.sleep_timeout_s = s_prefs.getUShort("sleep_s", 30);
+    else if (s_prefs.isKey("sleep_min")) s.sleep_timeout_s = (uint16_t)(s_prefs.getInt("sleep_min", 2) * 60);
+    // else: a new watch keeps the default (30 s)
     s.wake_on_touch = s_prefs.getBool("wake_touch", true);
     s.wake_on_motion = s_prefs.getBool("wake_motion", true);
     s.stay_awake_charging = s_prefs.getBool("stay_awake_chg", false);
@@ -168,6 +170,7 @@ bool nvs_load_settings(AppSettings &s) {
     s.height_cm = s_prefs.getUChar("height", 175);
     if (s.height_cm < 100 || s.height_cm > 230) s.height_cm = 175;
     s.tips_seen = s_prefs.getBool("tips_seen", false);
+    s.wrist_down_sleep = s_prefs.getBool("wrist_dn", true);
     if (s_prefs.getBytesLength("home_act") == sizeof(s.home_act)) s_prefs.getBytes("home_act", s.home_act, sizeof(s.home_act));
     if (s_prefs.getBytesLength("tiles") == sizeof(s.tiles)) s_prefs.getBytes("tiles", s.tiles, sizeof(s.tiles));
     s.exercise_goal = s_prefs.getUChar("ex_goal", 30);

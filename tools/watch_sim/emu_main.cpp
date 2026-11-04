@@ -132,6 +132,9 @@ __attribute__((visibility("default"))) int emu_init(const char *dir) {
     life_init();                                           // Life: plan and today
     usage_init();                                          // usage stats for Diagnostics
     g_app_settings.onboarding_complete = true;   // straight to the watch, no first-boot setup
+    // the phone in your hand is held upright: "lower wrist to sleep" would
+    // put the emulated watch to sleep every few seconds
+    g_app_settings.wrist_down_sleep = false;
     audio_set_volume(g_app_settings.volume);
     ui_fonts_set_smooth(g_app_settings.smooth_fonts);
     ui_init(nullptr);

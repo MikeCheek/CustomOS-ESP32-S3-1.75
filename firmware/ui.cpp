@@ -931,6 +931,9 @@ void ui_poll_gestures() {
 // since ui_update() calls it but is defined earlier in the file.
 static void ui_draw_battery_indicator();
 
+static bool s_calm = false;
+bool ui_is_calm() { return s_calm; }
+
 void ui_update() {
     uint32_t now = millis();
     face_nav_poll();
@@ -958,6 +961,9 @@ void ui_update() {
         // screen underneath would idle down to.
         frame_ms = UI_FRAME_MS_DEFAULT;
     }
+    // Calm: a screen idling at a slow frame rate (a face ticking once a
+    // second) - the CPU can run slowly between its redraws (hal_power).
+    s_calm = scr && scr->idle_frame_ms >= 250 && frame_ms == scr->idle_frame_ms;
     if (frame_ms == 0) {
         // Uncapped — only throttle by hardware limits
         // Still add a 4ms minimum to prevent spinning
