@@ -219,7 +219,7 @@ object EmuOverlay {
         var mode = 0           // 0 none, 1 watch touch, 2 moving, 3 button, 4 pinching
         var downRawX = 0f; var downRawY = 0f; var startX = 0; var startY = 0
         var downAt = 0L
-        val handler = Handler(Looper.getMainLooper())
+        val uiHandler = Handler(Looper.getMainLooper())
         var buttonLong = false
         val longPress = Runnable { buttonLong = true; nativeButton(1, 1) }   // hold the button: PWR
 
@@ -258,7 +258,7 @@ object EmuOverlay {
                         else -> 1
                     }
                     if (mode == 1) { val (wx, wy) = toWatch(e.x, e.y); nativeTouch(wx, wy, 1) }
-                    if (mode == 3) { buttonLong = false; handler.postDelayed(longPress, 600) }
+                    if (mode == 3) { buttonLong = false; uiHandler.postDelayed(longPress, 600) }
                 }
                 MotionEvent.ACTION_MOVE -> when (mode) {
                     1 -> { val (wx, wy) = toWatch(e.x, e.y); nativeTouch(wx, wy, 1) }
@@ -274,7 +274,7 @@ object EmuOverlay {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     when (mode) {
                         1 -> { val (wx, wy) = toWatch(e.x, e.y); nativeTouch(wx, wy, 0) }
-                        3 -> { handler.removeCallbacks(longPress); if (!buttonLong) nativeButton(0, 1) }
+                        3 -> { uiHandler.removeCallbacks(longPress); if (!buttonLong) nativeButton(0, 1) }
                         2 -> {
                             val dropped = overClose(p.x + p.width / 2f, p.y + p.height / 2f, context)
                             showClose(context, false)
