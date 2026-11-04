@@ -9,13 +9,21 @@ import 'screens/notes_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/updates_screen.dart';
 import 'screens/faces_screen.dart';
+import 'screens/camera_remote_screen.dart';
+import 'services/camera_remote.dart';
+
+/// The app's navigator: the watch can open a screen (the camera remote).
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 class AmoledCompanionApp extends StatelessWidget {
   const AmoledCompanionApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    CameraRemote.instance.openScreen ??= () =>
+        appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const CameraRemoteScreen()));
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'AmoledWatch',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,

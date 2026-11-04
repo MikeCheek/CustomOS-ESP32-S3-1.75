@@ -52,7 +52,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>To record voice memos and questions for the assistant on the phone, and for the watch emulator.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>To take a photo for Look (what is it, read or translate) and for photo watch faces.</string>
+	<string>To take a photo for Look (what is it, read or translate), for photo watch faces, and for the camera remote you control from the watch.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>To save the photos and videos you take with the watch's camera remote.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>To pick a photo for Look and for photo watch faces.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

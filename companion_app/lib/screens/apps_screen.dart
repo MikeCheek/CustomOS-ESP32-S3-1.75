@@ -11,6 +11,7 @@ import 'activity_screen.dart';
 import 'ai_settings_screen.dart';
 import 'assistant_screen.dart';
 import 'calendar_screen.dart';
+import 'camera_remote_screen.dart';
 import 'contacts_screen.dart';
 import 'controller_screen.dart';
 import 'dnd_replies_screen.dart';
@@ -122,6 +123,14 @@ final appGroups = <AppGroup>[
     ),
   ]),
   AppGroup('Watch', [
+    AppFeature(
+      'Camera remote',
+      'Take photos and videos from the watch: live view, self-timer, flash, zoom',
+      Icons.photo_camera_outlined,
+      AppColors.accent3,
+      page: () => const CameraRemoteScreen(),
+      keywords: ['camera', 'photo', 'selfie', 'shutter', 'remote', 'video', 'timer'],
+    ),
     AppFeature(
       'Wallet',
       'Boarding passes, tickets and cards, ready to scan on the watch',

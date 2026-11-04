@@ -32,6 +32,7 @@ static Screen &life_meal_screen_ref() { return life_meal_screen; }
 #include "app_tiles.h"
 #include "app_wallet.h"
 #include "app_briefing.h"
+#include "app_camera.h"
 #include "app_sos.h"
 #include "app_poweroff.h"
 #include "app_activity.h"
@@ -162,6 +163,14 @@ void sim_scenarios() {
     }
     shot(&settings_home_screen, "settings_home");
     shot(&briefing_screen, "briefing");
+    {
+        JsonDocument d;
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"tm\":3,\"fl\":\"auto\",\"z\":15}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_remote");
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":0}");
+        camera_on_link(d);
+    }
     // Wallet: three passes made by the app's own encoder (companion_app/test/wallet_codes_test.dart)
     {
         std::string path = __FILE__;

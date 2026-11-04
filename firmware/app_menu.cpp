@@ -19,6 +19,7 @@
 #include "app_life.h"
 #include "app_tips.h"
 #include "app_wallet.h"
+#include "app_camera.h"
 
 struct IconPen;   // below: draws an icon's shapes at full size
 
@@ -666,6 +667,16 @@ static void icon_wallet(IconPen *g, int cx, int cy, float br) {
     g->fillRect(cx + 9, cy + 3, 4, 3, d);
 }
 
+static void icon_camera(IconPen *g, int cx, int cy, float br) {
+    // a camera body, the lens, the shutter on top
+    uint16_t c = IC(COLOR_TEXT), d = IC(0x5AEB);
+    g->fillRoundRect(cx - 20, cy - 11, 40, 28, 7, c);
+    g->fillRoundRect(cx - 8, cy - 17, 16, 8, 3, c);
+    g->fillCircle(cx, cy + 3, 10, d);
+    g->fillCircle(cx, cy + 3, 6, c);
+    g->fillCircle(cx + 13, cy - 5, 2, d);
+}
+
 // In honeycomb order: the first one sits in the middle, the next six
 // around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
@@ -681,6 +692,7 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
     {"Reminders",     CAT_TOOLS, icon_reminders,     &reminders_screen},
     {"Wallet",        CAT_TOOLS, icon_wallet,        &wallet_screen, false, 0x2B9F},
+    {"Camera",        CAT_TOOLS, icon_camera,        &camera_screen, false, 0x5AEB},
     {"Games",         CAT_TOOLS, nullptr,            nullptr, false, 0, CAT_GAMES},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
     {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},

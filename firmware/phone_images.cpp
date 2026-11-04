@@ -59,7 +59,7 @@ void phone_images_on_frame(const uint8_t *d, int len) {
     uint32_t hash = rd32(d + 2), total = rd32(d + 6), off = rd32(d + 10);
     const uint8_t *data = d + 14;
     int n = len - 14;
-    if ((kind != 'i' && kind != 'a') || !hash || total == 0 || total > IMG_MAX_BYTES) return;
+    if ((kind != 'i' && kind != 'a' && kind != 'p') || !hash || total == 0 || total > IMG_MAX_BYTES) return;
     if (!s_stage) s_stage = (uint8_t *)heap_caps_malloc(IMG_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_ready) s_ready = (uint8_t *)heap_caps_malloc(IMG_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_stage || !s_ready) return;
@@ -102,8 +102,30 @@ static Slot *victim(Slot *slots, int n) {
     return v;
 }
 
+// the camera remote's live preview: the latest frame only, never kept
+static DecodedImage s_preview;
+static uint32_t s_preview_seq = 0;
+const uint16_t *phone_preview(int *w, int *h, uint32_t *seq) {
+    if (seq) *seq = s_preview_seq;
+    if (!s_preview.px) return nullptr;
+    if (w) *w = s_preview.w;
+    if (h) *h = s_preview.h;
+    return s_preview.px;
+}
+
 void phone_images_update() {
     if (!s_ready_full) return;
+    if (s_ready_kind == 'p') {
+        DecodedImage img;
+        if (img_decode_jpeg_mem(s_ready, s_ready_len, PHONE_ART_SIZE * 2, PHONE_ART_SIZE * 2, true, &img)) {
+            img_free(&s_preview);
+            s_preview = img;
+            s_preview_seq++;
+        }
+        __sync_synchronize();
+        s_ready_full = false;
+        return;
+    }
     bool icon = s_ready_kind == 'i';
     int max = icon ? PHONE_ICON_SIZE : PHONE_ART_SIZE;
     DecodedImage img;

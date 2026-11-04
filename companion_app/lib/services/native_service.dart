@@ -12,6 +12,8 @@ class NativeService {
   static const _calendarStream = EventChannel('com.amoledwatch.native/calendar');
   static const _widgetStream = EventChannel('com.amoledwatch.native/widget');
   static const _dndStream = EventChannel('com.amoledwatch.native/dnd');
+  static const _cameraStream = EventChannel('com.amoledwatch.native/camera');
+  Stream<bool>? _camera;
   Stream<bool>? _dnd;
 
   Stream<Map<String, dynamic>>? _notifs;
@@ -33,8 +35,7 @@ class NativeService {
 
   // ---- notifications ---------------------------------------------------------
 
-  Future<bool> isNotificationListenerEnabled() async =>
-      (await _call<bool>('isNotificationListenerEnabled')) ?? false;
+  Future<bool> isNotificationListenerEnabled() async => (await _call<bool>('isNotificationListenerEnabled')) ?? false;
 
   Future<void> openNotificationListenerSettings() => _call('openNotificationListenerSettings');
 
@@ -88,8 +89,10 @@ class NativeService {
   }
 
   /// Keeps the app (and the watch link) running in the background.
-  Future<bool> startLinkService({String title = 'AmoledWatch connected', String text = 'Notifications and controls are linked'}) async =>
-      (await _call<bool>('startLinkService', {'title': title, 'text': text})) ?? false;
+  Future<bool> startLinkService({
+    String title = 'AmoledWatch connected',
+    String text = 'Notifications and controls are linked',
+  }) async => (await _call<bool>('startLinkService', {'title': title, 'text': text})) ?? false;
 
   Future<void> stopLinkService() => _call('stopLinkService');
 
@@ -165,6 +168,10 @@ class NativeService {
   Future<void> openDndAccess() => _call('openDndAccess');
 
   /// The phone's DND switching on / off.
+  /// Android: true when any app opens a camera, false when the last one closes.
+  Stream<bool> get cameraInUse =>
+      _camera ??= _cameraStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
+
   Stream<bool> get dndChanges => _dnd ??= _dndStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
 
   /// Opens a web link in the browser. False if there's none to open it.

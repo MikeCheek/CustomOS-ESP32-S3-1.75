@@ -60,6 +60,8 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     private var widgetSink: EventChannel.EventSink? = null
     private var calendarObserver: ContentObserver? = null
     private var dndSink: EventChannel.EventSink? = null
+    private var cameraSink: EventChannel.EventSink? = null
+    private var cameraCallback: android.hardware.camera2.CameraManager.AvailabilityCallback? = null
     private var dndReceiver: BroadcastReceiver? = null
 
     private val navCallback = NotificationListener.NotificationCallback { ev ->
@@ -309,6 +311,41 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     dndSink = null
                     dndReceiver?.let { try { app.unregisterReceiver(it) } catch (_: Exception) {} }
                     dndReceiver = null
+                }
+            })
+
+        // Any app opening a camera (and closing it): the watch offers its camera
+        // remote, the way it shows directions when navigation starts.
+        EventChannel(messenger, "com.amoledwatch.native/camera").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    cameraSink = events
+                    if (cameraCallback == null) {
+                        val cm = app.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+                        val inUse = mutableSetOf<String>()
+                        val cb = object : android.hardware.camera2.CameraManager.AvailabilityCallback() {
+                            override fun onCameraUnavailable(cameraId: String) {
+                                if (inUse.add(cameraId) && inUse.size == 1) main.post { cameraSink?.success(true) }
+                            }
+                            override fun onCameraAvailable(cameraId: String) {
+                                if (inUse.remove(cameraId) && inUse.isEmpty()) main.post { cameraSink?.success(false) }
+                            }
+                        }
+                        try {
+                            cm.registerAvailabilityCallback(cb, main)
+                            cameraCallback = cb
+                        } catch (_: Exception) {}
+                    }
+                }
+                override fun onCancel(arguments: Any?) {
+                    cameraSink = null
+                    cameraCallback?.let {
+                        try {
+                            (app.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager)
+                                .unregisterAvailabilityCallback(it)
+                        } catch (_: Exception) {}
+                    }
+                    cameraCallback = null
                 }
             })
 

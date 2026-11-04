@@ -10,6 +10,7 @@
 #include "face_look.h"
 #include "home_gestures.h"
 #include "app_wallet.h"
+#include "app_camera.h"
 #include "app_life.h"
 #include "usage_stats.h"
 #include "fitness.h"
@@ -214,6 +215,8 @@ static void handle(const char *msg) {
         look_on_link(doc);
     } else if (!strcmp(t, "home")) {
         home_on_link(doc);
+    } else if (!strcmp(t, "cam")) {
+        camera_on_link(doc);
     } else if (!strcmp(t, "wal")) {
         wallet_on_link(doc);
     } else if (!strcmp(t, "sos")) {
