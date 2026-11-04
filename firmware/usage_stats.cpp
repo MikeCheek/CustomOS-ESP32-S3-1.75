@@ -11,6 +11,13 @@
 #include "hal_rtc.h"
 #include "hal_sd.h"
 #include "hal_sleep.h"
+#include "hal_audio.h"
+#include "hal_espnow.h"
+#include "hal_gps.h"
+#include "hal_wifi.h"
+#include "app_settings_state.h"
+#include "hal_usb.h"
+#include "voice_sr.h"
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
@@ -29,6 +36,13 @@ static uint32_t s_min_heap_kb = 0xFFFFFFFF;
 static int s_day = -1;
 static uint32_t s_last_bat_ms = 0, s_last_save_ms = 0, s_last_sec_ms = 0;
 static bool s_was_asleep = false, s_was_conn = false;
+
+// What kept the watch from sleeping deeply with the screen off, in seconds
+// today (keys as sent: see usage_stats.h).
+enum AwakeWhy { AW_BUILD, AW_SETTING, AW_WAKEWORD, AW_AOD, AW_GPS, AW_WIFI, AW_ESPNOW, AW_AUDIO, AW_USBMODE, AW_N };
+static const char *const AW_KEYS[AW_N] = {"build", "setting", "wakeword", "aod", "gps", "wifi", "espnow", "audio", "usbmode"};
+static uint32_t s_aw[AW_N];
+static uint32_t s_off_s = 0;   // seconds with the screen off today (unplugged)
 
 void usage_count_notification() { s_ntf++; }
 
@@ -99,6 +113,8 @@ static void new_day() {
     memset(s_wk, 0, sizeof(s_wk));
     memset(s_apps, 0, sizeof(s_apps));
     s_wakes = s_disc = s_ntf = 0;
+    memset(s_aw, 0, sizeof(s_aw));
+    s_off_s = 0;
 }
 
 void usage_update() {
@@ -119,6 +135,27 @@ void usage_update() {
         add_app_time(name);
     }
     if (s_was_asleep && !asleep) { s_wakes++; if (s_wk[h] < 255) s_wk[h]++; }
+    static bool plugged = false;
+    static uint32_t plugged_ms = 0;
+    if (!plugged_ms || ms - plugged_ms > 10000) { plugged_ms = ms ? ms : 1; plugged = power_vbus_present(); }   // the PMU, every 10 s
+    if (asleep && !plugged) {
+        s_off_s++;
+        if (!power_auto_sleep_available()) s_aw[AW_BUILD]++;
+        else if (!g_app_settings.power_saving) s_aw[AW_SETTING]++;
+#if FEATURE_AUDIO
+        if (voice_wake_keeps_awake()) s_aw[AW_WAKEWORD]++;
+        if (audio_is_playing()) s_aw[AW_AUDIO]++;
+#endif
+        if (g_app_settings.aod_on) s_aw[AW_AOD]++;
+#if FEATURE_GPS
+        if (gps_is_enabled()) s_aw[AW_GPS]++;
+#endif
+#if FEATURE_WIFI
+        if (wifi_is_enabled()) s_aw[AW_WIFI]++;
+#endif
+        if (espnow_is_enabled()) s_aw[AW_ESPNOW]++;
+        if (usb_mode_blocks_light_sleep()) s_aw[AW_USBMODE]++;
+    }
     s_was_asleep = asleep;
     bool conn = ble_is_connected();
     if (s_was_conn && !conn) s_disc++;
@@ -135,6 +172,20 @@ void usage_update() {
         s_chg[BAT_N - 1] = power_is_charging() ? 1 : 0;
     }
     if (ms - s_last_save_ms > 3600000UL) save();
+}
+
+// The average drain over the unplugged part of the last 24 hours, %/hour
+// (screen on and off together); < 0 without 2 hours of it.
+float usage_drain_per_hour() {
+    int drop = 0, n = 0;
+    for (int i = 1; i < BAT_N; i++) {
+        uint8_t a = s_bat[i - 1], b = s_bat[i];
+        if (a == 255 || b == 255 || s_chg[i] || s_chg[i - 1] || b > a) continue;
+        drop += a - b;
+        n++;
+    }
+    if (n < 12) return -1;   // 12 x 10 min
+    return drop / (n / 6.0f);
 }
 
 void usage_send() {
@@ -190,6 +241,16 @@ void usage_send() {
         }
         d["up"] = (uint32_t)(millis() / 1000);
         d["rr"] = diag_reset_reason();
+        phone_link_send(d);
+    }
+    {
+        JsonDocument d;
+        d["e"] = "usage"; d["p"] = 3;
+        d["off"] = s_off_s;
+        d["pm"] = power_auto_sleep_available() ? 1 : 0;
+        JsonObject aw = d["aw"].to<JsonObject>();
+        for (int i = 0; i < AW_N; i++)
+            if (s_aw[i]) aw[AW_KEYS[i]] = s_aw[i];
         phone_link_send(d);
     }
 }

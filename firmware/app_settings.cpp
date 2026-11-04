@@ -243,7 +243,7 @@ static bool get_menu_list() { return g_app_settings.menu_list; }
 static void tap_menu_list() { g_app_settings.menu_list = !g_app_settings.menu_list; nvs_save_settings(g_app_settings); }
 static SettingsRow ROWS_DISPLAY[] = {
     { "Brightness", "Screen brightness level", ROW_SUBSCREEN, nullptr, nullptr, &settings_brightness_screen, ICON_BRIGHTNESS },
-    { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
+    { "Always-on display", "Dim clock asleep: ~1/3 less battery life", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
     { "Watchface slots", "Steps, events, weather... on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_comp_screen, ICON_BRIGHTNESS },
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
@@ -306,7 +306,7 @@ static SettingsRow ROWS_VOICE[] = {
       voice_sr_built, "Not in this build", desc_voice_wake },
     { "Word", "", ROW_ACTION, nullptr, tap_wake_word, nullptr, nullptr,
       voice_sr_built, "Not in this build", desc_wake_word },
-    { "Screen off too", "Listen while asleep (much more battery)", ROW_TOGGLE, get_wake_asleep, tap_wake_asleep, nullptr, nullptr,
+    { "Screen off too", "Listen while asleep: lasts ~1 day", ROW_TOGGLE, get_wake_asleep, tap_wake_asleep, nullptr, nullptr,
       voice_sr_built, "Not in this build" },
     { "Commands", "", ROW_TOGGLE, get_voice_cmds, tap_voice_cmds, nullptr, nullptr,
       voice_sr_built, "Not in this build", desc_voice_cmds },

@@ -54,7 +54,7 @@
 
 // ---- Watch behaviour -----------------------------------------------------
 #define SCREEN_TIMEOUT_MS      15000
-#define DEFAULT_BRIGHTNESS     200
+#define DEFAULT_BRIGHTNESS     150   // of 255: the AMOLED draws much less, still clear indoors
 #define DIM_BRIGHTNESS         40
 
 // ---- Palette -------------------------------------------------------------

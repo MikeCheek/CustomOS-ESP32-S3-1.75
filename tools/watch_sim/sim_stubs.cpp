@@ -33,6 +33,8 @@ bool power_is_charging() { return g_sim.charging; }
 bool power_pek_long_press_pending() { return false; }
 bool power_pek_short_press_pending() { return false; }
 bool power_auto_sleep_available() { return true; }
+bool power_vbus_present() { return false; }
+bool usb_mode_blocks_light_sleep() { return false; }
 bool power_since_unplugged(int *p, uint32_t *ms) { if (p) *p = 97; if (ms) *ms = 5400000UL; return true; }
 void power_poll_pek_button() {}
 void power_shutdown() {}
@@ -230,6 +232,7 @@ bool ble_get_watchface_data(const char **, int *) { return false; }
 bool ble_watchface_ready() { return false; }
 void ble_consume_watchface() {}
 bool wifi_is_connected() { return g_sim.wifi; }
+bool wifi_is_enabled() { return g_sim.wifi; }
 void wifi_enable() {}
 void wifi_disable() {}
 void wifi_xfer_request(bool) {}

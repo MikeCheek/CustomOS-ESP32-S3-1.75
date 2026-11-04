@@ -102,7 +102,7 @@ static NimBLECharacteristic *s_otaChar = nullptr;
 // off and nothing is being transferred (see ble_update()).
 static volatile uint32_t s_last_rx_ms = 0;   // any write from the phone
 static bool s_low_power_req = false;
-static bool s_conn_slow = false;             // params currently requested
+static int s_conn_level = 0;    // params currently requested: 0 fast, 1 low power, 2 deep idle
 static uint32_t s_conn_param_ms = 0;
 static bool s_adv_slow = false;
 static bool s_connected = false;
@@ -292,7 +292,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
         s_connect_count++;
         s_last_connect_ms = millis();
         s_conn_handle = connInfo.getConnHandle();
-        s_conn_slow = false;            // the phone starts us on its own (fast) params
+        s_conn_level = 0;               // the phone starts us on its own (fast) params
         s_conn_param_ms = millis();
         // Bigger link-layer packets (one 251-byte frame instead of ten
         // 27-byte ones) and the 2 Mbit PHY: several times the throughput
@@ -882,7 +882,8 @@ bool ble_is_enabled() {
 // Connection interval is the biggest BLE power lever: with the screen off
 // and nothing moving, ask the phone for ~150 ms intervals plus a slave
 // latency of 4 (the watch may skip up to 4 events when it has nothing to
-// send), so the radio wakes about once a second instead of every 15-30 ms.
+// send), so the radio wakes about once a second instead of every 15-30 ms;
+// after 3 quiet minutes, ~550 ms with a latency of 2 (about every 1.8 s).
 // Any write from the phone (link messages, notes sync, files, OTA) puts it
 // back on fast parameters for a while. Disconnected: advertise every
 // ~550 ms instead of ~100 ms while the screen is off.
@@ -895,14 +896,23 @@ void ble_update() {
     bool busy = now - s_last_rx_ms < 8000 || ota_active() ||
                 s_file_state == BLE_FILE_PENDING || s_file_state == BLE_FILE_IN_PROGRESS;
     if (s_connected && s_server) {
-        bool want_slow = s_low_power_req && !busy && now - s_last_connect_ms > 15000;
-        // Going fast is urgent; going slow can wait (and is rate-limited).
-        if (want_slow != s_conn_slow && (!want_slow || now - s_conn_param_ms > 5000)) {
-            s_conn_slow = want_slow;
+        static uint32_t s_low_since = 0;
+        if (!s_low_power_req || busy) s_low_since = 0;
+        else if (!s_low_since) s_low_since = now ? now : 1;
+        // 0 fast, 1 low power, 2 deep idle: the screen off and nothing from
+        // the phone for 3 minutes (a message still gets through within ~2 s,
+        // and any write from the phone goes back to fast)
+        int want = !s_low_power_req || busy || now - s_last_connect_ms <= 15000 ? 0
+                   : s_low_since && now - s_low_since > 180000 ? 2 : 1;
+        // Going fast is urgent; going slower can wait (and is rate-limited).
+        if (want != s_conn_level && (want < s_conn_level || now - s_conn_param_ms > 5000)) {
+            s_conn_level = want;
             s_conn_param_ms = now;
-            if (want_slow) s_server->updateConnParams(s_conn_handle, 96, 128, 4, 600);  // 120-160 ms, latency 4, 6 s timeout
-            else           s_server->updateConnParams(s_conn_handle, 12, 24, 0, 400);   // 15-30 ms, 4 s timeout
-            DEBUG_PRINTF("[ble] connection params -> %s\n", want_slow ? "low power" : "fast");
+            // within what iOS accepts: interval x (latency + 1) <= 2 s, timeout <= 6 s and > 3x that
+            if (want == 2)      s_server->updateConnParams(s_conn_handle, 400, 480, 2, 600);  // 500-600 ms, latency 2, 6 s timeout
+            else if (want == 1) s_server->updateConnParams(s_conn_handle, 96, 128, 4, 600);   // 120-160 ms, latency 4, 6 s timeout
+            else                s_server->updateConnParams(s_conn_handle, 12, 24, 0, 400);    // 15-30 ms, 4 s timeout
+            DEBUG_PRINTF("[ble] connection params -> %s\n", want == 2 ? "deep idle" : want ? "low power" : "fast");
         }
     } else {
         bool want_slow = s_low_power_req;

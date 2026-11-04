@@ -17,6 +17,13 @@ class WatchUsage {
   final int? sdTotalMb, sdUsedMb;
   final String resetReason;
 
+  /// What kept the watch from sleeping deeply with the screen off today,
+  /// seconds each (firmware 3.5+, part 3: [awakeLabels] keys), and the
+  /// seconds it was off; [hasPowerManagement] false: a build without it.
+  final Map<String, int> awake;
+  final int offS;
+  final bool hasPowerManagement;
+
   const WatchUsage({
     required this.battery,
     required this.charging,
@@ -37,11 +44,15 @@ class WatchUsage {
     this.sdTotalMb,
     this.sdUsedMb,
     this.resetReason = '',
+    this.awake = const {},
+    this.offS = 0,
+    this.hasPowerManagement = true,
   });
 
-  /// Puts the three parts together (in any order); null until all are here.
+  /// Puts the parts together (in any order); null until the first three
+  /// are here (the fourth, what kept it awake, comes from newer firmware).
   static WatchUsage? fromParts(Map<int, Map<String, dynamic>> p, DateTime at) {
-    final a = p[0], b = p[1], c = p[2];
+    final a = p[0], b = p[1], c = p[2], d = p[3];
     if (a == null || b == null || c == null) return null;
     final hex = a['bat'] as String? ?? '';
     final bat = <int?>[
@@ -77,6 +88,12 @@ class WatchUsage {
       sdTotalMb: sd != null && sd.length >= 2 ? (sd[0] as num).toInt() : null,
       sdUsedMb: sd != null && sd.length >= 2 ? (sd[1] as num).toInt() : null,
       resetReason: c['rr'] as String? ?? '',
+      awake: {
+        for (final e in ((d?['aw'] as Map?) ?? const {}).entries)
+          if (e.value is num && (e.value as num) > 0) '${e.key}': (e.value as num).toInt(),
+      },
+      offS: (d?['off'] as num?)?.toInt() ?? 0,
+      hasPowerManagement: (d?['pm'] as num?)?.toInt() != 0,
     );
   }
 
@@ -191,6 +208,23 @@ class WatchUsage {
 
 enum Severity { ok, info, warn, bad }
 
+/// What kept the watch awake with the screen off (firmware usage_stats.h):
+/// a name, and what to do about it.
+const awakeLabels = <String, (String, String)>{
+  'build': (
+    'This firmware',
+    'It has no deep sleep: install the release firmware (Settings > Software update, or GitHub)',
+  ),
+  'setting': ('Deep sleep being off', 'Turn on Settings > Battery > Deep sleep on the watch'),
+  'wakeword': ('The wake word', 'Settings > Voice > Screen off too: off, so it listens only with the screen on'),
+  'aod': ('Always-on', 'Turn off the always-on clock (Faces tab, or Settings > Display)'),
+  'gps': ('GPS', 'Turn GPS off when you\'re not recording a workout (Settings > Connections)'),
+  'wifi': ('Wi-Fi', 'Turn Wi-Fi off when you don\'t need it (Control Center)'),
+  'espnow': ('ESP-NOW', 'Turn ESP-NOW off (Settings > Connections)'),
+  'audio': ('Music on the watch', 'Playing on the watch keeps it awake - expected while you listen'),
+  'usbmode': ('A USB mode', 'Switch the USB mode back to normal (Settings > System > USB)'),
+};
+
 class Finding {
   final Severity severity;
   final String title, detail;
@@ -214,8 +248,19 @@ List<Finding> usageFindings(WatchUsage u, {bool crashReport = false, bool firmwa
       ),
     );
   }
+  // what kept it awake with the screen off: anything over a fifth of that time
+  if (u.offS >= 1800) {
+    final top = u.awake.entries.where((e) => e.value >= u.offS / 5).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    for (final e in top) {
+      final info = awakeLabels[e.key];
+      if (info == null) continue;
+      final h = (e.value / 3600).toStringAsFixed(1);
+      f.add(Finding(Severity.warn, '${info.$1} kept it awake $h h today', info.$2));
+    }
+  }
   final r = u.drainRates();
-  if (r != null && r.off > 2.0) {
+  if (r != null && r.off > 2.0 && u.awake.isEmpty) {
     f.add(
       Finding(
         Severity.warn,

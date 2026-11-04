@@ -14,6 +14,7 @@
 #include "app_reminders.h"
 #include "app_assistant.h"
 #include "app_menu.h"
+#include "app_battery.h"
 #include "clock_fmt.h"
 #include "phone_link.h"
 #include "hal_audio.h"
@@ -242,6 +243,8 @@ static void draw_battery(int cx) {
     else snprintf(b, sizeof(b), "%d%%", p);
     ui_text_center(cx, CY - 22, COLOR_TEXT, b, 4);
     ui_text_center(cx, CY + 20, COLOR_TEXT_DIM, power_is_charging() ? "charging" : "watch", 1);
+    char left[32];
+    if (battery_left_text(left, sizeof(left))) ui_text_center(cx, CY + 92, COLOR_TEXT_DIM, left, 1);
     int pp = phone_link_battery();
     if (pp >= 0) {
         snprintf(b, sizeof(b), "Phone %d%%", pp);

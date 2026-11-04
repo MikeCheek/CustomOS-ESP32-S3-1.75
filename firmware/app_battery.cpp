@@ -18,6 +18,7 @@
  * presented with false confidence.
  */
 #include "app_battery.h"
+#include "usage_stats.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
@@ -80,17 +81,37 @@ static const int CX = LCD_WIDTH / 2;
 static int s_press = -1;
 static const int ROW_Y = 314, ROW_H = 54, ROW_GAP = 8;
 
-// Hours left from the drain since the cable came out (the honest number,
-// screen on and off together), else from this screen's own samples.
+// Hours left: from the drain since the cable came out once there are 2
+// hours of it (the honest number, screen on and off together), else the
+// last day's unplugged drain (usage_stats), else this screen's own samples.
 static float hours_left(const PowerStatus &st) {
     int p0;
     uint32_t el;
     float rate = 0;
-    if (!st.usb_connected && power_since_unplugged(&p0, &el) && el > 1800000UL && p0 > st.battery_percent)
+    if (!st.usb_connected && power_since_unplugged(&p0, &el) && el > 7200000UL && p0 > st.battery_percent)
+        rate = (p0 - st.battery_percent) / (el / 3600000.0f);
+    else if (usage_drain_per_hour() > 0)
+        rate = usage_drain_per_hour();
+    else if (!st.usb_connected && power_since_unplugged(&p0, &el) && el > 1800000UL && p0 > st.battery_percent)
         rate = (p0 - st.battery_percent) / (el / 3600000.0f);
     else if (s_history_count >= 3)
         rate = estimate_rate_per_hour();
     return rate > 0.2f ? st.battery_percent / rate : -1;
+}
+
+float battery_hours_left() {
+    PowerStatus st = power_read();
+    if (!st.valid || st.is_charging || st.usb_connected) return -1;
+    return hours_left(st);
+}
+
+bool battery_left_text(char *out, int n) {
+    float h = battery_hours_left();
+    if (h <= 0) return false;
+    if (h >= 48) snprintf(out, n, "~%.1f days left", h / 24);
+    else if (h >= 1) snprintf(out, n, "~%d h left", (int)(h + 0.5f));
+    else snprintf(out, n, "~%d min left", (int)(h * 60));
+    return true;
 }
 
 static void battery_draw() {

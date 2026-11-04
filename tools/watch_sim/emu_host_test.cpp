@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
         if (strstr(buf, "\"e\":\"usage\"")) { parts++; printf("usage part: %.90s...\n", buf); }
     }
     printf("usage parts: %d\n", parts);
-    if (parts != 3) { printf("FAIL: usage report\n"); return 1; }
+    if (parts != 4) { printf("FAIL: usage report\n"); return 1; }   // battery, hours, apps, what kept it awake
 
     // phase 3: a fall on the phone's accelerometer (62.5 Hz), then the alert's beeps
     auto acc = [](float x, float y, float z, float secs) {

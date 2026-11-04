@@ -32,6 +32,27 @@ WatchUsage _day() {
 }
 
 void main() {
+  test('what kept it awake: the fourth part, named with a fix', () {
+    final base = {
+      0: {'bat': 'ff' * 144, 'chg': '0' * 144, 'iv': 10},
+      1: {'on': List.filled(24, 0), 'wk': List.filled(24, 0), 'ony': List.filled(24, 0)},
+      2: {'apps': [], 'rr': 'power on'},
+    };
+    expect(WatchUsage.fromParts(base, DateTime(2026, 11, 4))!.awake, isEmpty);
+    final u = WatchUsage.fromParts({
+      ...base,
+      3: {
+        'off': 36000,
+        'pm': 1,
+        'aw': {'wakeword': 30000, 'gps': 600},
+      },
+    }, DateTime(2026, 11, 4))!;
+    expect(u.awake['wakeword'], 30000);
+    final titles = usageFindings(u).map((f) => f.title).toList();
+    expect(titles.any((t) => t.startsWith('The wake word kept it awake 8.3 h')), isTrue);
+    expect(titles.any((t) => t.startsWith('GPS')), isFalse); // under a fifth of the time
+  });
+
   test('the three parts, put together', () {
     final u = WatchUsage.fromParts({
       2: {

@@ -5,6 +5,7 @@
 #include "ui_font.h"
 #include "watchface_registry.h"
 #include "app_menu.h"
+#include "app_battery.h"
 #include "app_assistant.h"
 #include "app_calendar.h"
 #include "app_navigation.h"
@@ -299,7 +300,10 @@ static void build_cards() {
         if (p < 0) snprintf(c.main, sizeof(c.main), "--");
         else snprintf(c.main, sizeof(c.main), "%d%%", p);
         int pp = phone_link_battery();
+        char left[32];
         if (power_is_charging()) snprintf(c.sub, sizeof(c.sub), "Charging");
+        else if (battery_left_text(left, sizeof(left)))
+            snprintf(c.sub, sizeof(c.sub), pp >= 0 ? "%s - phone %d%%" : "%s", left, pp);
         else if (pp >= 0) snprintf(c.sub, sizeof(c.sub), "Phone %d%%", pp);
         else snprintf(c.sub, sizeof(c.sub), "Watch");
         c.progress = p < 0 ? -1 : p / 100.0f;

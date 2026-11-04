@@ -29,7 +29,7 @@ class WatchLook {
     this.h24 = true,
     this.menuList = false,
     this.textSize = 0,
-    this.brightness = 200,
+    this.brightness = 150,
     this.slots = const ['steps', 'next_event', 'battery'],
   });
 
@@ -60,7 +60,7 @@ class WatchLook {
       h24: b('h24', true),
       menuList: b('ml', false),
       textSize: (e['ts'] as num?)?.toInt() ?? 0,
-      brightness: (e['br'] as num?)?.toInt() ?? 200,
+      brightness: (e['br'] as num?)?.toInt() ?? 150,
       slots: (e['comp'] as List?)?.map((x) => '$x').toList() ?? const ['steps', 'next_event', 'battery'],
     );
   }
