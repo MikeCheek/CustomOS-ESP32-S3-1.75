@@ -340,6 +340,18 @@ void sim_scenarios() {
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");
     shot(&fruitninja_screen, "game_fruitninja");
+    // More games, a moment in (for the README's games section)
+    { extern Screen cavern_screen, blackjack_screen, ninjadungeon_screen, plane_screen, runner_screen;
+      g_app_settings.tilt_calibrated = true;   // the tilt games would ask first
+      shot(&cavern_screen, "game_cavern", 1500);
+      shot(&blackjack_screen, "game_blackjack", 1500);
+      ui_push(&breakout_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_breakout"); ui_pop_screen(); sim_run(400);
+      ui_push(&ninjadungeon_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_ninja"); ui_pop_screen(); sim_run(400);
+      ui_push(&plane_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_plane"); ui_pop_screen(); sim_run(400);
+      ui_push(&fruitninja_screen); sim_run(600); sim_tap(233, 300); sim_run(2500); sim_save("game_fruit_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&flappy_screen); sim_run(600); sim_tap(233, 300); for (int k = 0; k < 8; k++) { sim_run(280); sim_tap(233, 233); } sim_save("game_flappy_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&breakout_screen); sim_run(600); sim_tap(233, 233); sim_run(1200); sim_tap(233, 300); sim_run(1500); sim_save("game_breakout_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&runner_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_runner"); ui_pop_screen(); sim_run(400); }
     // The Casino: the floor, then Roulette - a bet on red and on 17, the spin, the result
     { extern Screen casino_screen, roulette_screen;
       shot(&casino_screen, "casino", 1500);

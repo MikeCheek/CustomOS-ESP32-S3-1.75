@@ -50,21 +50,34 @@ def load(src):
 GIF_SIZE = 240
 
 def gif(name, frames, dst_dir, step_ms):
+    # One palette for every frame, with index 255 kept for "outside the
+    # circle" (transparent). Each frame having its own adaptive palette
+    # (and so its own transparent index) made the corners blink pink: a
+    # GIF gives one transparency index to the whole animation.
     mask = Image.new('L', (GIF_SIZE * SS, GIF_SIZE * SS), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, GIF_SIZE * SS - 1, GIF_SIZE * SS - 1), fill=255)
     mask = mask.resize((GIF_SIZE, GIF_SIZE), Image.LANCZOS).point(lambda a: 255 if a > 127 else 0)
-    out = []
+    outside = mask.point(lambda a: 0 if a else 255)
+    rgb = []
     for f in frames:
         im = load(f).resize((GIF_SIZE, GIF_SIZE), Image.LANCZOS)
-        bg = Image.new('RGB', (GIF_SIZE, GIF_SIZE), (255, 0, 255))
+        bg = Image.new('RGB', (GIF_SIZE, GIF_SIZE), (0, 0, 0))
         bg.paste(im, (0, 0), mask)
-        p = bg.convert('P', palette=Image.ADAPTIVE, colors=255)
-        # the key colour becomes the transparent index
-        key = p.getpixel((0, 0))
-        p.info['transparency'] = key
-        out.append(p)
+        rgb.append(bg)
+    sheet = Image.new('RGB', (GIF_SIZE, GIF_SIZE * len(rgb)))
+    for i, im in enumerate(rgb):
+        sheet.paste(im, (0, i * GIF_SIZE))
+    pal = sheet.quantize(colors=255, method=Image.MEDIANCUT)
+    entries = (pal.getpalette() or [])[:255 * 3]
+    entries += [0] * (255 * 3 - len(entries)) + [255, 0, 255]   # 255: the key, never drawn
+    pal.putpalette(entries)
+    out = []
+    for im in rgb:
+        q = im.quantize(palette=pal, dither=Image.Dither.NONE)
+        q.paste(255, (0, 0, GIF_SIZE, GIF_SIZE), outside)
+        out.append(q)
     out[0].save(os.path.join(dst_dir, name + '.gif'), save_all=True, append_images=out[1:],
-                duration=step_ms, loop=0, disposal=2, transparency=out[0].info['transparency'], optimize=False)
+                duration=step_ms, loop=0, disposal=2, transparency=255, optimize=False)
 
 STEP_MS = {'anim_boot': 40, 'anim_lock': 30, 'anim_unlock': 30, 'anim_music': 50, 'anim_charging': 40}
 

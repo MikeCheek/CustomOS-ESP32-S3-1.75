@@ -8,6 +8,26 @@ Built on Arduino + Arduino_GFX, no LVGL.
 
 ![AmoledSmartWatchOS screens](docs/screenshots/hero.png)
 
+## Status (November 2026)
+
+**Firmware 3.4.0 is the latest release; 3.5 is in progress on this branch** (the [roadmap](ROADMAP.md) lists every change).
+
+- **Works and is used every day:** the watch faces, notifications and replies, calls, music, maps, the calendar, voice
+  memos with on-phone AI, the assistant, activity, sleep, fall detection, updates over Bluetooth and Wi-Fi, and the
+  Android app.
+- **New in 3.5:** checked in the simulator, the emulator self-tests and CI, not yet on the watch itself:
+  - home gestures and Tiles; Wallet; data kept on the SD card or flash; battery savings and charging modes
+  - the morning briefing; 30 nights of sleep
+  - the camera remote, including with the phone's own camera app (Android)
+  - the floating watch on Android
+  - Breathe by sound; clearer sound switches
+  - the Casino (with Roulette); the new Maze Raider
+- **iPhone:** the app builds in CI and an unsigned `.ipa` comes with each release. Android-only features are marked as
+  such in the app.
+- **Tests:** every push builds the firmware twice (PlatformIO and Arduino), runs the PC tests (falls, sleep,
+  handwriting, motion, voice) and the emulator self-tests (storage, Wallet, home gestures, the sound switches,
+  Breathe, roulette payouts, the live view), analyzes and builds the Android app.
+
 ## Screenshots
 
 | | | | |
@@ -16,12 +36,12 @@ Built on Arduino + Arduino_GFX, no LVGL.
 | Watch face + complications | Minimal face | App menu | Quick panel |
 | ![](docs/screenshots/notifications.png) | ![](docs/screenshots/call.png) | ![](docs/screenshots/music.png) | ![](docs/screenshots/navigation.png) |
 | Notifications | Incoming call | Phone's music | Turn-by-turn |
-| ![](docs/screenshots/calendar.png) | ![](docs/screenshots/recorder_live.png) | ![](docs/screenshots/game_flappy.png) | ![](docs/screenshots/game_fruitninja.png) |
-| Calendar | Voice recorder | Flappy | Fruit Slice |
+| ![](docs/screenshots/calendar.png) | ![](docs/screenshots/recorder_live.png) | ![](docs/screenshots/camera_remote.png) | ![](docs/screenshots/briefing.png) |
+| Calendar | Voice recorder | Camera remote | Morning briefing |
 | ![](docs/screenshots/settings.png) | ![](docs/screenshots/battery.png) | ![](docs/screenshots/update_prompt.png) | ![](docs/screenshots/software_update.png) |
 | Settings | Battery | Update found on Wi-Fi | Software update |
-| ![](docs/screenshots/aod.png) | ![](docs/screenshots/piano_menu.png) | ![](docs/screenshots/piano_pick.png) | ![](docs/screenshots/piano_play.png) |
-| Always-on display | Piano Tiles: genres | Song and difficulty | Playing |
+| ![](docs/screenshots/aod.png) | ![](docs/screenshots/camera_native.png) | ![](docs/screenshots/quick_panel_held.png) | ![](docs/screenshots/settings_sound.png) |
+| Always-on display | The phone's camera app, from the watch | Hold a tile: its name | Sound settings |
 | ![](docs/screenshots/assistant_listen.png) | ![](docs/screenshots/assistant_answer.png) | ![](docs/screenshots/fall_alert.png) | ![](docs/screenshots/sleep_app.png) |
 | Assistant listening | Assistant answer | Fall detection | Sleep and smart alarm |
 | ![](docs/screenshots/draw_open.png) | ![](docs/screenshots/activity.png) | ![](docs/screenshots/smart_stack.png) | ![](docs/screenshots/face_switcher.png) |
@@ -77,6 +97,51 @@ Settings > System > Gesture tips (also shown once after an update) walks through
 | Power on | Unlock | Lock | 3D spectrum ring | Charging |
 
 <sub>Rendered from the real UI code by the [host simulator](tools/watch_sim) - what you see is what the watch draws.</sub>
+
+## Games
+
+The five most complete:
+
+| | | | | |
+|:-:|:-:|:-:|:-:|:-:|
+| ![](docs/screenshots/anim_piano.gif) | ![](docs/screenshots/casino.png) | ![](docs/screenshots/game_maze.png) | ![](docs/screenshots/game_breakout.png) | ![](docs/screenshots/game_flappy_play.png) |
+| **Piano Tiles** | **Casino** | **Maze Raider** | **Breakout** | **Flappy** |
+| ![](docs/screenshots/piano_menu.png) | ![](docs/screenshots/roulette_bets.png) | ![](docs/screenshots/roulette_spin.png) | ![](docs/screenshots/game_blackjack.png) | ![](docs/screenshots/game_cavern.png) |
+| Piano Tiles: four genres | Roulette: the bets | Roulette: the spin | Blackjack | Crystal Cavern |
+
+1. **Piano Tiles**: tiles for the round screen.
+   - 42 public-domain songs in four genres, Easy / Normal / Hard on any song.
+   - Timing judged against a ring, with combos, hold bonuses and stars for accuracy.
+   - Your own songs: hum a tune or pick a MIDI file in the app, or use `tools/midi_to_piano.py`. Songs added to the SD
+     card can be deleted on the watch.
+   - The piano is a real synth: six voices, two strings, hammer and damper, chords as written.
+   - **Listen** plays a song by itself, with no score.
+2. **Casino**: a casino floor drawn on the round screen, with a slot machine, a blackjack table and a roulette wheel.
+   Tap one to play.
+   - One wallet for all three. When you're out of chips, the cashier tops you up. Play money only.
+   - **Crystal Cavern**: cascading clusters, wilds, scatters and free spins.
+   - **Blackjack**: side bets, insurance, other players at the table.
+   - **Roulette**: a single-zero wheel. Bet on red/black, odd/even, halves, dozens or any number on a 0-36 table. The
+     ball runs, drops and settles, ticking on the frets.
+3. **Maze Raider**: a 3D raid through a new maze each level.
+   - Take every gem to open the portal, then reach it.
+   - Enemies find their way to you: red ones bite, purple ones shoot. A boss every 4th level.
+   - Four themes, health packs, a compass to the next gem.
+   - Walking keeps you in the corridor and turns you at bends.
+   - Your best score is kept.
+4. **Breakout**, built around the round screen: an arc paddle along the bottom rim, steered by tilt, and bricks in
+   rings across the top.
+   - A 50-level map. Boss arcs that fire back.
+5. **Flappy**: your pet from the Pet app is the bird. The gaps narrow as you level up, and boss gates move.
+
+Also on the watch:
+- **Fruit Slice**: swipe the fruit, not the bombs; a boss melon.
+- **Ninja Dungeon**: a roguelite. It keeps your progress between runs and has a branching map and weapons. Its art
+  goes on the SD card.
+- **Snake**, **Runner**, **Plane**, **Dodger**: tilt or touch.
+- **Simon**, **Reaction**.
+
+You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW joystick.
 
 ## On the watch
 
@@ -153,12 +218,8 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   switches.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
-- **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for
-  accuracy-based stars, combos and hold bonuses, Easy / Normal / Hard on any song, more from the SD card or
-  your own: hum a tune or pick a MIDI file in the app's Piano Tiles songs, or `tools/midi_to_piano.py`; SD
-  songs can be deleted on the watch). The piano is a real synth: six voices, inharmonic partials, two strings,
-  hammer and damper, chords as written. **Listen** plays a song by itself, to hear how it goes, with no score), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
-  Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
+- **Games**: Piano Tiles, the Casino (Crystal Cavern, Blackjack, Roulette), Maze Raider, Breakout, Flappy and more.
+  See [Games](#games).
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board); fall detection (free fall, impact, lying still: "Did you fall?" for 30 s, then the phone rings
   and texts your emergency contact with the location).
 - **Draw to open** - write a letter with one stroke (A assistant, C calendar, M music, N notifications, P phone,
@@ -169,6 +230,9 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   much of it was still, minutes awake, the night as a chart; a smart alarm rings up to 30 minutes early when
   you stir, at the set time at the latest. The last 30 nights are kept and go to the app (Activity > Sleep) and
   Health Connect / Apple Health; at bedtime the screen dims itself.
+- **Life**: habits and nudges planned in the app (water, stretch breaks, meals, training days, wind-down).
+  **Breathe** guides you through 1, 3 or 5 minutes. With sound on you can do it with your eyes closed: a chime to
+  start, two notes stepping up to breathe in, the same two stepping down to breathe out, and a chord at the end.
 - **Power** - light sleep with the phone still connected, an always-on display, battery modes
   (Balanced / Saver / Ultra), wake on wrist raise or tap, sleep on wrist down, auto-dim, slower Bluetooth
   when idle. **Charging modes** (Settings > Battery): Full, Optimized (holds at 80% overnight and finishes
