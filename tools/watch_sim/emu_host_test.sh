@@ -31,6 +31,7 @@ for p in "${pids[@]}"; do wait "$p"; done
 rm -rf "$OUT/sd/faces"; mkdir -p "$OUT/sd/faces/photos"
 python3 "$HERE/make_test_photoface.py" "$OUT/sd/faces/photos/test.pwf"
 python3 "$HERE/make_test_photoface.py" "$OUT/sd/faces/photos/test2.pwf" green
+python3 "$HERE/make_test_photoface.py" "$OUT/sd/faces/photos/test3.pwf" v2
 # a live-view frame like the app's camera remote sends (144 px, 4:4:4, as Dart's image package writes)
 python3 -c "from PIL import Image; Image.new('RGB', (144, 144), (40, 120, 200)).save('$B/view.jpg', quality=60, subsampling=0)"
 EMU_TEST_JPEG="$B/view.jpg" "$B/emu_test" "$OUT"

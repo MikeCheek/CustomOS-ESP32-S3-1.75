@@ -15,13 +15,15 @@
  * the link ({"t":"pf"}, COMPANION_PROTOCOL.md).
  *
  * A .pwf file, little endian:
- *   "PWF1"
+ *   "PWF1" or "PWF2"
  *   u16 width, height             466 x 466
  *   u16 time_y                    centre of the time, in pixels from the top
  *   u16 time_color, date_color    RGB565
  *   u16 flags                     bit 0: depth (there's a subject mask)
  *   u16 glyph_h                   height of every digit image
  *   u16 glyph_w[11]               widths of "0123456789:"
+ *   (PWF2 only) u16 time_x        centre of the time across (PWF1: the middle)
+ *   (PWF2 only) u16 options       bit 0: no date
  *   u16 photo[width * height]     RGB565
  *   u8  glyphs                    11 alpha images (0 = clear .. 255 = solid), one after another
  *   u32 span_count                the subject: runs of pixels on one row

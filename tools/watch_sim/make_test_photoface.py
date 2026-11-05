@@ -4,7 +4,9 @@ for emu_host_test: a blue gradient "photo" with a red disc as the subject
 right where the time is, white digits. The test checks the disc stays in
 front of the time and the digits show around it.
 
-    python3 make_test_photoface.py <out.pwf> [green]   (green: a green subject)
+    python3 make_test_photoface.py <out.pwf> [green] [v2]
+      green: a green subject; v2: the PWF2 format - the time left of
+      centre (x 150) and no date
 """
 import struct
 import sys
@@ -20,7 +22,7 @@ def rgb565(r, g, b):
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
-def main(out, green=False):
+def main(out, green=False, v2=False):
     subject = rgb565(0, 255, 0) if green else rgb565(255, 0, 0)
     photo = bytearray()
     for y in range(H):
@@ -55,12 +57,14 @@ def main(out, green=False):
         alpha += bytes([255]) * len(xs)
         count += 1
 
-    head = b"PWF1" + struct.pack("<HHHHHHH", W, H, TIME_Y, 0xFFFF, 0xFFFF, 1, glyph_h)
+    head = (b"PWF2" if v2 else b"PWF1") + struct.pack("<HHHHHHH", W, H, TIME_Y, 0xFFFF, 0xFFFF, 1, glyph_h)
     head += struct.pack("<11H", *widths)
-    assert len(head) == 40
+    if v2:
+        head += struct.pack("<HH", 150, 1)   # time_x, options bit 0: no date
+    assert len(head) == (44 if v2 else 40)
     with open(out, "wb") as f:
         f.write(head + photo + glyphs + struct.pack("<I", count) + spans + alpha)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], len(sys.argv) > 2 and sys.argv[2] == "green")
+    main(sys.argv[1], "green" in sys.argv[2:], "v2" in sys.argv[2:])
