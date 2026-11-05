@@ -221,10 +221,10 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
   it from the watch's menu: a live preview from the phone, shutter, photo or video, 3 s / 10 s timer, front/back,
   flash and zoom. With the app in the background, the watch's Open shows a notification that opens the camera.
   **With the phone's own camera app** (Android): when a camera app opens, the phone asks whether to use the watch
-  as its remote. Say yes and the watch shows what the camera sees (the phone asks to share its screen for that)
-  and presses that app's shutter and flip buttons, pinches to zoom and runs a self-timer. Pressing the buttons
-  needs "AmoledWatch camera remote" turned on once in Accessibility; Camera remote > the settings button has both
-  switches.
+  as its remote. Say yes and the watch shows what the camera sees (the phone asks to share its screen for that).
+  With the optional **Camera Helper** app installed and "AmoledWatch camera remote" turned on in Accessibility, the
+  watch also presses that app's shutter and flip buttons, pinches to zoom and runs a self-timer. Camera remote >
+  the settings button has both switches.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games**: Piano Tiles, the Casino (Crystal Cavern, Blackjack, Roulette), Maze Raider, Breakout, Flappy and more.
@@ -269,11 +269,12 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
    [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest) (a release build for
    64-bit ARM phones).
 
-   **"App blocked to protect your device"**: Play Protect's fraud protection blocks apps opened from a browser,
-   a chat or a file manager when they ask for notification access or accessibility. The app needs notification
-   access to send your notifications to the watch, and accessibility (optional) for the camera remote with the
-   phone's camera app. It isn't a problem with the file. Any of these installs it:
-   - **USB:** `adb install AmoledWatch-x.y.z.apk` from a computer. Play Protect doesn't block this.
+   **"App blocked to protect your device"**: Play Protect's fraud protection blocks apps installed from a
+   browser, a chat or a file manager when they use accessibility. In some countries notification access counts
+   too, and the app needs that to send your notifications to the watch. So the accessibility part (the watch
+   pressing the phone camera app's buttons) is a separate, optional app:
+   `AmoledWatch-CameraHelper-x.y.z.apk`, in the same release. If anything is blocked:
+   - **USB:** `adb install <file>.apk` from a computer. Play Protect doesn't block this.
    - **Play Protect off for a minute:** Play Store > your profile > Play Protect > ⚙ > turn off "Scan apps with
      Play Protect", install the APK, then turn scanning back on. Android won't let you turn it off during a phone
      or video call.

@@ -358,6 +358,12 @@ jobs:
             --build-name="$fw" --build-number="${{ github.run_number }}"
           cp build/app/outputs/flutter-apk/app-release.apk "AmoledWatch-$fw.apk"
           ls -l "AmoledWatch-$fw.apk" | awk '{printf "APK: %.0f MB\n", $5/1048576}' >> "$GITHUB_STEP_SUMMARY"
+          # The optional Camera Helper (camera_helper/: the accessibility service that presses a
+          # camera app's buttons for the watch) - its own small APK, so the main app has no
+          # accessibility service for Play Protect to block. Same key, with the main app's wrapper.
+          (cd android && ./gradlew -p ../camera_helper assembleRelease --no-daemon -q \
+            -PhelperVersionName="$fw" -PhelperVersionCode="${{ github.run_number }}")
+          cp camera_helper/build/outputs/apk/release/camera_helper-release.apk "AmoledWatch-CameraHelper-$fw.apk"
           rm -f "$RUNNER_TEMP/release.jks"
 
       - uses: actions/upload-artifact@v4

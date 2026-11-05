@@ -486,6 +486,7 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
     final n = NativeService();
     var ask = await n.camPromptEnabled();
     final acc = await n.camAccessOn();
+    final helper = await n.camHelperInstalled();
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -505,15 +506,18 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
                 const SizedBox(height: 6),
                 const Text(
                   'When another app opens the camera, the phone asks whether the watch should be its remote. '
-                  'Say yes and the watch shows what the camera sees (the phone asks to share the screen for it) '
-                  'and presses the app\'s shutter and flip buttons, zooms with a pinch and runs a self-timer.',
+                  'Say yes and the watch shows what the camera sees (the phone asks to share the screen for it). '
+                  'With the AmoledWatch Camera Helper, a small separate app in each release, it also presses the '
+                  'camera app\'s shutter and flip buttons, zooms and runs a self-timer. It\'s separate because Play '
+                  'Protect blocks installing an app that uses accessibility from a browser or file manager - install '
+                  'the helper with adb, or with Play Protect\'s scan off for a moment.',
                   style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Ask when the camera opens', style: TextStyle(color: AppColors.text)),
                   subtitle: const Text(
-                    'Only for camera apps once the next setting is on (not video calls)',
+                    'Only for camera apps once the Camera Helper is on (not video calls)',
                     style: TextStyle(color: AppColors.textDim, fontSize: 12),
                   ),
                   value: ask,
@@ -527,8 +531,10 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
                   title: const Text('Let the watch press the buttons', style: TextStyle(color: AppColors.text)),
                   subtitle: Text(
                     acc
-                        ? 'On (Accessibility > AmoledWatch camera remote)'
-                        : 'Off - turn on "AmoledWatch camera remote" in Accessibility',
+                        ? 'On (the Camera Helper, Accessibility > AmoledWatch camera remote)'
+                        : helper
+                        ? 'Off - turn on "AmoledWatch camera remote" in Accessibility'
+                        : 'Needs the AmoledWatch Camera Helper app - tap to get it',
                     style: const TextStyle(color: AppColors.textDim, fontSize: 12),
                   ),
                   trailing: Icon(

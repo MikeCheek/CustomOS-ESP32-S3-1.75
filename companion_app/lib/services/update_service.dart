@@ -51,7 +51,8 @@ class UpdateService {
         final url = a['browser_download_url'] as String?;
         final size = (a['size'] as num?)?.toInt() ?? 0;
         if (url == null) continue;
-        if (name.endsWith('.apk')) {
+        if (name.endsWith('.apk') && !name.contains('CameraHelper')) {
+          // not the optional add-on
           apk = url;
           apkSize = size;
         } else if (name.startsWith(firmwarePrefix) && name.endsWith('.signed.bin')) {

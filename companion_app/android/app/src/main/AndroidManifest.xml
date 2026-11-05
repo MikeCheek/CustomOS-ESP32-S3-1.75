@@ -34,6 +34,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <!-- the phone's own camera app's view on the watch (NativeCamera.kt: ScreenView) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <!-- Only apps signed like this one may ask the Camera Helper (camera_helper/) to press buttons -->
+    <permission android:name="com.amoledwatch.permission.CAMERA_HELPER" android:protectionLevel="signature"/>
+    <uses-permission android:name="com.amoledwatch.permission.CAMERA_HELPER"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- AI model downloads that outlast the app (background_downloader): foreground data
          sync for big files, user-initiated transfers on Android 14+ -->
@@ -96,19 +99,7 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-        <!-- The watch as a remote for any camera app (NativeCamera.kt) -->
-        <service
-            android:name=".CameraAccess"
-            android:exported="false"
-            android:label="AmoledWatch camera remote"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/camera_access" />
-        </service>
+        <!-- The watch as a remote for any camera app (NativeCamera.kt; the buttons: camera_helper/) -->
         <service
             android:name=".ScreenView"
             android:exported="false"

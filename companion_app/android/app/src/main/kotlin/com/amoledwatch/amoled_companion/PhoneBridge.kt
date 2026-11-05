@@ -214,8 +214,9 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     }
                     "camNativeStart" -> { NativeCamera.start(app, false); result.success(true) }
                     "camNativeStop" -> { NativeCamera.stop(app); result.success(true) }
-                    "camNativeAction" -> result.success(NativeCamera.action(call.argument<String>("a") ?: ""))
+                    "camNativeAction" -> NativeCamera.action(app, call.argument<String>("a") ?: "") { result.success(it) }
                     "camAccessOn" -> result.success(NativeCamera.accessOn(app))
+                    "camHelperInstalled" -> result.success(NativeCamera.helperInstalled(app))
                     "camAccessOpen" -> { NativeCamera.openAccessSettings(app); result.success(true) }
                     // ---- the emulated watch floating over other apps (EmuOverlay) ----
                     "overlayCan" -> result.success(EmuOverlay.canDraw(app))

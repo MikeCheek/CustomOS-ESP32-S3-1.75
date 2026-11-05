@@ -1,21 +1,16 @@
 package com.amoledwatch.amoled_companion
 
-import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
 import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
-import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -29,10 +24,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
-import android.view.Surface
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import io.flutter.plugin.common.EventChannel
 import java.io.ByteArrayOutputStream
@@ -42,8 +34,13 @@ import java.io.ByteArrayOutputStream
  *  - another app opens the camera -> a notification asks "use the watch?"
  *    (prompt); tapping it opens CameraLinkActivity, a see-through screen over
  *    the camera app that asks to share the screen (for the live view);
- *  - CameraAccess, an accessibility service the user turns on once, presses
- *    the camera app's shutter and flip buttons and pinches to zoom;
+ *  - the AmoledWatch Camera Helper, a separate small app (camera_helper/, in
+ *    each release) with an accessibility service the user turns on once,
+ *    presses the camera app's shutter and flip buttons and pinches to zoom.
+ *    It's not in this app: Play Protect blocks installing an app with an
+ *    accessibility service from a browser or file manager. Asked through an
+ *    ordered broadcast only apps signed like this one may send
+ *    (com.amoledwatch.permission.CAMERA_HELPER, defined here);
  *  - ScreenView captures the screen (MediaProjection) a few times a second,
  *    crops the viewfinder and gives the JPEG to Dart, which sends it to the
  *    watch like the app's own camera remote does.
@@ -59,16 +56,44 @@ object NativeCamera {
     private const val NOTIF = 4108
     private const val PREFS = "native_camera"
 
-    fun accessOn(ctx: Context): Boolean {
-        if (CameraAccess.instance != null) return true
-        val list = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-        val me = ComponentName(ctx, CameraAccess::class.java).flattenToString()
-        return list.split(':').any { it.equals(me, ignoreCase = true) }
+    const val HELPER = "com.amoledwatch.camerahelper"
+    private const val HELPER_URL = "https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/releases/latest"
+
+    fun helperInstalled(ctx: Context): Boolean = try {
+        ctx.packageManager.getPackageInfo(HELPER, 0)
+        true
+    } catch (_: Exception) {
+        false
     }
 
+    /** The helper is installed and its accessibility service is on. */
+    fun accessOn(ctx: Context): Boolean {
+        if (!helperInstalled(ctx)) return false
+        val list = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        return list.split(':').any { it.startsWith("$HELPER/", ignoreCase = true) && it.contains("HelperAccess") }
+    }
+
+    /** The Accessibility setting, or - without the helper - where to get it. */
     fun openAccessSettings(ctx: Context) {
-        val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try { ctx.startActivity(i) } catch (_: Exception) {}
+        val i = if (helperInstalled(ctx)) Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                else Intent(Intent.ACTION_VIEW, android.net.Uri.parse(HELPER_URL))
+        try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+    }
+
+    /** Asks the helper; [done] gets whether it did it (and its answer, for "front"), on the main thread. */
+    private fun askHelper(ctx: Context, a: String, done: (Boolean, String?) -> Unit) {
+        if (!helperInstalled(ctx)) { done(false, null); return }
+        val i = Intent("com.amoledwatch.camerahelper.ACT")
+            .setClassName(HELPER, "$HELPER.ActionReceiver")
+            .putExtra("a", a)
+        val back = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, r: Intent) { done(resultCode == Activity.RESULT_OK, resultData) }
+        }
+        try {
+            ctx.sendOrderedBroadcast(i, null, back, main, Activity.RESULT_CANCELED, null, null)
+        } catch (_: Exception) {
+            done(false, null)
+        }
     }
 
     fun promptEnabled(ctx: Context) = ctx.getSharedPreferences(PREFS, 0).getBoolean("ask", true)
@@ -94,8 +119,15 @@ object NativeCamera {
     /** Another app has the camera: ask (heads-up) whether the watch should run it. */
     fun prompt(ctx: Context, force: Boolean = false) {
         if (active || (!force && !promptEnabled(ctx))) return
-        val front = CameraAccess.instance?.frontPackage
-        if (!force && front != null && front != ctx.packageName && front !in cameraApps(ctx)) return
+        if (force || !accessOn(ctx)) { notifyPrompt(ctx); return }
+        // with the helper on, it knows the app in front: a video call isn't asked about
+        askHelper(ctx, "front") { ok, front ->
+            if (!ok || front.isNullOrEmpty() || front == ctx.packageName || front in cameraApps(ctx)) notifyPrompt(ctx)
+        }
+    }
+
+    private fun notifyPrompt(ctx: Context) {
+        if (active) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(CH) == null) {
             nm.createNotificationChannel(NotificationChannel(CH, "Camera remote", NotificationManager.IMPORTANCE_HIGH))
@@ -153,130 +185,8 @@ object NativeCamera {
 
     fun frame(jpeg: ByteArray) { main.post { sink?.success(mapOf("k" to "frame", "jpeg" to jpeg)) } }
 
-    /** A button from the watch; false when it couldn't be pressed. */
-    fun action(a: String): Boolean = CameraAccess.instance?.act(a) ?: false
-}
-
-/** Presses the camera app's buttons for the watch (Settings > Accessibility > AmoledWatch). */
-class CameraAccess : AccessibilityService() {
-    companion object {
-        @Volatile var instance: CameraAccess? = null
-        // what the shutter and the flip button are called, in camera apps and a few languages
-        private val SHUTTER = Regex("shutter|take (a )?(photo|picture)|capture|camera_button|shoot|scatta|otturatore|" +
-            "disparador|obturador|tomar foto|déclencheur|prendre (une )?photo|auslöser|foto aufnehmen|aufnahme")
-        private val FLIP = Regex("switch( to)?( front| rear| back)? camera|flip|front camera|rear camera|back camera|" +
-            "selfie|toggle.?camera|switch_camera|camera_switch|cambia fotocamera|fotocamera (anteriore|posteriore)|" +
-            "cambiar cámara|cámara (frontal|trasera)|changer de caméra|kamera wechseln")
-        private val NOT = Regex("setting|timer|gallery|thumbnail|preview image|impostazioni|galleria|einstellung")
-    }
-
-    @Volatile var frontPackage: String? = null
-
-    override fun onServiceConnected() {
-        instance = this
-        NativeCamera.emit(this)
-    }
-
-    override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
-        NativeCamera.emit(this)
-        return super.onUnbind(intent)
-    }
-
-    override fun onDestroy() {
-        instance = null
-        super.onDestroy()
-    }
-
-    override fun onAccessibilityEvent(e: AccessibilityEvent?) {
-        if (e?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            e.packageName?.toString()?.let { if (it != "com.android.systemui") frontPackage = it }
-        }
-    }
-
-    override fun onInterrupt() {}
-
-    fun act(a: String): Boolean = when (a) {
-        "shot" -> press(SHUTTER, true) || tapShutterSpot()
-        "flip" -> press(FLIP, false)
-        "zoom+" -> pinch(true)
-        "zoom-" -> pinch(false)
-        else -> false
-    }
-
-    private fun label(n: AccessibilityNodeInfo): String =
-        listOfNotNull(n.contentDescription, n.text, n.viewIdResourceName).joinToString(" ").lowercase()
-
-    // The visible button whose name matches (the biggest one for the shutter): clicked, or tapped.
-    private fun press(re: Regex, biggest: Boolean): Boolean {
-        val root = rootInActiveWindow ?: return false
-        var best: AccessibilityNodeInfo? = null
-        var bestArea = -1
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        var seen = 0
-        while (queue.isNotEmpty() && seen < 1500) {
-            val n = queue.removeFirst()
-            seen++
-            val l = label(n)
-            if (n.isVisibleToUser && l.isNotEmpty() && re.containsMatchIn(l) && !NOT.containsMatchIn(l)) {
-                val r = Rect()
-                n.getBoundsInScreen(r)
-                val area = r.width() * r.height()
-                if (area > 0 && (best == null || (biggest && area > bestArea))) { best = n; bestArea = area }
-                if (!biggest && best != null) break
-            }
-            for (i in 0 until n.childCount) n.getChild(i)?.let { queue.add(it) }
-        }
-        val b = best ?: return false
-        var c: AccessibilityNodeInfo? = b
-        while (c != null && !c.isClickable) c = c.parent
-        if (c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-        val r = Rect()
-        b.getBoundsInScreen(r)
-        return tap(r.exactCenterX(), r.exactCenterY())
-    }
-
-    private fun screen(): Pair<Int, Int> {
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        return if (Build.VERSION.SDK_INT >= 30) {
-            val b = wm.currentWindowMetrics.bounds
-            b.width() to b.height()
-        } else {
-            val m = resources.displayMetrics
-            m.widthPixels to m.heightPixels
-        }
-    }
-
-    // No shutter by name: where camera apps put it (bottom centre, or the side in landscape).
-    private fun tapShutterSpot(): Boolean {
-        val (w, h) = screen()
-        if (h >= w) return tap(w / 2f, h * 0.86f)
-        @Suppress("DEPRECATION")
-        val rot = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation
-        return tap(if (rot == Surface.ROTATION_270) w * 0.1f else w * 0.9f, h / 2f)
-    }
-
-    private fun tap(x: Float, y: Float): Boolean {
-        val p = Path().apply { moveTo(x, y) }
-        return dispatchGesture(GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null)
-    }
-
-    // Two fingers apart (zoom in) or together (out), around the viewfinder's middle.
-    private fun pinch(zoomIn: Boolean): Boolean {
-        val (w, h) = screen()
-        val cx = w / 2f
-        val cy = if (h >= w) h * 0.42f else h / 2f
-        val near = w * 0.06f
-        val far = w * 0.28f
-        val (from, to) = if (zoomIn) near to far else far to near
-        val a = Path().apply { moveTo(cx - from, cy); lineTo(cx - to, cy) }
-        val b = Path().apply { moveTo(cx + from, cy); lineTo(cx + to, cy) }
-        return dispatchGesture(GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(a, 0, 280))
-            .addStroke(GestureDescription.StrokeDescription(b, 0, 280)).build(), null, null)
-    }
+    /** A button from the watch; [done] gets false when it couldn't be pressed (no helper, or no such button). */
+    fun action(ctx: Context, a: String, done: (Boolean) -> Unit) = askHelper(ctx, a) { ok, _ -> done(ok) }
 }
 
 /**
@@ -294,11 +204,10 @@ class CameraLinkActivity : Activity() {
             return
         }
         if (!NativeCamera.accessOn(this)) {
-            Toast.makeText(this, "Turn on \"AmoledWatch\" here (Installed apps) so the watch can press the " +
-                "camera's buttons - then tap the notification again", Toast.LENGTH_LONG).show()
-            NativeCamera.openAccessSettings(this)
-            finish()
-            return
+            // the view works without it; the buttons need the Camera Helper
+            Toast.makeText(this, if (NativeCamera.helperInstalled(this))
+                "For the watch's buttons: turn on \"AmoledWatch camera remote\" in Accessibility"
+            else "The view goes to the watch. For its buttons, install the AmoledWatch Camera Helper", Toast.LENGTH_LONG).show()
         }
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         try {
