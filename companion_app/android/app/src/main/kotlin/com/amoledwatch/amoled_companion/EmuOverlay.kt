@@ -32,7 +32,8 @@ import kotlin.math.min
  * The emulated watch floating over every app, round like the real one:
  *  - inside the circle: the watch's own touch (taps, swipes, holds)
  *  - the rim: drag it to move it; pinch anywhere to resize it
- *  - the little button on the rim: the side button (BOOT; hold it: PWR)
+ *  - the two buttons on the rim, as on the watch: BOOT (2 o'clock) and PWR
+ *    (4 o'clock) - tap, double-tap or hold, the same as the app's emulator
  *  - pushed past a side of the screen it tucks away, a sliver showing:
  *    tap the sliver to bring it back
  *  - dragged onto the ✕ that shows at the bottom while moving: closed
@@ -159,6 +160,8 @@ object EmuOverlay {
         val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2A2A2E.toInt() }
         val rimHi = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF; style = Paint.Style.STROKE }
         val btn = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8A8A90.toInt() }
+        val btnPwr = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFB0B0B6.toInt() }
+        val btnMark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3A3A40.toInt(); style = Paint.Style.STROKE }
         val clip = Path()
         val d = ctx.resources.displayMetrics.density
         var running = false
@@ -182,10 +185,11 @@ object EmuOverlay {
         fun start() { running = true; Choreographer.getInstance().postFrameCallback(tick) }
         fun stop() { running = false }
 
-        // the rim's width, and the side button's place (2 o'clock)
+        // the rim's width, and the buttons' places: BOOT at 2 o'clock, PWR at 4
         fun rimW() = max(6 * d, width * 0.055f)
-        fun btnX() = width / 2f + width * 0.47f * 0.866f
-        fun btnY() = height / 2f - height * 0.47f * 0.5f
+        fun btnX(@Suppress("UNUSED_PARAMETER") which: Int) = width / 2f + width * 0.47f * 0.866f
+        fun btnY(which: Int) = height / 2f + (if (which == 0) -1 else 1) * height * 0.47f * 0.5f
+        fun btnR() = max(4 * d, width * 0.035f)
 
         override fun onDraw(c: Canvas) {
             val r = width / 2f
@@ -199,7 +203,10 @@ object EmuOverlay {
             c.clipPath(clip)
             c.drawBitmap(bmp, Rect(0, 0, n, n), RectF(r - inner, r - inner, r + inner, r + inner), paint)
             c.restore()
-            c.drawCircle(btnX(), btnY(), max(4 * d, width * 0.035f), btn)
+            c.drawCircle(btnX(0), btnY(0), btnR(), btn)
+            c.drawCircle(btnX(1), btnY(1), btnR(), btnPwr)
+            btnMark.strokeWidth = max(1f, btnR() * 0.22f)
+            c.drawCircle(btnX(1), btnY(1), btnR() * 0.45f, btnMark)   // a ring: the power button
         }
 
         // ---- touch: the watch, the rim (move), pinch (size), the button --------------
@@ -220,8 +227,17 @@ object EmuOverlay {
         var downRawX = 0f; var downRawY = 0f; var startX = 0; var startY = 0
         var downAt = 0L
         val uiHandler = Handler(Looper.getMainLooper())
+        // a button: tap 1, double-tap 2, hold 3 (emu_button) - a tap waits a moment for a second one
         var buttonLong = false
-        val longPress = Runnable { buttonLong = true; nativeButton(1, 1) }   // hold the button: PWR
+        var which = 0
+        var pendingTap = -1
+        val longPress = Runnable { buttonLong = true; pendingTap = -1; nativeButton(which, 3) }
+        val singleTap = Runnable { if (pendingTap >= 0) nativeButton(pendingTap, 1); pendingTap = -1 }
+        fun buttonAt(x: Float, y: Float): Int {
+            val reach = max(14 * d, width * 0.08f)
+            for (b in 0..1) if (hypot(x - btnX(b), y - btnY(b)) < reach) return b
+            return -1
+        }
 
         fun toWatch(x: Float, y: Float): Pair<Int, Int> {
             val r = width / 2f
@@ -253,7 +269,7 @@ object EmuOverlay {
                     val dist = hypot(e.x - r, e.y - r)
                     mode = when {
                         tucked() -> 2                                                   // a sliver: pull it back
-                        hypot(e.x - btnX(), e.y - btnY()) < max(14 * d, width * 0.08f) -> 3
+                        buttonAt(e.x, e.y) >= 0 -> { which = buttonAt(e.x, e.y); 3 }
                         dist > r - rimW() * 1.6f -> 2                                   // the rim moves it
                         else -> 1
                     }
@@ -274,7 +290,20 @@ object EmuOverlay {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     when (mode) {
                         1 -> { val (wx, wy) = toWatch(e.x, e.y); nativeTouch(wx, wy, 0) }
-                        3 -> { uiHandler.removeCallbacks(longPress); if (!buttonLong) nativeButton(0, 1) }
+                        3 -> {
+                            uiHandler.removeCallbacks(longPress)
+                            if (!buttonLong) {
+                                if (pendingTap == which) {          // the second tap: a double
+                                    uiHandler.removeCallbacks(singleTap)
+                                    pendingTap = -1
+                                    nativeButton(which, 2)
+                                } else {
+                                    if (pendingTap >= 0) { uiHandler.removeCallbacks(singleTap); singleTap.run() }
+                                    pendingTap = which
+                                    uiHandler.postDelayed(singleTap, 280)
+                                }
+                            }
+                        }
                         2 -> {
                             val dropped = overClose(p.x + p.width / 2f, p.y + p.height / 2f, context)
                             showClose(context, false)
