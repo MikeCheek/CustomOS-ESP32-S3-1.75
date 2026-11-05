@@ -12,6 +12,7 @@
 #include "hal_ble.h"
 #include "media_decode.h"
 #include "fx3d.h"
+#include "store.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
@@ -29,6 +30,7 @@ struct Slot {
     DecodedImage img;
 };
 
+static void keep_art(uint32_t hash, const uint8_t *jpg, uint32_t len);
 static Slot s_icons[ICON_SLOTS];
 static Slot s_art[ART_SLOTS];
 static uint32_t s_stamp = 1;
@@ -57,7 +59,7 @@ void phone_images_on_frame(const uint8_t *d, int len) {
     uint32_t hash = rd32(d + 2), total = rd32(d + 6), off = rd32(d + 10);
     const uint8_t *data = d + 14;
     int n = len - 14;
-    if ((kind != 'i' && kind != 'a') || !hash || total == 0 || total > IMG_MAX_BYTES) return;
+    if ((kind != 'i' && kind != 'a' && kind != 'p') || !hash || total == 0 || total > IMG_MAX_BYTES) return;
     if (!s_stage) s_stage = (uint8_t *)heap_caps_malloc(IMG_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_ready) s_ready = (uint8_t *)heap_caps_malloc(IMG_MAX_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_stage || !s_ready) return;
@@ -100,8 +102,32 @@ static Slot *victim(Slot *slots, int n) {
     return v;
 }
 
+// the camera remote's live preview: the latest frame only, never kept
+static DecodedImage s_preview;
+static uint32_t s_preview_seq = 0;
+const uint16_t *phone_preview(int *w, int *h, uint32_t *seq) {
+    if (seq) *seq = s_preview_seq;
+    if (!s_preview.px) return nullptr;
+    if (w) *w = s_preview.w;
+    if (h) *h = s_preview.h;
+    return s_preview.px;
+}
+
+void phone_preview_clear() { img_free(&s_preview); }
+
 void phone_images_update() {
     if (!s_ready_full) return;
+    if (s_ready_kind == 'p') {
+        DecodedImage img;
+        if (img_decode_jpeg_mem(s_ready, s_ready_len, PHONE_ART_SIZE * 2, PHONE_ART_SIZE * 2, true, &img)) {
+            img_free(&s_preview);
+            s_preview = img;
+            s_preview_seq++;
+        }
+        __sync_synchronize();
+        s_ready_full = false;
+        return;
+    }
     bool icon = s_ready_kind == 'i';
     int max = icon ? PHONE_ICON_SIZE : PHONE_ART_SIZE;
     DecodedImage img;
@@ -116,6 +142,14 @@ void phone_images_update() {
         s->used = s_stamp++;
         DEBUG_PRINTF("[img] %s %08lx %dx%d (%lu bytes)\n", icon ? "icon" : "art", (unsigned long)s->hash,
                      img.w, img.h, (unsigned long)s_ready_len);
+        // app icons are kept (store.h): after a restart they're there without the phone
+        if (icon) {
+            char name[24];
+            snprintf(name, sizeof(name), "img/i%08lx", (unsigned long)s_ready_hash);
+            if (!store_exists(name)) store_write(name, s_ready, s_ready_len);
+        } else {
+            keep_art(s_ready_hash, s_ready, s_ready_len);
+        }
     } else {
         DEBUG_PRINTF("[img] couldn't decode %08lx (%lu bytes)\n", (unsigned long)s_ready_hash,
                      (unsigned long)s_ready_len);
@@ -136,10 +170,67 @@ static void request(char kind, uint32_t hash) {
     ble_link_send(msg);
 }
 
+// Album art: the last ART_KEEP covers are kept too (they change with every
+// song, so the oldest goes) - "img/a<hash>", listed newest first in "img/art".
+static const int ART_KEEP = 10;
+static void keep_art(uint32_t hash, const uint8_t *jpg, uint32_t len) {
+    uint32_t idx[ART_KEEP] = {0};
+    int n = store_read("img/art", idx, sizeof(idx));
+    n = n > 0 ? n / 4 : 0;
+    int at = -1;
+    for (int i = 0; i < n; i++)
+        if (idx[i] == hash) at = i;
+    char name[24];
+    if (at < 0) {
+        snprintf(name, sizeof(name), "img/a%08lx", (unsigned long)hash);
+        if (!store_write(name, jpg, len)) return;
+        if (n == ART_KEEP) {   // full: the oldest goes
+            snprintf(name, sizeof(name), "img/a%08lx", (unsigned long)idx[ART_KEEP - 1]);
+            store_remove(name);
+            n--;
+        }
+        at = n++;
+    }
+    uint32_t h = idx[at];
+    memmove(&idx[1], &idx[0], sizeof(uint32_t) * at);   // to the front
+    idx[0] = h ? h : hash;
+    store_write("img/art", idx, sizeof(uint32_t) * n);
+}
+
+// An icon kept from before: decoded into the cache (once per hash a boot).
+static bool load_kept(uint32_t hash, bool icon) {
+    static uint32_t tried[48];
+    static int tried_n = 0;
+    for (int i = 0; i < tried_n; i++)
+        if (tried[i] == hash) return false;
+    tried[tried_n % 48] = hash;
+    if (tried_n < 48) tried_n++;
+    char name[24];
+    snprintf(name, sizeof(name), icon ? "img/i%08lx" : "img/a%08lx", (unsigned long)hash);
+    int sz = store_size(name);
+    if (sz <= 0 || sz > IMG_MAX_BYTES) return false;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) return false;
+    bool ok = false;
+    DecodedImage img;
+    int max = icon ? PHONE_ICON_SIZE : PHONE_ART_SIZE;
+    if (store_read(name, buf, sz) == sz && img_decode_jpeg_mem(buf, sz, max, max, true, &img)) {
+        Slot *s = icon ? victim(s_icons, ICON_SLOTS) : victim(s_art, ART_SLOTS);
+        img_free(&s->img);
+        s->img = img;
+        s->hash = hash;
+        s->used = s_stamp++;
+        ok = true;
+    }
+    heap_caps_free(buf);
+    return ok;
+}
+
 const uint16_t *phone_icon(uint32_t hash) {
     if (!hash) return nullptr;
     Slot *s = find(s_icons, ICON_SLOTS, hash);
     if (s) { s->used = s_stamp++; return s->img.px; }
+    if (load_kept(hash, true)) return phone_icon(hash);
     request('i', hash);
     return nullptr;
 }
@@ -153,6 +244,7 @@ const uint16_t *phone_art(uint32_t hash, int *w, int *h) {
         if (h) *h = s->img.h;
         return s->img.px;
     }
+    if (load_kept(hash, false)) return phone_art(hash, w, h);
     request('a', hash);
     return nullptr;
 }

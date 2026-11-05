@@ -93,7 +93,9 @@ class BleNotifier extends StateNotifier<BleState> {
     if (!mounted) return;
     if (connected) {
       final d = _service.device;
-      final name = (d != null && d.platformName.isNotEmpty) ? d.platformName : (state.deviceName ?? BleProtocol.deviceName);
+      final name = _service.isVirtual
+          ? 'Watch emulator'
+          : (d != null && d.platformName.isNotEmpty) ? d.platformName : (state.deviceName ?? BleProtocol.deviceName);
       state = state.copyWith(isConnected: true, isConnecting: false, deviceName: name);
       final settings = _ref.read(settingsProvider);
       if (d != null) {

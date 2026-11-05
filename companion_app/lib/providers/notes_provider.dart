@@ -12,6 +12,8 @@ import '../services/whisper_service.dart';
 import '../services/gemma_service.dart';
 import '../services/wifi_transfer.dart';
 import '../services/text_insights.dart';
+import '../services/diarization_service.dart';
+import '../services/speaker_merge.dart';
 import 'ble_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
@@ -27,20 +29,20 @@ class NotesState {
   final double downloadProgress;
   final String? downloadingName;
   final bool processingTranscript;
-  final String? processingName;     // recording being transcribed/summarized
-  final String processingStage;     // human readable step
-  final double processingProgress;  // 0..1, or <0 = indeterminate
+  final String? processingName; // recording being transcribed/summarized
+  final String processingStage; // human readable step
+  final double processingProgress; // 0..1, or <0 = indeterminate
   final Set<String> downloadedFiles;
-  final String? transferVia;        // "Wi-Fi" / "Bluetooth" while downloading
-  final double transferRate;        // KB/s of the current transfer
-  final String? uploadingName;      // adding a recording to the watch
+  final String? transferVia; // "Wi-Fi" / "Bluetooth" while downloading
+  final double transferRate; // KB/s of the current transfer
+  final String? uploadingName; // adding a recording to the watch
   final double uploadProgress;
   // One-tap "process everything" (sync, download, transcribe, summarize)
   final bool pipelineRunning;
-  final int pipelineStep;           // 0 sync, 1 download, 2 transcribe, 3 summarize, 4 insights
-  final String pipelineStage;       // human readable
+  final int pipelineStep; // 0 sync, 1 download, 2 transcribe, 3 summarize, 4 insights
+  final String pipelineStage; // human readable
   final int pipelineDone, pipelineTotal;
-  final String? pipelineReport;     // what the last run did
+  final String? pipelineReport; // what the last run did
 
   NotesState({
     this.recordings = const [],
@@ -144,19 +146,22 @@ class NotesNotifier extends StateNotifier<NotesState> {
 
   /// Wi-Fi transfers allowed (settings) - read when a transfer starts.
   final bool Function() _wifiAllowed;
+
   /// "Process new memos after a sync" (settings).
   final bool Function() _autoProcess;
+  final bool Function() _freeWatch;
+
   /// Run at the end of the pipeline (names the theme collections).
   Future<void> Function()? afterPipeline;
   bool _pipelineCancel = false;
-  Completer<void>? _listWait;       // the pipeline waits for the file list
+  Completer<void>? _listWait; // the pipeline waits for the file list
   // One Wi-Fi session shared by everything that needs it; closed (the
   // watch turns Wi-Fi off) when the last user is done.
   Future<WifiSession>? _wifiOpen;
   int _wifiUsers = 0;
   DateTime _wifiBackoffUntil = DateTime.fromMillisecondsSinceEpoch(0);
-  bool _batchRunning = false;     // an auto-download batch owns the transfers
-  int _prioUsers = 0;             // high BLE connection priority, ref-counted
+  bool _batchRunning = false; // an auto-download batch owns the transfers
+  int _prioUsers = 0; // high BLE connection priority, ref-counted
   // Windowed Bluetooth downloads (firmware 2.7+), decided per download.
   static const _window = 16, _creditStep = 8;
   int _sinceCredit = 0;
@@ -164,7 +169,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
   DateTime _xferStart = DateTime.now();
   int _xferBytes = 0;
 
-  NotesNotifier(this._ble, this._wifiAllowed, this._autoProcess) : super(NotesState()) {
+  NotesNotifier(this._ble, this._wifiAllowed, this._autoProcess, this._freeWatch) : super(NotesState()) {
     _loadLocal();
     _listenBleNotes();
     _initServices();
@@ -254,12 +259,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
       }
 
       // Show recordings IMMEDIATELY — no endless loading
-      state = state.copyWith(
-        recordings: merged,
-        isSyncing: false,
-        error: null,
-        downloadedFiles: downloaded,
-      );
+      state = state.copyWith(recordings: merged, isSyncing: false, error: null, downloadedFiles: downloaded);
 
       // Auto-download missing files in background
       _autoDownloadMissing(watchFiles);
@@ -270,7 +270,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
       _listWait = null;
       if (waiter != null) {
         if (!waiter.isCompleted) waiter.complete();
-      } else if (_autoProcess() && !state.pipelineRunning &&
+      } else if (_autoProcess() &&
+          !state.pipelineRunning &&
           watchFiles.any((w) => !local.any((l) => l.name == w.name))) {
         // New memos on the watch (not seen before): download, transcribe and
         // summarize them. Older failures wait for a manual run.
@@ -331,17 +332,18 @@ class NotesNotifier extends StateNotifier<NotesState> {
       if (toDownload.isEmpty) return;
 
       final sessionId = ++_syncSessionId;
-      state = state.copyWith(
-        totalToDownload: toDownload.length,
-        downloadedCount: 0,
-      );
+      state = state.copyWith(totalToDownload: toDownload.length, downloadedCount: 0);
 
       // Big batches go over Wi-Fi when the watch can (20-50x faster);
       // whatever is left (or everything, if Wi-Fi fails) over Bluetooth.
       final totalBytes = toDownload.fold<int>(0, (a, e) => a + e.value.size);
       if (_useWifi(totalBytes, 256 * 1024)) {
-        final done = await _downloadViaWifi(toDownload, recordingsDir, () => sessionId != _syncSessionId,
-            background: true);
+        final done = await _downloadViaWifi(
+          toDownload,
+          recordingsDir,
+          () => sessionId != _syncSessionId,
+          background: true,
+        );
         toDownload.removeWhere((e) => done.contains(e.value.name));
         if (sessionId != _syncSessionId) return;
       }
@@ -366,11 +368,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
           if (sessionId != _syncSessionId || !_ble.isConnected) return;
           print('[Notes] Auto-downloading: ${wf.name}');
           final completer = _claim(wf.name);
-          state = state.copyWith(
-            downloadingIdx: entry.key,
-            downloadingName: wf.name,
-            downloadProgress: 0,
-          );
+          state = state.copyWith(downloadingIdx: entry.key, downloadingName: wf.name, downloadProgress: 0);
 
           try {
             // The watch pushes chunk 0 by itself (see downloadFile below for
@@ -400,10 +398,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
             );
           } catch (_) {}
 
-          state = state.copyWith(
-            downloadedCount: (state.downloadedCount) + 1,
-            downloadProgress: 0,
-          );
+          state = state.copyWith(downloadedCount: (state.downloadedCount) + 1, downloadProgress: 0);
         }
       } finally {
         await _prio(false);
@@ -502,7 +497,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
     _lastReportedProgress = -1;
     _lastReceivedChunkIdx = -1;
     _sinceCredit = 0;
-    _windowed = _ble.fastTransfers;   // fixed for this download
+    _windowed = _ble.fastTransfers; // fixed for this download
     _xferStart = DateTime.now();
     _xferBytes = 0;
     return _downloadCompleter = Completer<void>();
@@ -526,9 +521,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
 
   /// Wi-Fi is worth trying now (allowed, supported, not backing off).
   bool wifiUsable({bool files = false}) =>
-      _wifiAllowed() &&
-      (files ? _ble.wifiFiles : _ble.fastTransfers) &&
-      DateTime.now().isAfter(_wifiBackoffUntil);
+      _wifiAllowed() && (files ? _ble.wifiFiles : _ble.fastTransfers) && DateTime.now().isAfter(_wifiBackoffUntil);
 
   Future<void> _prio(bool on) async {
     if (on) {
@@ -574,8 +567,11 @@ class NotesNotifier extends StateNotifier<NotesState> {
   /// Downloads [items] over Wi-Fi. Returns the names that made it.
   /// [background] = an automatic sync: failures are logged, not shown.
   Future<Set<String>> _downloadViaWifi(
-      List<MapEntry<int, RecordingEntry>> items, Directory dir, bool Function() cancelled,
-      {bool background = false}) async {
+    List<MapEntry<int, RecordingEntry>> items,
+    Directory dir,
+    bool Function() cancelled, {
+    bool background = false,
+  }) async {
     final done = <String>{};
     var acquired = false;
     try {
@@ -591,16 +587,26 @@ class NotesNotifier extends StateNotifier<NotesState> {
       for (final entry in items) {
         if (cancelled()) break;
         final wf = entry.value;
-        state = state.copyWith(downloadingIdx: entry.key, downloadingName: wf.name, downloadProgress: 0, transferVia: 'Wi-Fi');
+        state = state.copyWith(
+          downloadingIdx: entry.key,
+          downloadingName: wf.name,
+          downloadProgress: 0,
+          transferVia: 'Wi-Fi',
+        );
         final t0 = DateTime.now();
         var last = -1.0;
-        await s.download(wf.name, File('${dir.path}/${wf.name}'), expected: wf.size, onProgress: (got, total) {
-          final p = total > 0 ? got / total : 0.0;
-          if (p - last < 0.01 && p < 1) return;
-          last = p;
-          final secs = DateTime.now().difference(t0).inMilliseconds / 1000.0;
-          if (mounted) state = state.copyWith(downloadProgress: p, transferRate: secs > 0.2 ? got / 1024 / secs : 0);
-        });
+        await s.download(
+          wf.name,
+          File('${dir.path}/${wf.name}'),
+          expected: wf.size,
+          onProgress: (got, total) {
+            final p = total > 0 ? got / total : 0.0;
+            if (p - last < 0.01 && p < 1) return;
+            last = p;
+            final secs = DateTime.now().difference(t0).inMilliseconds / 1000.0;
+            if (mounted) state = state.copyWith(downloadProgress: p, transferRate: secs > 0.2 ? got / 1024 / secs : 0);
+          },
+        );
         await _markDownloaded(wf.name);
         done.add(wf.name);
         if (mounted) state = state.copyWith(downloadedCount: state.downloadedCount + 1);
@@ -630,6 +636,12 @@ class NotesNotifier extends StateNotifier<NotesState> {
     if (mounted) {
       final updated = Set<String>.from(state.downloadedFiles)..add(filename);
       state = state.copyWith(downloadedFiles: updated);
+    }
+    // "Free the watch's space": the phone's copy is there and complete - the
+    // watch's goes (the memo stays here, with its transcript and summary)
+    if (_freeWatch() && _ble.isConnected) {
+      final f = await _localFile(filename);
+      if (await f.exists() && await f.length() > 0) await _ble.requestFileDelete(filename);
     }
   }
 
@@ -703,6 +715,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
   }
 
   Future<void> syncFromWatch() async {
+    if (_ble.isVirtual) return; // the in-app emulator has no recordings to sync
     if (!_ble.isConnected) {
       state = state.copyWith(error: 'Watch not connected');
       return;
@@ -742,11 +755,19 @@ class NotesNotifier extends StateNotifier<NotesState> {
       if (!await recDir.exists()) await recDir.create(recursive: true);
       state = state.copyWith(totalToDownload: 1, downloadedCount: 0, error: null);
       final done = await _downloadViaWifi(
-          [MapEntry(index, RecordingEntry(name: filename, size: size))], recDir, () => false);
+        [MapEntry(index, RecordingEntry(name: filename, size: size))],
+        recDir,
+        () => false,
+      );
       if (done.contains(filename)) {
         if (mounted) {
           state = state.copyWith(
-              downloadingIdx: null, downloadingName: null, downloadProgress: 0, totalToDownload: 0, transferVia: null);
+            downloadingIdx: null,
+            downloadingName: null,
+            downloadProgress: 0,
+            totalToDownload: 0,
+            transferVia: null,
+          );
         }
         return;
       }
@@ -799,6 +820,9 @@ class NotesNotifier extends StateNotifier<NotesState> {
   /// adding it to the memo list (used for voice replies). Waits for a
   /// memo download that is already running.
   Future<Uint8List> fetchTemp(String filename, {Duration timeout = const Duration(seconds: 90)}) async {
+    // The in-app emulator: straight from its SD card folder.
+    final v = _ble.virtualWatch;
+    if (v != null) return v.readRecording(filename).timeout(timeout);
     if (!_ble.isConnected) throw Exception('Watch not connected');
     final until = DateTime.now().add(const Duration(seconds: 15));
     while (_downloadFilename.isNotEmpty || _tempName != null) {
@@ -851,7 +875,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
       throw Exception('The watch plays WAV and MP3 files');
     }
     final ext = lower.substring(lower.length - 4);
-    var base = originalName.substring(0, originalName.length - 4)
+    var base = originalName
+        .substring(0, originalName.length - 4)
         .replaceAll(RegExp(r'[^A-Za-z0-9 _\-]'), '_')
         .replaceAll(RegExp(r'^[_. ]+'), '');
     if (base.length > 40) base = base.substring(0, 40);
@@ -888,7 +913,10 @@ class NotesNotifier extends StateNotifier<NotesState> {
       await NotesStorage.save(RecordingEntry(name: name, size: size, recordedAt: DateTime.now()));
       if (mounted) {
         final entries = await NotesStorage.loadAll();
-        state = state.copyWith(recordings: entries, downloadedFiles: Set<String>.from(state.downloadedFiles)..add(name));
+        state = state.copyWith(
+          recordings: entries,
+          downloadedFiles: Set<String>.from(state.downloadedFiles)..add(name),
+        );
       }
     } finally {
       if (mounted) state = state.copyWith(uploadingName: null, uploadProgress: 0);
@@ -906,15 +934,21 @@ class NotesNotifier extends StateNotifier<NotesState> {
   Future<String?> _sendToWatch(String name, File src, int size) async {
     String? saved;
     final big = size > BleService.maxRecordingSize;
-    if (_wifiAllowed() && _ble.fastTransfers && (big || size > 512 * 1024) &&
+    if (_wifiAllowed() &&
+        _ble.fastTransfers &&
+        (big || size > 512 * 1024) &&
         (big || DateTime.now().isAfter(_wifiBackoffUntil))) {
       var acquired = false;
       try {
         final s = await _acquireWifi();
         acquired = true;
-        saved = await s.upload(name, src, onProgress: (sent, total) {
-          if (mounted) state = state.copyWith(uploadProgress: total > 0 ? sent / total : 0);
-        });
+        saved = await s.upload(
+          name,
+          src,
+          onProgress: (sent, total) {
+            if (mounted) state = state.copyWith(uploadProgress: total > 0 ? sent / total : 0);
+          },
+        );
       } catch (e) {
         if (big) rethrow;
         print('[Notes] Wi-Fi upload failed, using Bluetooth: $e');
@@ -926,9 +960,13 @@ class NotesNotifier extends StateNotifier<NotesState> {
     if (big) throw Exception('Over 4 MB: needs Wi-Fi (set up Wi-Fi on the watch, same network as the phone)');
     await _prio(true);
     try {
-      await _ble.sendRecording(name, await src.readAsBytes(), onProgress: (sent) {
-        if (mounted) state = state.copyWith(uploadProgress: sent / size);
-      });
+      await _ble.sendRecording(
+        name,
+        await src.readAsBytes(),
+        onProgress: (sent) {
+          if (mounted) state = state.copyWith(uploadProgress: sent / size);
+        },
+      );
     } finally {
       await _prio(false);
     }
@@ -958,8 +996,9 @@ class NotesNotifier extends StateNotifier<NotesState> {
     final f = await _localFile(name);
     if (!await f.exists()) throw Exception('The recording was not saved');
     final size = await f.length();
-    await NotesStorage.save(RecordingEntry(
-        name: name, size: size, recordedAt: DateTime.now(), durationSec: (durationMs / 1000).round()));
+    await NotesStorage.save(
+      RecordingEntry(name: name, size: size, recordedAt: DateTime.now(), durationSec: (durationMs / 1000).round()),
+    );
     final entries = await NotesStorage.loadAll();
     if (mounted) {
       state = state.copyWith(recordings: entries, downloadedFiles: Set<String>.from(state.downloadedFiles)..add(name));
@@ -978,7 +1017,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
   /// file list, when known). One at a time, when the Bluetooth link is free.
   /// Returns a message about the last one, or null if nothing was sent.
   Future<String?> _flushPending({Set<String>? onWatch}) async {
-    if (_flushing || !_ble.isConnected) return null;
+    // The in-app emulator has no SD card to copy memos to: they wait for the real watch.
+    if (_flushing || !_ble.isConnected || _ble.isVirtual) return null;
     _flushing = true;
     String? msg;
     var sentAny = false;
@@ -999,7 +1039,9 @@ class NotesNotifier extends StateNotifier<NotesState> {
         state = state.copyWith(uploadingName: name, uploadProgress: 0);
         try {
           final saved = await _sendToWatch(name, f, await f.length());
-          msg = saved != null ? 'Memo saved and copied to the watch' : 'Memo saved - tap Add on the watch to keep it there too';
+          msg = saved != null
+              ? 'Memo saved and copied to the watch'
+              : 'Memo saved - tap Add on the watch to keep it there too';
           sentAny = true;
         } catch (e) {
           msg = 'Memo saved on the phone - not copied to the watch: ${e.toString().replaceFirst('Exception: ', '')}';
@@ -1049,7 +1091,12 @@ class NotesNotifier extends StateNotifier<NotesState> {
 
   void _processingDone() {
     if (mounted) {
-      state = state.copyWith(processingTranscript: false, processingName: null, processingStage: '', processingProgress: -1);
+      state = state.copyWith(
+        processingTranscript: false,
+        processingName: null,
+        processingStage: '',
+        processingProgress: -1,
+      );
     }
   }
 
@@ -1059,8 +1106,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
   }
 
   /// whisper's markers for silence / noise only ("[BLANK_AUDIO]", "(music)").
-  static bool _isNonSpeech(String t) =>
-      t.replaceAll(RegExp(r'\[[^\]]*\]|\([^)]*\)|[*♪]'), '').trim().length < 2;
+  static bool _isNonSpeech(String t) => t.replaceAll(RegExp(r'\[[^\]]*\]|\([^)]*\)|[*♪]'), '').trim().length < 2;
 
   /// Seconds of audio in a WAV or MP3 file, 0 if unknown.
   static Future<int> _audioSeconds(File f) async =>
@@ -1080,12 +1126,12 @@ class NotesNotifier extends StateNotifier<NotesState> {
       }
       await raf.setPosition(start);
       final buf = await raf.read(4096);
-      const rates = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];  // MPEG1 L3
-      const rates2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];     // MPEG2/2.5 L3
+      const rates = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]; // MPEG1 L3
+      const rates2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0]; // MPEG2/2.5 L3
       for (var i = 0; i + 3 < buf.length; i++) {
         if (buf[i] != 0xFF || (buf[i + 1] & 0xE0) != 0xE0) continue;
-        final version = (buf[i + 1] >> 3) & 3;   // 3 = MPEG1
-        final layer = (buf[i + 1] >> 1) & 3;     // 1 = layer III
+        final version = (buf[i + 1] >> 3) & 3; // 3 = MPEG1
+        final layer = (buf[i + 1] >> 1) & 3; // 1 = layer III
         final bi = (buf[i + 2] >> 4) & 0xF;
         if (layer != 1 || version == 1 || bi == 0 || bi == 15) continue;
         final kbps = version == 3 ? rates[bi] : rates2[bi];
@@ -1107,7 +1153,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
       raf = await f.open();
       final h = await raf.read(64);
       final len = await raf.length();
-      if (h.length < 44 || String.fromCharCodes(h.sublist(0, 4)) != 'RIFF' ||
+      if (h.length < 44 ||
+          String.fromCharCodes(h.sublist(0, 4)) != 'RIFF' ||
           String.fromCharCodes(h.sublist(8, 12)) != 'WAVE') {
         return 0;
       }
@@ -1138,13 +1185,25 @@ class NotesNotifier extends StateNotifier<NotesState> {
     );
   }
 
-  Future<void> _storeResult(String filename, Map<String, dynamic> result,
-      {String? transcript, String? language, bool? languageSet, bool? noSpeech}) async {
+  Future<void> _storeResult(
+    String filename,
+    Map<String, dynamic> result, {
+    String? transcript,
+    String? language,
+    bool? languageSet,
+    bool? noSpeech,
+    List<SpeakerLine>? speakers,
+  }) async {
     final entries = await NotesStorage.loadAll();
     final idx = entries.indexWhere((e) => e.name == filename);
     if (idx < 0) return;
-    var e = _apply(entries[idx], result, transcript: transcript)
-        .copyWith(language: language, languageSet: languageSet, noSpeech: noSpeech);
+    var e = _apply(
+      entries[idx],
+      result,
+      transcript: transcript,
+    ).copyWith(language: language, languageSet: languageSet, noSpeech: noSpeech);
+    // A new split numbers the voices afresh: the old names no longer fit.
+    if (speakers != null) e = e.copyWith(speakers: speakers, speakerNames: const {});
     if (e.durationSec == 0) {
       final secs = await _audioSeconds(await _localFile(filename));
       if (secs > 0) e = e.copyWith(durationSec: secs);
@@ -1170,15 +1229,32 @@ class NotesNotifier extends StateNotifier<NotesState> {
       processingProgress: -1,
       error: null,
     );
-    final transcript = await WhisperService.instance.transcribe(
+    // Who said what: speaker turns from the same audio Whisper reads.
+    final splitSpeakers = await DiarizationService.instance.ready();
+    var turns = <SpeakerTurn>[];
+    final timed = await WhisperService.instance.transcribeTimed(
       wav.path,
       lang: forced,
+      timed: splitSpeakers,
       onProgress: (p) {
         if (mounted) {
           state = state.copyWith(processingStage: 'Transcribing ${(p * 100).round()}%', processingProgress: p);
         }
       },
+      withAudio: !splitSpeakers
+          ? null
+          : (mono) async {
+              if (mounted) state = state.copyWith(processingStage: 'Finding who spoke...', processingProgress: -1);
+              try {
+                turns = await DiarizationService.instance.run(mono);
+              } catch (e) {
+                print('[Notes] speaker split failed: $e'); // the memo is still fine without it
+              }
+            },
     );
+    final transcript = timed.text;
+    var speakers = mergeSpeakers(timed.pieces, turns);
+    if (speakerCount(speakers) < 2) speakers = const []; // one voice: nothing to split
     if (transcript.isEmpty || _isNonSpeech(transcript)) {
       // Remember it, so "Process everything" doesn't retry it every time.
       final all = await NotesStorage.loadAll();
@@ -1196,10 +1272,19 @@ class NotesNotifier extends StateNotifier<NotesState> {
     final language = (forced != null && forced.isNotEmpty) ? forced : detected;
 
     if (mounted) state = state.copyWith(processingStage: 'Summarizing...', processingProgress: -1);
-    final result = await GemmaService.instance
-        .summarizeAndOrganize(transcript, language: language.isEmpty ? null : WhisperService.languageName(language));
-    await _storeResult(filename, result,
-        transcript: transcript, language: language, languageSet: forced != null && forced.isNotEmpty, noSpeech: false);
+    final result = await GemmaService.instance.summarizeAndOrganize(
+      speakers.isEmpty ? transcript : labeledTranscript(speakers, const {}),
+      language: language.isEmpty ? null : WhisperService.languageName(language),
+    );
+    await _storeResult(
+      filename,
+      result,
+      transcript: transcript,
+      language: language,
+      languageSet: forced != null && forced.isNotEmpty,
+      noSpeech: false,
+      speakers: speakers,
+    );
 
     // The watch keeps a .txt next to the recording.
     if (_ble.isConnected) {
@@ -1235,6 +1320,22 @@ class NotesNotifier extends StateNotifier<NotesState> {
     }
   }
 
+  /// Names a voice in a split memo ("Speaker 2" -> "Luca"); '' clears it.
+  Future<void> renameSpeaker(String filename, int speaker, String name) async {
+    final entries = await NotesStorage.loadAll();
+    final idx = entries.indexWhere((e) => e.name == filename);
+    if (idx < 0) return;
+    final names = Map<String, String>.from(entries[idx].speakerNames);
+    if (name.trim().isEmpty) {
+      names.remove('$speaker');
+    } else {
+      names['$speaker'] = name.trim();
+    }
+    entries[idx] = entries[idx].copyWith(speakerNames: names);
+    await NotesStorage.saveAll(entries);
+    if (mounted) state = state.copyWith(recordings: List.from(entries));
+  }
+
   /// Re-runs only the summary (e.g. after installing a model).
   Future<void> resummarize(String filename) async {
     if (state.processingTranscript || state.pipelineRunning) return;
@@ -1250,10 +1351,17 @@ class NotesNotifier extends StateNotifier<NotesState> {
   Future<void> _summarizeOnly(String filename) async {
     final e = (await NotesStorage.loadAll()).where((x) => x.name == filename).firstOrNull;
     if (e == null || e.transcript.isEmpty) return;
-    state = state.copyWith(processingTranscript: true, processingName: filename, processingStage: 'Summarizing...', processingProgress: -1);
+    state = state.copyWith(
+      processingTranscript: true,
+      processingName: filename,
+      processingStage: 'Summarizing...',
+      processingProgress: -1,
+    );
     final lang = e.language.isNotEmpty ? e.language : TextInsights.detectLanguage(e.transcript).code;
-    final result = await GemmaService.instance
-        .summarizeAndOrganize(e.transcript, language: lang.isEmpty ? null : WhisperService.languageName(lang));
+    final result = await GemmaService.instance.summarizeAndOrganize(
+      e.speakers.isEmpty ? e.transcript : labeledTranscript(e.speakers, e.speakerNames),
+      language: lang.isEmpty ? null : WhisperService.languageName(lang),
+    );
     await _storeResult(filename, result, language: lang);
   }
 
@@ -1288,7 +1396,12 @@ class NotesNotifier extends StateNotifier<NotesState> {
     }
     _pipelineCancel = false;
     state = state.copyWith(
-        pipelineRunning: true, pipelineReport: null, error: null, pipelineStep: 0, pipelineStage: 'Starting...');
+      pipelineRunning: true,
+      pipelineReport: null,
+      error: null,
+      pipelineStep: 0,
+      pipelineStage: 'Starting...',
+    );
     var downloaded = 0, transcribed = 0, summarized = 0, failed = 0;
     final notes = <String>[];
     try {
@@ -1313,8 +1426,12 @@ class NotesNotifier extends StateNotifier<NotesState> {
         }
         while (_batchRunning && !_pipelineCancel) {
           final n = state.totalToDownload;
-          _stage(1, n > 0 ? 'Downloading ${state.downloadedCount + 1} of $n' : 'Downloading...',
-              done: state.downloadedCount, total: n);
+          _stage(
+            1,
+            n > 0 ? 'Downloading ${state.downloadedCount + 1} of $n' : 'Downloading...',
+            done: state.downloadedCount,
+            total: n,
+          );
           await Future.delayed(const Duration(milliseconds: 300));
         }
         for (final r in state.recordings) {
@@ -1347,13 +1464,15 @@ class NotesNotifier extends StateNotifier<NotesState> {
       final toTranscribe = <String>[];
       for (final r in entries) {
         // MP3s added from the phone are music/audio: whisper here only reads WAV.
-        if (r.transcript.isEmpty && !r.noSpeech && !r.name.toLowerCase().endsWith('.mp3') &&
+        if (r.transcript.isEmpty &&
+            !r.noSpeech &&
+            !r.name.toLowerCase().endsWith('.mp3') &&
             await (await _localFile(r.name)).exists()) {
           toTranscribe.add(r.name);
         }
       }
       if (toTranscribe.isNotEmpty) {
-        if (!await WhisperService.instance.isDownloaded()) {
+        if (!await WhisperService.instance.ready()) {
           notes.add('${toTranscribe.length} memo(s) need a speech model (AI settings)');
         } else {
           for (var i = 0; i < toTranscribe.length && !_pipelineCancel; i++) {
@@ -1414,8 +1533,8 @@ class NotesNotifier extends StateNotifier<NotesState> {
       final report = _pipelineCancel
           ? 'Stopped${parts.isEmpty ? '' : ' - ${parts.join(', ')}'}'
           : nothing
-              ? 'Everything is up to date'
-              : [if (parts.isNotEmpty) parts.join(', '), ...notes].join(' · ');
+          ? 'Everything is up to date'
+          : [if (parts.isNotEmpty) parts.join(', '), ...notes].join(' · ');
       _pipelineCancel = false;
       if (mounted) {
         state = state.copyWith(
@@ -1469,16 +1588,18 @@ class NotesNotifier extends StateNotifier<NotesState> {
   }
 }
 
-final StateNotifierProvider<NotesNotifier, NotesState> notesProvider =
-    StateNotifierProvider<NotesNotifier, NotesState>((ref) {
-  // ref.read, not watch: watching bleProvider rebuilt this notifier on
-  // every battery/scan/media update, killing downloads in progress.
-  final n = NotesNotifier(
-    ref.read(bleServiceProvider),
-    () => ref.read(settingsProvider).wifiTransfers,
-    () => ref.read(settingsProvider).autoProcess,
-  );
-  // Name new theme collections with the on-device model after processing.
-  n.afterPipeline = () => ref.read(collectionNamesProvider.notifier).nameMissing(ref.read(knowledgeProvider));
-  return n;
-});
+final StateNotifierProvider<NotesNotifier, NotesState> notesProvider = StateNotifierProvider<NotesNotifier, NotesState>(
+  (ref) {
+    // ref.read, not watch: watching bleProvider rebuilt this notifier on
+    // every battery/scan/media update, killing downloads in progress.
+    final n = NotesNotifier(
+      ref.read(bleServiceProvider),
+      () => ref.read(settingsProvider).wifiTransfers,
+      () => ref.read(settingsProvider).autoProcess,
+      () => ref.read(settingsProvider).freeWatch,
+    );
+    // Name new theme collections with the on-device model after processing.
+    n.afterPipeline = () => ref.read(collectionNamesProvider.notifier).nameMissing(ref.read(knowledgeProvider));
+    return n;
+  },
+);

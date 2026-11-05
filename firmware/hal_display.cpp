@@ -416,8 +416,14 @@ void display_init() {
     s_cmd_lock = xSemaphoreCreateMutex();
     s_cmd_done = xSemaphoreCreateBinary();
     // The panel is brought up from the sender task itself, so the SPI bus
-    // is created on the same core that will always drive it.
-    xTaskCreatePinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, &s_task, SEND_CORE);
+    // is created on the same core that will always drive it. Its stack is
+    // in PSRAM: internal RAM is what Wi-Fi needs to start next to
+    // Bluetooth, and this task never touches flash (pixel DMA buffers are
+    // internal, see fast_init()).
+    static StaticTask_t tcb;
+    static StackType_t *stack = (StackType_t *)heap_caps_malloc(SEND_STACK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (stack) s_task = xTaskCreateStaticPinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, stack, &tcb, SEND_CORE);
+    else xTaskCreatePinnedToCore(sender_task, "lcd_send", SEND_STACK, nullptr, SEND_PRIO, &s_task, SEND_CORE);
     if (xSemaphoreTake(s_init_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         DEBUG_PRINTF("[display] sender task did not finish panel init\n");
     }
@@ -536,10 +542,27 @@ static void run_cmd(PanelCmd cmd) {
 void display_sleep() { run_cmd(CMD_SLEEP); }
 void display_wakeup() { run_cmd(CMD_WAKE); }
 
-void display_set_brightness(uint8_t level) {
-    s_brightness = level;
+// What callers asked for, and a ceiling (night: display_set_brightness_cap)
+static uint8_t s_req_brightness = DEFAULT_BRIGHTNESS, s_cap = 255;
+
+static void apply_brightness() {
+    uint8_t v = s_req_brightness < s_cap ? s_req_brightness : s_cap;
+    if (v == s_brightness && !s_brightness_dirty) return;
+    s_brightness = v;
     s_brightness_dirty = true;
     if (s_task) xTaskNotifyGive(s_task);
+}
+
+void display_set_brightness(uint8_t level) {
+    s_req_brightness = level;
+    s_brightness_dirty = true;
+    apply_brightness();
+}
+
+void display_set_brightness_cap(uint8_t cap) {
+    if (cap == s_cap) return;
+    s_cap = cap;
+    apply_brightness();
 }
 
 uint8_t display_get_brightness() { return s_brightness; }

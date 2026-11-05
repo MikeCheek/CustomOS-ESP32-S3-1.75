@@ -1,11 +1,13 @@
 #include "config.h"
 #include "complications.h"
 #include "ui.h"
+#include "app_face_nav.h"
 #include "ui_font.h"
 #include "board_pins.h"
 #include "app_menu.h"
 #include "apps.h"
 #include "hal_rtc.h"
+#include "clock_fmt.h"
 #include "watchface_registry.h"
 #include "app_pet.h"
 #include <Arduino_GFX_Library.h>
@@ -26,11 +28,12 @@ static void watchface_minimal_draw() {
     if (!t.valid) return;
 
     char buf[8];
-    snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+    clock_hm(buf, sizeof(buf), t.hour, t.minute);
     g->setTextSize(8);
     g->setTextColor(COLOR_TEXT);
     int tw = ui_text_width(buf, 8);
     ui_print((LCD_WIDTH - tw) / 2, LCD_HEIGHT / 2 - 32, 8, COLOR_TEXT, buf);
+    if (!clock_24h()) ui_print((LCD_WIDTH + tw) / 2 + 6, LCD_HEIGHT / 2 - 30, 2, COLOR_TEXT_DIM, clock_ampm(t.hour));
 
     char date_buf[32];
     snprintf(date_buf, sizeof(date_buf), "%02d/%02d/%04d", t.month, t.day, t.year);
@@ -42,21 +45,7 @@ static void watchface_minimal_draw() {
     comp_draw_slots(g, LCD_HEIGHT / 2 + 120, 38);
 }
 
-static void watchface_minimal_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            watchface_cycle_next();
-            break;
-        default:
-            break;
-    }
-}
+static void watchface_minimal_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 static void watchface_minimal_touch(int x, int y, bool pressed) {
     pet_handle_touch(x, y, pressed);

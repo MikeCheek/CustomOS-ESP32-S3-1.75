@@ -5,24 +5,27 @@ import '../app.dart';
 import '../providers/ble_provider.dart';
 import '../providers/companion_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/fitness_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'calendar_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'activity_screen.dart';
-import 'contacts_screen.dart';
-import 'calendar_screen.dart';
-import 'controller_screen.dart';
 import 'diagnostics_screen.dart';
-import 'files_screen.dart';
 import 'media_screen.dart';
-import 'notifications_screen.dart';
 import 'scan_screen.dart';
 import 'weather_screen.dart';
-import 'watch_wifi_screen.dart';
 import 'memo_insights.dart';
+import 'apps_screen.dart';
+import 'emulator_screen.dart';
+import 'assistant_screen.dart';
+import '../widgets/emulator_card.dart';
 import '../providers/notes_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../widgets/platform_notice.dart';
 
-/// Dashboard: the watch, what's linked, today's numbers, shortcuts.
+/// Home: the watch (real or emulated), what needs attention, today, shortcuts.
+/// Every feature is in the Apps tab, every option in Settings.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -76,57 +79,37 @@ class HomeScreen extends ConsumerWidget {
                       busy: true,
                     ),
                   ],
-                  const _MemoBrief(),
                   if (ble.isConnected) ...[
                     const SizedBox(height: 12),
                     const _QuickActions(),
+                  ] else ...[
+                    const SizedBox(height: 12),
+                    const EmulatorCard(compact: true),
+                  ],
+                  const _MemoBrief(),
+                  if (ble.isConnected) ...[
                     const SectionLabel('Today'),
                     _TodayRow(link: link),
+                    _UpNext(link: link),
                     if (link.media != null && link.mediaTitle.isNotEmpty) ...[
                       const SectionLabel('Playing on your phone'),
                       _NowPlayingCard(link: link),
                     ],
                   ],
-                  const SectionLabel('Phone link'),
-                  _LinkGroup(connected: ble.isConnected),
-                  const SectionLabel('More'),
-                  RowGroup(children: [
-                    NavRow(
-                      icon: Icons.graphic_eq_rounded,
-                      color: AppColors.accent3,
-                      title: 'Voice memos',
-                      subtitle: 'Recordings, transcripts and summaries',
-                      onTap: () => TabSwitcher.open(context, 1),
+                  SectionLabel(
+                    'Shortcuts',
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(onPressed: () => _editShortcuts(context), child: const Text('Edit')),
+                        TextButton(
+                          onPressed: () => TabSwitcher.open(context, TabSwitcher.apps),
+                          child: const Text('All apps'),
+                        ),
+                      ],
                     ),
-                    NavRow(
-                      icon: Icons.contacts_outlined,
-                      color: AppColors.accent2,
-                      title: 'Contacts',
-                      subtitle: 'Choose who is on the watch',
-                      onTap: ble.isConnected ? () => _push(context, const ContactsScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.wifi_rounded,
-                      color: AppColors.success,
-                      title: 'Watch Wi-Fi',
-                      subtitle: 'Set up and check the watch\'s network',
-                      onTap: ble.isConnected ? () => _push(context, const WatchWifiScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.folder_outlined,
-                      color: AppColors.warning,
-                      title: 'Send files',
-                      subtitle: 'Saved to the watch SD card',
-                      onTap: ble.isConnected ? () => _push(context, const FilesScreen()) : null,
-                    ),
-                    NavRow(
-                      icon: Icons.sports_esports_outlined,
-                      color: AppColors.accent3,
-                      title: 'Game controller',
-                      subtitle: 'Use the phone as a gamepad',
-                      onTap: ble.isConnected ? () => _push(context, const ControllerScreen()) : null,
-                    ),
-                  ]),
+                  ),
+                  _Shortcuts(key: ValueKey(_shortcutsRev), connected: ble.isConnected),
                 ],
               ),
             ),
@@ -137,8 +120,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-void _push(BuildContext context, Widget page) =>
-    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+void _push(BuildContext context, Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page));
 
 String _greeting() {
   final h = DateTime.now().hour;
@@ -164,8 +146,15 @@ class _Header extends ConsumerWidget {
               children: [
                 Text(_greeting(), style: const TextStyle(color: AppColors.textDim, fontSize: 14)),
                 const SizedBox(height: 2),
-                const Text('AmoledWatch',
-                    style: TextStyle(color: AppColors.text, fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.6)),
+                const Text(
+                  'AmoledWatch',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.6,
+                  ),
+                ),
               ],
             ),
           ),
@@ -227,8 +216,7 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
     final match = results.where((r) {
       final n = r.advertisementData.advName.toLowerCase();
       return n.contains('amoled') || n.contains('watch');
-    }).toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    }).toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
     if (!mounted) return;
     if (match.isEmpty) {
       setState(() => _searching = false);
@@ -252,7 +240,11 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
 
     String status;
     Color statusColor;
-    if (connected) {
+    final emulated = connected && ref.read(bleServiceProvider).isVirtual;
+    if (emulated) {
+      status = 'Emulator · on this phone';
+      statusColor = AppColors.accent3;
+    } else if (connected) {
       status = link.linkActive ? 'Connected · linked' : 'Connected';
       statusColor = AppColors.success;
     } else if (ble.isConnecting || _searching) {
@@ -284,15 +276,20 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(time,
-                      style: TextStyle(
-                        color: connected ? AppColors.text : AppColors.textFaint,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
+                  Text(
+                    time,
+                    style: TextStyle(
+                      color: connected ? AppColors.text : AppColors.textFaint,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
                   if (connected && bat >= 0)
-                    Text('$bat%', style: TextStyle(color: batteryColor(bat), fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      '$bat%',
+                      style: TextStyle(color: batteryColor(bat), fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
                 ],
               ),
             ),
@@ -302,10 +299,14 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 19, fontWeight: FontWeight.w700)),
+                Text(
+                  emulated
+                      ? 'Emulated watch'
+                      : (ble.deviceName ?? ref.read(settingsProvider).lastDeviceName ?? 'Your watch'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 19, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 8),
                 StatusPill(status, color: statusColor),
                 const SizedBox(height: 14),
@@ -313,15 +314,27 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
                   FilledButton.icon(
                     onPressed: _searching ? null : _quickConnect,
                     icon: _searching
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
                         : const Icon(Icons.bluetooth_searching_rounded, size: 18),
                     label: Text(_searching ? 'Searching' : 'Connect'),
+                  )
+                else if (emulated)
+                  FilledButton.tonalIcon(
+                    onPressed: () => _push(context, const EmulatorScreen()),
+                    icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                    label: const Text('Open'),
                   )
                 else if (connected && link.watchCharging)
                   const Text('Charging', style: TextStyle(color: AppColors.success, fontSize: 13))
                 else if (!connected)
-                  const Text('Will connect when the watch is in range',
-                      style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+                  const Text(
+                    'Will connect when the watch is in range',
+                    style: TextStyle(color: AppColors.textDim, fontSize: 13),
+                  ),
               ],
             ),
           ),
@@ -343,21 +356,16 @@ class _QuickActions extends ConsumerWidget {
       children: [
         _QuickButton(
           icon: Icons.vibration_rounded,
-          label: 'Find watch',
+          label: 'Find',
           onTap: () async {
             await ref.read(companionProvider.notifier).findWatch();
             if (context.mounted) showSnack(context, 'Your watch is buzzing');
           },
         ),
         const SizedBox(width: 10),
-        _QuickButton(
-          icon: Icons.schedule_rounded,
-          label: 'Sync time',
-          onTap: () async {
-            await ref.read(bleProvider.notifier).syncTime();
-            if (context.mounted) showSnack(context, 'Watch clock synced');
-          },
-        ),
+        _QuickButton(icon: Icons.mic_rounded, label: 'Ask', onTap: () => _push(context, const AssistantScreen())),
+        const SizedBox(width: 10),
+        _QuickButton(icon: Icons.timer_outlined, label: 'Timer', onTap: () => _pickTimer(context, ref)),
         const SizedBox(width: 10),
         _QuickButton(
           icon: link.findingPhone ? Icons.volume_off_rounded : Icons.cloud_sync_rounded,
@@ -396,7 +404,10 @@ class _QuickButton extends StatelessWidget {
           children: [
             Icon(icon, color: highlight ? AppColors.danger : AppColors.text, size: 24),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.w500)),
+            Text(
+              label,
+              style: const TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.w500),
+            ),
           ],
         ),
       ),
@@ -421,15 +432,7 @@ class _TodayRow extends ConsumerWidget {
     }
     return Row(
       children: [
-        Expanded(
-          child: StatTile(
-            icon: Icons.directions_walk_rounded,
-            color: AppColors.success,
-            value: link.watchSteps >= 0 ? _thousands(link.watchSteps) : '--',
-            label: 'Steps',
-            onTap: () => _push(context, const ActivityScreen()),
-          ),
-        ),
+        Expanded(child: _RingsTile(steps: link.watchSteps)),
         const SizedBox(width: 10),
         Expanded(
           child: StatTile(
@@ -491,12 +494,19 @@ class _NowPlayingCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(link.mediaTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(
+                  link.mediaTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 2),
-                Text(link.mediaArtist.isEmpty ? 'Also on your watch' : link.mediaArtist,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+                Text(
+                  link.mediaArtist.isEmpty ? 'Also on your watch' : link.mediaArtist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -519,78 +529,69 @@ class _NowPlayingCard extends ConsumerWidget {
   }
 }
 
-// ---- phone link -----------------------------------------------------------------------
+// ---- shortcuts ---------------------------------------------------------------------
 
-class _LinkGroup extends ConsumerWidget {
+/// The features used most, a tap away; everything else is in Apps.
+class _Shortcuts extends StatelessWidget {
   final bool connected;
-  const _LinkGroup({required this.connected});
+  const _Shortcuts({super.key, required this.connected});
+
+  // iPhone: no notification forwarding there, so sound alerts instead
+  static final defaults = [
+    'Life',
+    'Assistant',
+    'Look',
+    'Messages',
+    'Faces & display',
+    isIos ? 'Sound alerts' : 'Notifications & calls',
+  ];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(settingsProvider);
-    final link = ref.watch(companionProvider);
-    return RowGroup(children: [
-      NavRow(
-        icon: Icons.notifications_active_outlined,
-        color: AppColors.accent,
-        title: 'Notifications & calls',
-        subtitle: s.forwardNotifications
-            ? (link.forwardedToday > 0 ? '${link.forwardedToday} sent to the watch today' : 'Forwarding to the watch')
-            : 'Off - tap to set up',
-        onTap: () => _push(context, const NotificationsScreen()),
-      ),
-      NavRow(
-        icon: Icons.music_note_outlined,
-        color: AppColors.accent3,
-        title: 'Music controls',
-        subtitle: s.mediaToWatch ? 'Control phone music from the watch' : 'Off',
-        onTap: () => _push(context, const MediaScreen()),
-      ),
-      NavRow(
-        icon: Icons.wb_cloudy_outlined,
-        color: AppColors.warning,
-        title: 'Weather',
-        subtitle: link.weather != null
-            ? '${link.weather!.condition} · updated ${_ago(link.weather!.fetchedAt)}'
-            : (s.weatherAuto ? 'Automatic, from your location' : 'Manual'),
-        onTap: () => _push(context, const WeatherScreen()),
-      ),
-      NavRow(
-        icon: Icons.calendar_month_rounded,
-        color: AppColors.accent2,
-        title: 'Calendar',
-        subtitle: !link.calendarAllowed
-            ? 'Agenda and reminders on the watch - tap to set up'
-            : link.nextEvent != null
-                ? 'Next: ${link.nextEvent!.title}'
-                : 'Nothing in the next two days',
-        onTap: () => _push(context, const CalendarScreen()),
-      ),
-      ToggleRow(
-        icon: Icons.navigation_rounded,
-        color: AppColors.success,
-        title: 'Navigation',
-        subtitle: 'Google Maps directions on the watch',
-        value: s.navigationToWatch,
-        onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(navigationToWatch: v)),
-      ),
-      NavRow(
-        icon: Icons.directions_run_rounded,
-        color: AppColors.success,
-        title: 'Activity',
-        subtitle: 'Steps counted by the watch',
-        onTap: () => _push(context, const ActivityScreen()),
-      ),
-    ]);
+  Widget build(BuildContext context) {
+    final all = [for (final g in appGroups) ...g.items];
+    return FutureBuilder<List<String>>(
+      future: SharedPreferences.getInstance().then((p) => p.getStringList('home_shortcuts') ?? defaults),
+      builder: (context, snap) {
+        final titles = snap.data ?? defaults;
+        final items = [for (final t in titles) ...all.where((f) => f.title == t)];
+        return _grid(context, items);
+      },
+    );
   }
-}
 
-String _ago(DateTime t) {
-  final d = DateTime.now().difference(t);
-  if (d.inMinutes < 1) return 'just now';
-  if (d.inMinutes < 60) return '${d.inMinutes} min ago';
-  if (d.inHours < 24) return '${d.inHours} h ago';
-  return '${d.inDays} d ago';
+  Widget _grid(BuildContext context, List<AppFeature> items) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = (c.maxWidth - 20) / 3;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in items)
+              SizedBox(
+                width: w,
+                child: Panel(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                  onTap: () => openFeature(context, f),
+                  child: Column(
+                    children: [
+                      IconChip(f.icon, color: f.color, size: 38),
+                      const SizedBox(height: 8),
+                      Text(
+                        f.title == 'Notifications & calls' ? 'Notifications' : f.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.text, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _Banner extends StatelessWidget {
@@ -615,21 +616,29 @@ class _Banner extends StatelessWidget {
       onTap: onTap,
       color: color.withValues(alpha: 0.08),
       padding: const EdgeInsets.all(14),
-      child: Row(children: [
-        IconChip(icon, color: color),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
-          ]),
-        ),
-        if (busy)
-          const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-        else if (onTap != null)
-          const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
-      ]),
+      child: Row(
+        children: [
+          IconChip(icon, color: color),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+              ],
+            ),
+          ),
+          if (busy)
+            const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          else if (onTap != null)
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textFaint),
+        ],
+      ),
     );
   }
 }
@@ -649,21 +658,24 @@ class _MemoBrief extends ConsumerWidget {
     if (kb.isEmpty) return const SizedBox.shrink();
 
     final now = DateTime.now();
-    final urgent = kb.entries
-        .where((e) => e.importance >= 4 && e.summary.isNotEmpty &&
-            (e.recordedAt == null || now.difference(e.recordedAt!).inDays <= 14))
-        .toList()
-      ..sort((a, b) {
-        final c = b.importance.compareTo(a.importance);
-        return c != 0 ? c : (b.recordedAt ?? DateTime(2000)).compareTo(a.recordedAt ?? DateTime(2000));
-      });
+    final urgent =
+        kb.entries
+            .where(
+              (e) =>
+                  e.importance >= 4 &&
+                  e.summary.isNotEmpty &&
+                  (e.recordedAt == null || now.difference(e.recordedAt!).inDays <= 14),
+            )
+            .toList()
+          ..sort((a, b) {
+            final c = b.importance.compareTo(a.importance);
+            return c != 0 ? c : (b.recordedAt ?? DateTime(2000)).compareTo(a.recordedAt ?? DateTime(2000));
+          });
     final todos = kb.actions().where((a) => !done.contains(a.key)).toList();
     final pending = notes.recordings
         .where((r) => r.transcript.isEmpty && !r.noSpeech && !r.name.toLowerCase().endsWith('.mp3'))
         .length;
-    final today = kb.entries
-        .where((e) => e.recordedAt != null && DateUtils.isSameDay(e.recordedAt, now))
-        .length;
+    final today = kb.entries.where((e) => e.recordedAt != null && DateUtils.isSameDay(e.recordedAt, now)).length;
     if (urgent.isEmpty && todos.isEmpty && pending == 0 && today == 0 && !notes.pipelineRunning) {
       return const SizedBox.shrink();
     }
@@ -671,71 +683,77 @@ class _MemoBrief extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionLabel('Memos',
-            trailing: IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Search & ask your memos',
-              icon: const Icon(Icons.search_rounded, size: 20, color: AppColors.textDim),
-              onPressed: () => _push(context, const MemoSearchScreen()),
-            )),
-        Row(children: [
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.priority_high_rounded,
-              color: AppColors.danger,
-              value: '${urgent.length}',
-              label: 'urgent',
-              onTap: urgent.isEmpty
-                  ? null
-                  : () => _push(context, MemoListScreen(title: 'Urgent memos', items: urgent)),
-            ),
+        SectionLabel(
+          'Memos',
+          trailing: IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Search & ask your memos',
+            icon: const Icon(Icons.search_rounded, size: 20, color: AppColors.textDim),
+            onPressed: () => _push(context, const MemoSearchScreen()),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.task_alt_rounded,
-              color: AppColors.success,
-              value: '${todos.length}',
-              label: 'to-dos',
-              onTap: () => _push(context, const ActionsScreen()),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.priority_high_rounded,
+                color: AppColors.danger,
+                value: '${urgent.length}',
+                label: 'urgent',
+                onTap: urgent.isEmpty
+                    ? null
+                    : () => _push(context, MemoListScreen(title: 'Urgent memos', items: urgent)),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _MiniStat(
-              icon: Icons.mic_rounded,
-              color: AppColors.accent2,
-              value: '$today',
-              label: 'today',
-              onTap: () => TabSwitcher.open(context, 1),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.task_alt_rounded,
+                color: AppColors.success,
+                value: '${todos.length}',
+                label: 'to-dos',
+                onTap: () => _push(context, const ActionsScreen()),
+              ),
             ),
-          ),
-        ]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _MiniStat(
+                icon: Icons.mic_rounded,
+                color: AppColors.accent2,
+                value: '$today',
+                label: 'today',
+                onTap: () => TabSwitcher.open(context, TabSwitcher.memos),
+              ),
+            ),
+          ],
+        ),
         if (notes.pipelineRunning || pending > 0) ...[
           const SizedBox(height: 10),
           Panel(
             padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-            child: Row(children: [
-              notes.pipelineRunning
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.bolt_rounded, color: AppColors.accent),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  notes.pipelineRunning
-                      ? notes.pipelineStage
-                      : '$pending memo${pending == 1 ? '' : 's'} not transcribed yet',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.text, fontSize: 14),
+            child: Row(
+              children: [
+                notes.pipelineRunning
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.bolt_rounded, color: AppColors.accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    notes.pipelineRunning
+                        ? notes.pipelineStage
+                        : '$pending memo${pending == 1 ? '' : 's'} not transcribed yet',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.text, fontSize: 14),
+                  ),
                 ),
-              ),
-              if (!notes.pipelineRunning)
-                TextButton(
-                  onPressed: notes.processingTranscript ? null : () => ref.read(notesProvider.notifier).runPipeline(),
-                  child: const Text('Process'),
-                ),
-            ]),
+                if (!notes.pipelineRunning)
+                  TextButton(
+                    onPressed: notes.processingTranscript ? null : () => ref.read(notesProvider.notifier).runPipeline(),
+                    child: const Text('Process'),
+                  ),
+              ],
+            ),
           ),
         ],
         if (urgent.isNotEmpty) ...[
@@ -749,11 +767,17 @@ class _MemoBrief extends ConsumerWidget {
                   color: importanceColor(e.importance).withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(e.importance >= 5 ? 'Critical' : 'High',
-                    style: TextStyle(color: importanceColor(e.importance), fontSize: 11, fontWeight: FontWeight.w700)),
+                child: Text(
+                  e.importance >= 5 ? 'Critical' : 'High',
+                  style: TextStyle(color: importanceColor(e.importance), fontSize: 11, fontWeight: FontWeight.w700),
+                ),
               ),
-              below: Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35)),
+              below: Text(
+                e.summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+              ),
             ),
         ],
         if (todos.isNotEmpty) ...[
@@ -765,7 +789,10 @@ class _MemoBrief extends ConsumerWidget {
               children: [
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
-                  child: Text('To-do', style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    'To-do',
+                    style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
                 ),
                 for (final a in todos.take(4)) ActionRow(a),
                 if (todos.length > 4)
@@ -794,18 +821,242 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Panel(
-        onTap: onTap,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        child: Row(children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(value, style: const TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w700)),
-              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textDim, fontSize: 11)),
-            ]),
+    onTap: onTap,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    child: Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 11),
+              ),
+            ],
           ),
-        ]),
+        ),
+      ],
+    ),
+  );
+}
+
+// ---- quick timer ------------------------------------------------------------------------
+
+Future<void> _pickTimer(BuildContext context, WidgetRef ref) async {
+  final m = await showModalBottomSheet<int>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Timer on the watch',
+              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final v in const [1, 3, 5, 10, 15, 20, 30, 45, 60])
+                  ActionChip(label: Text(v >= 60 ? '1 h' : '$v min'), onPressed: () => Navigator.pop(ctx, v)),
+                ActionChip(
+                  avatar: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancel timer'),
+                  onPressed: () => Navigator.pop(ctx, 0),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (m == null) return;
+  final ble = ref.read(bleServiceProvider);
+  if (!ble.hasPhoneLink) return;
+  await ble.sendLink({'t': 'tmr', 's': m * 60});
+  if (context.mounted) {
+    showSnack(context, m == 0 ? 'Timer cancelled' : 'Timer set for ${m >= 60 ? '1 hour' : '$m minutes'}');
+  }
+}
+
+// ---- the rings, today ------------------------------------------------------------------------
+
+class _RingsTile extends ConsumerWidget {
+  final int steps;
+  const _RingsTile({required this.steps});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fit = ref.watch(fitnessProvider);
+    final t = fit.today;
+    return Panel(
+      onTap: () => _push(context, const ActivityScreen()),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          t == null
+              ? const Icon(Icons.directions_walk_rounded, color: AppColors.success)
+              : RingsView(
+                  move: t.moveKcal / fit.moveGoal,
+                  exercise: t.exerciseMin / fit.exerciseGoal,
+                  stand: t.standHours / fit.standGoal,
+                  size: 34,
+                ),
+          const SizedBox(height: 12),
+          Text(
+            t != null ? '${t.moveKcal} kcal' : (steps >= 0 ? _thousands(steps) : '--'),
+            style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          Text(
+            t != null ? '${t.exerciseMin} min · ${steps >= 0 ? _thousands(steps) : '--'} steps' : 'Steps',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---- up next: the next event and the last workout ------------------------------------------
+
+class _UpNext extends ConsumerWidget {
+  final CompanionState link;
+  const _UpNext({required this.link});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = DateTime.now();
+    final next = link.agenda.where((e) => e.end.isAfter(now)).toList()..sort((a, b) => a.start.compareTo(b.start));
+    final wo = ref.watch(fitnessProvider).workouts;
+    final today = wo.where((w) => w.start.year == now.year && w.start.month == now.month && w.start.day == now.day);
+    final rows = <Widget>[];
+    if (next.isNotEmpty) {
+      final e = next.first;
+      final mins = e.start.difference(now).inMinutes;
+      final when = e.allDay
+          ? 'All day'
+          : e.start.isBefore(now)
+          ? 'Now'
+          : mins < 60
+          ? 'In $mins min'
+          : TimeOfDay.fromDateTime(e.start).format(context);
+      rows.add(
+        NavRow(
+          icon: Icons.event_rounded,
+          color: Color(0xFF000000 | (e.color == 0 ? 0x6E5CE6 : e.color)),
+          title: e.title,
+          subtitle: [when, if (e.location.isNotEmpty) e.location].join(' · '),
+          onTap: () => _push(context, const CalendarScreen()),
+        ),
       );
+    }
+    if (today.isNotEmpty) {
+      final w = today.first;
+      rows.add(
+        NavRow(
+          icon: Icons.directions_run_rounded,
+          color: ringExercise,
+          title: w.type,
+          subtitle: [
+            '${w.duration.inMinutes} min',
+            if (w.meters > 0) '${(w.meters / 1000).toStringAsFixed(2)} km',
+            '${w.kcal} kcal',
+          ].join(' · '),
+          onTap: () => _push(context, const ActivityScreen()),
+        ),
+      );
+    }
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: RowGroup(children: rows),
+    );
+  }
+}
+
+// ---- picking the shortcuts ------------------------------------------------------------------
+
+int _shortcutsRev = 0;
+
+Future<void> _editShortcuts(BuildContext context) async {
+  final p = await SharedPreferences.getInstance();
+  final chosen = [...(p.getStringList('home_shortcuts') ?? _Shortcuts.defaults)];
+  final all = [for (final g in appGroups) ...g.items];
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(ctx).height * 0.75,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Shortcuts (${chosen.length}/9)',
+                        style: const TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => set(
+                        () => chosen
+                          ..clear()
+                          ..addAll(_Shortcuts.defaults),
+                      ),
+                      child: const Text('Reset'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  children: [
+                    for (final f in all)
+                      CheckboxListTile(
+                        value: chosen.contains(f.title),
+                        secondary: IconChip(f.icon, color: f.color, size: 34),
+                        title: Text(f.title),
+                        onChanged: (v) => set(() {
+                          if (v == true && chosen.length < 9) {
+                            chosen.add(f.title);
+                          } else if (v == false) {
+                            chosen.remove(f.title);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  await p.setStringList('home_shortcuts', chosen);
+  _shortcutsRev++;
+  if (context.mounted) (context as Element).markNeedsBuild();
 }

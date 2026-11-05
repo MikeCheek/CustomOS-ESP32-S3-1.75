@@ -24,6 +24,7 @@ enum CompId : uint8_t {
     COMP_NAV,
     COMP_TODOS,
     COMP_SECONDS,
+    COMP_RINGS,
     COMP_COUNT
 };
 
@@ -43,3 +44,6 @@ void   comp_load();
 
 // Phone link (phone_link.cpp)
 void comp_set_todos(int count, const char *top);
+// The last weather the phone sent (false: none yet); the daily step goal.
+bool comp_weather_now(int &temp, char *cond, int n);
+uint32_t comp_step_goal();

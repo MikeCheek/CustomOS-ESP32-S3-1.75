@@ -13,32 +13,34 @@ class FirmwareImage {
 
   static const _sigTrailer = 'AWSIG001';
 
-  /// The watch's app slots are 3 MB (partition scheme app3M_fat9M_16MB).
-  static const maxSize = 3 * 1024 * 1024;
+  /// The watch's app slots are 6 MB since firmware 3.5 (firmware/partitions.csv),
+  /// 3 MB before; the watch itself refuses an image its slot can't hold.
+  static const maxSize = 6 * 1024 * 1024;
   static const _marker = 'AMOLEDWATCH_FW=';
 
   /// Throws a readable message if [bytes] isn't a firmware for this watch.
   static FirmwareImage parse(String name, Uint8List bytes) {
     // Signed image: image + signature(64) + "AWSIG001".
     Uint8List? sig;
-    if (bytes.length > 1024 + 72 &&
-        String.fromCharCodes(bytes.sublist(bytes.length - 8)) == _sigTrailer) {
+    if (bytes.length > 1024 + 72 && String.fromCharCodes(bytes.sublist(bytes.length - 8)) == _sigTrailer) {
       sig = Uint8List.fromList(bytes.sublist(bytes.length - 72, bytes.length - 8));
       bytes = Uint8List.sublistView(bytes, 0, bytes.length - 72);
     }
     if (bytes.length < 1024 || bytes[0] != 0xE9) {
       throw const FormatException(
-          'Not an ESP32 app image. Pick the .ino.bin file from the Arduino build folder (not the merged or bootloader .bin).');
+        'Not an ESP32 app image. Pick the .ino.bin file from the Arduino build folder (not the merged or bootloader .bin).',
+      );
     }
     // An app image has its esp_app_desc_t (magic 0xABCD5432) right after the
     // 24-byte image header and the first 8-byte segment header. Bootloader
     // and merged (bootloader + partitions + app) images don't.
     if (ByteData.sublistView(bytes).getUint32(0x20, Endian.little) != 0xABCD5432) {
       throw const FormatException(
-          'This is a bootloader or merged image. Pick firmware.ino.bin (the app only), or a .bin from the GitHub build.');
+        'This is a bootloader or merged image. Pick firmware.ino.bin (the app only), or a .bin from the GitHub build.',
+      );
     }
     if (bytes.length > maxSize) {
-      throw const FormatException('The image is bigger than the watch\'s 3 MB app slot.');
+      throw const FormatException('The image is bigger than the watch\'s 6 MB app slot.');
     }
     final version = _findVersion(bytes);
     if (version == null) {

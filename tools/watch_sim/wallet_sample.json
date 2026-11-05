@@ -1,0 +1,3 @@
+{"t":"wal","op":"put","i":0,"n":"Ryanair FR 1234","s":"Dublin - Rome, seat 12A, gate 23","k":"aztec","w":27,"h":27,"r":10,"crc":2134589364,"tot":92,"o":0,"b":"YmmNvhUtgbrvHu5eSCtktLhxu9/4GPP+Kh3ckPm1wV//BsEBKW/vpcCdF/o3qr0F9F4GmvsXJUBoAA/99HReAchv3akEbcAHpPetQ+aHepgGjg2qA+VVWJ4AAAA="}
+{"t":"wal","op":"put","i":1,"n":"Gym","s":"Member 0042","k":"qr","w":25,"h":25,"r":10,"crc":657217106,"tot":79,"o":0,"b":"/nI/wQ9QbpyLt1aV26rK7BMRB/qq/gCXAMdsDFwT75KX5X+GVpG+mw0DbIrILPdqMO2jhPoATkQ/viowWHELpl+l0scO6KQbBdOx/rKkgA=="}
+{"t":"wal","op":"put","i":2,"n":"Supermarket","s":"Loyalty card","k":"code128","w":123,"h":1,"r":10,"crc":1131352404,"tot":16,"o":0,"b":"050zZmbO3XYhZ17pnrsdYA=="}

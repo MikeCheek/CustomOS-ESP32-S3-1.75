@@ -31,6 +31,7 @@
  * press so a horizontal swipe and a plain tap can be told apart on
  * release.
  */
+#include "clock_fmt.h"
 #include <new>
 #include "app_bambu_printer.h"
 #include "config.h"
@@ -419,8 +420,10 @@ static void draw_page_print(Arduino_GFX *g, const BambuPrintState &st) {
         if (t.valid) {
             int total = t.hour * 60 + t.minute + st.remaining_min;
             int days = total / 1440, m = total % 1440;
-            if (days == 0) snprintf(buf, sizeof(buf), "Done at %02d:%02d", m / 60, m % 60);
-            else snprintf(buf, sizeof(buf), "Done at %02d:%02d +%dd", m / 60, m % 60, days);
+            char hm[16];
+            clock_hm_text(hm, sizeof(hm), m / 60, m % 60);
+            if (days == 0) snprintf(buf, sizeof(buf), "Done at %s", hm);
+            else snprintf(buf, sizeof(buf), "Done at %s +%dd", hm, days);
             ui_draw_centered_text(218, COLOR_TEXT_DIM, buf, 1);
         }
     } else if (finished) {

@@ -1,4 +1,20 @@
+#include "app_photo_watchface.h"
+#include "watchface_registry.h"
+#include "app_assistant.h"
 #include "phone_link.h"
+#include "app_clock.h"
+#include "app_weather.h"
+#include "app_reminders.h"
+#include "app_workout.h"
+#include "app_sos.h"
+#include "face_look.h"
+#include "home_gestures.h"
+#include "app_wallet.h"
+#include "app_camera.h"
+#include "app_life.h"
+#include "usage_stats.h"
+#include "fitness.h"
+#include "app_sleep.h"
 #include "complications.h"
 #include "dnd.h"
 #include "hal_nvs.h"
@@ -50,6 +66,8 @@ static bool send_doc(JsonDocument &doc) {
     return ble_link_send(buf);
 }
 
+bool phone_link_send(JsonDocument &doc) { return send_doc(doc); }
+
 // Watch status for the phone: battery, steps, charging.
 static void send_report(const char *ev) {
     JsonDocument doc;
@@ -57,6 +75,15 @@ static void send_report(const char *ev) {
     doc["bat"] = power_get_battery_percent();
     doc["chg"] = power_is_charging() ? 1 : 0;
     doc["st"] = (uint32_t)imu_get_step_count();
+    // activity rings today, and their goals
+    doc["mv"] = (int)fitness_move_kcal();
+    doc["ex"] = fitness_exercise_min();
+    doc["sd"] = fitness_stand_hours();
+    doc["gm"] = fitness_move_goal();
+    doc["ge"] = fitness_exercise_goal();
+    doc["gs"] = fitness_stand_goal();
+    doc["kg"] = g_app_settings.weight_kg;
+    doc["cm"] = g_app_settings.height_cm;
     if (!strcmp(ev, "hi")) {
         // Once per connection: firmware version, why it last reset, and
         // whether there's a crash report the app hasn't fetched yet.
@@ -64,6 +91,14 @@ static void send_report(const char *ev) {
         doc["rr"] = diag_reset_reason();
         doc["cr"] = diag_crash_id();
         doc["up"] = (uint32_t)(millis() / 1000);
+        // the last days' rings: [date yyyymmdd, kcal, exercise min, stand h, steps]
+        FitDay h[7];
+        int n = fitness_history(h, 7);
+        JsonArray fh = doc["fh"].to<JsonArray>();
+        for (int i = 0; i < n; i++) {
+            JsonArray d = fh.add<JsonArray>();
+            d.add(h[i].date); d.add(h[i].move_kcal); d.add(h[i].exercise_min); d.add(h[i].stand_hours); d.add(h[i].steps);
+        }
     }
     send_doc(doc);
     s_last_report_ms = millis();
@@ -84,6 +119,13 @@ static void handle(const char *msg) {
     if (!strcmp(t, "hi")) {
         s_active = true;
         send_report("hi");
+        workout_send_pending();   // workouts recorded while the phone was away
+        look_send();              // the app's Faces tab shows what the watch shows
+        home_send();              // ...and what each gesture on the face does
+        wallet_send();            // the passes the watch has (the app sends what's missing)
+        fitness_send_history();   // the rings' older days (the status report has the last 7)
+        sleeptrack_send();        // the last 30 nights
+        life_send(true);          // the Life screen: today and the last days
     } else if (!strcmp(t, "bat")) {
         s_active = true;
         s_phone_bat = doc["l"] | -1;
@@ -104,6 +146,21 @@ static void handle(const char *msg) {
         s_active = true;
         notifications_add(doc["id"] | 0u, doc["ap"] | "Phone", doc["ti"] | "", doc["tx"] | "",
                           (doc["rp"] | 0) != 0, doc["ic"] | 0u);
+    } else if (!strcmp(t, "sr")) {
+        // Smart replies for one message: written by the phone's LLM.
+        const char *items[NOTIF_SMART_MAX];
+        int n = 0;
+        for (JsonVariant v : doc["l"].as<JsonArray>()) {
+            if (n < NOTIF_SMART_MAX && v.is<const char *>()) items[n++] = v.as<const char *>();
+        }
+        notifications_set_smart_replies(doc["id"] | 0u, items, n);
+    } else if (!strcmp(t, "tmr")) {
+        // a timer asked for on the phone's assistant
+        assistant_timer_set((uint32_t)(doc["s"] | 0));
+    } else if (!strcmp(t, "digest")) {
+        notifications_on_digest(doc["tx"] | "", doc["err"] | "");
+    } else if (!strcmp(t, "tr")) {
+        notifications_on_translation(doc["id"] | 0u, doc["tx"] | "", doc["err"] | "");
     } else if (!strcmp(t, "nrm")) {
         notifications_remove(doc["id"] | 0u);
     } else if (!strcmp(t, "call")) {
@@ -141,6 +198,37 @@ static void handle(const char *msg) {
             if (i >= COMP_SLOTS) break;
             comp_set_slot(i++, comp_from_key(v.as<const char *>()));
         }
+    } else if (!strcmp(t, "usage")) {
+        usage_send();   // the app's Diagnostics: battery, screen time, apps
+    } else if (!strcmp(t, "body")) {
+        // weight and height from the app's Activity screen
+        int kg = doc["kg"] | 0, cm = doc["cm"] | 0;
+        if (kg >= 30 && kg <= 250) g_app_settings.weight_kg = (uint8_t)kg;
+        if (cm >= 100 && cm <= 230) g_app_settings.height_cm = (uint8_t)cm;
+        nvs_save_settings(g_app_settings);
+        send_report("st");
+    } else if (!strcmp(t, "life")) {
+        life_on_plan(doc);
+    } else if (!strcmp(t, "meals")) {
+        life_on_meals(doc);
+    } else if (!strcmp(t, "look")) {
+        look_on_link(doc);
+    } else if (!strcmp(t, "home")) {
+        home_on_link(doc);
+    } else if (!strcmp(t, "cam")) {
+        camera_on_link(doc);
+    } else if (!strcmp(t, "wal")) {
+        wallet_on_link(doc);
+    } else if (!strcmp(t, "sos")) {
+        sos_on_reply((doc["ok"] | 0) != 0, doc["why"] | "");
+    } else if (!strcmp(t, "woack")) {
+        workout_on_ack(doc["st"] | 0u);
+    } else if (!strcmp(t, "tz")) {
+        clock_set_utc_offset(doc["o"] | 0);
+    } else if (!strcmp(t, "wxh")) {
+        weather_on_hourly(doc);
+    } else if (!strcmp(t, "todos")) {
+        reminders_on_link(doc);
     } else if (!strcmp(t, "todo")) {
         comp_set_todos(doc["n"] | 0, doc["top"] | "");
     } else if (!strcmp(t, "dnd")) {
@@ -164,6 +252,26 @@ static void handle(const char *msg) {
         quick_replies_set(items, n);
     } else if (!strcmp(t, "dict")) {
         dictate_on_result(doc["id"] | 0u, doc["n"] | 0u, doc["tx"] | "", doc["err"] | "");
+    } else if (!strcmp(t, "ask")) {
+        uint32_t n = doc["n"] | 0u;
+        if (doc["st"].is<const char *>()) assistant_on_status(n, doc["st"]);
+        else assistant_on_result(n, doc["q"] | "", doc["a"] | "", doc["do"] | "", doc["s"] | 0, doc["err"] | "");
+    } else if (!strcmp(t, "pf")) {
+        // Photo faces: {"a":"list"} / {"a":"show","n":..} / {"a":"del","n":..} / {"a":"rot","m":0|1|2}
+        const char *a = doc["a"] | "list";
+        const char *n = doc["n"] | "";
+        if (!strcmp(a, "show") && photo_face_show(n)) {
+            for (int i = 0; i < watchface_count(); i++)
+                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+            ui_go_home();
+            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
+        } else if (!strcmp(a, "del")) {
+            photo_face_delete(n);
+        } else if (!strcmp(a, "rot")) {
+            int m = doc["m"] | 0;
+            if (m >= 0 && m <= 2) { g_app_settings.photo_rotate = (uint8_t)m; nvs_save_settings(g_app_settings); }
+        }
+        phone_link_send_photo_faces();
     } else if (!strcmp(t, "crash")) {
         // Crash report + status text for the app's Diagnostics page.
         if (doc["clr"] | 0) diag_clear_crash();
@@ -183,6 +291,18 @@ static void handle(const char *msg) {
             heap_caps_free(status);
         }
     }
+}
+
+// The photo faces on the card, which one is shown and how they change.
+void phone_link_send_photo_faces() {
+    JsonDocument doc;
+    doc["e"] = "pf";
+    JsonArray l = doc["l"].to<JsonArray>();
+    for (int i = 0; i < photo_face_count(); i++) l.add(photo_face_name(i));
+    doc["cur"] = photo_face_current();
+    doc["rot"] = g_app_settings.photo_rotate;
+    doc["max"] = PHOTO_FACE_MAX;
+    send_doc(doc);
 }
 
 void phone_link_update() {
@@ -208,7 +328,9 @@ void phone_link_update() {
     // Say hello shortly after connecting (the app subscribes first), then
     // report steps/battery every 5 minutes.
     uint32_t now = millis();
-    if (s_last_report_ms == 0 ? now - s_connected_ms > 2500 : now - s_last_report_ms > 300000) {
+    // every 5 minutes, or 15 with the screen off (each one wakes the radio and the phone's app)
+    uint32_t every = sleep_is_asleep() ? 900000UL : 300000UL;
+    if (s_last_report_ms == 0 ? now - s_connected_ms > 2500 : now - s_last_report_ms > every) {
         send_report(s_last_report_ms == 0 ? "hi" : "st");
     }
 }
@@ -272,6 +394,25 @@ void phone_link_notif_dismiss(uint32_t id) {
 bool phone_link_notif_reply(uint32_t id, const char *text) {
     JsonDocument doc;
     doc["e"] = "ntf"; doc["a"] = "reply"; doc["id"] = id; doc["tx"] = text;
+    return send_doc(doc);
+}
+
+bool phone_link_notif_digest() {
+    JsonDocument doc;
+    doc["e"] = "digest";
+    return send_doc(doc);
+}
+
+bool phone_link_notif_translate(uint32_t id) {
+    JsonDocument doc;
+    doc["e"] = "tr"; doc["id"] = id;
+    return send_doc(doc);
+}
+
+bool phone_link_fall(bool ok) {
+    JsonDocument doc;
+    doc["e"] = "fall";
+    if (ok) doc["ok"] = 1;
     return send_doc(doc);
 }
 

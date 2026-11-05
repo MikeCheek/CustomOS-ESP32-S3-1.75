@@ -1,9 +1,14 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'text_insights.dart';
+import 'smart_replies.dart';
+import 'model_fetch.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
 ///
@@ -69,7 +74,8 @@ class GemmaService {
       key: 'gemma-3-1b',
       name: 'Gemma 3 1B',
       sizeBytes: 584417280,
-      url: 'https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm',
+      url:
+          'https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm',
       description: 'Google Gemma. Needs a Hugging Face token (gated model).',
       type: ModelType.gemmaIt,
       gated: true,
@@ -87,8 +93,7 @@ class GemmaService {
     ),
   ];
 
-  static GemmaModelInfo byKey(String? key) =>
-      models.firstWhere((m) => m.key == key, orElse: () => models.first);
+  static GemmaModelInfo byKey(String? key) => models.firstWhere((m) => m.key == key, orElse: () => models.first);
 
   bool _initialized = false;
   InferenceModel? _model;
@@ -131,30 +136,138 @@ class GemmaService {
     }
   }
 
-  /// Downloads (if needed) and makes [m] the active model. [onProgress] 0..1.
-  Future<void> install(GemmaModelInfo m, {void Function(double)? onProgress}) async {
-    await initializeEngine();
+  /// Where the app keeps a model it downloaded itself (model_fetch.dart).
+  static Future<File> localFile(GemmaModelInfo m) async =>
+      File('${(await getApplicationSupportDirectory()).path}/models/llm/${m.fileName}');
+
+  /// Downloads [m] in the background (keeps going with the app closed,
+  /// resumes, tries mirrors) and registers the file with flutter_gemma.
+  Future<void> _download(GemmaModelInfo m, void Function(double)? onProgress) async {
+    if (await isInstalled(m)) return;
     final token = await hfToken();
-    if (m.gated && token.isEmpty && !await isInstalled(m)) {
+    if (m.gated && token.isEmpty) {
       throw Exception('${m.name} is gated: add your Hugging Face token first');
     }
+    await ModelFetch.instance.fetch(
+      label: m.name,
+      url: m.url,
+      dest: await localFile(m),
+      sizeBytes: m.sizeBytes,
+      headers: token.isEmpty ? const {} : {'Authorization': 'Bearer $token'},
+      onProgress: onProgress,
+    );
+  }
+
+  /// Makes [m] flutter_gemma's active model: from the app's own file when
+  /// it's there, else flutter_gemma's copy (models installed before).
+  Future<void> _activate(GemmaModelInfo m) async {
+    final f = await localFile(m);
+    final b = FlutterGemma.installModel(modelType: m.type, fileType: ModelFileType.litertlm);
     try {
-      await FlutterGemma.installModel(modelType: m.type, fileType: ModelFileType.litertlm)
-          .fromNetwork(m.url, token: token.isEmpty ? null : token)
-          .withProgress((p) => onProgress?.call(p / 100.0))
-          .install();
+      await (await f.exists() ? b.fromFile(f.path) : b.fromNetwork(m.url)).install();
     } on DownloadException catch (e) {
       throw Exception(e.error.toUserMessage());
     }
+  }
+
+  /// Downloads (if needed) and makes [m] the active model. [onProgress] 0..1.
+  Future<void> install(GemmaModelInfo m, {void Function(double)? onProgress}) async {
+    await initializeEngine();
+    await _download(m, onProgress);
+    await _activate(m);
     final p = await SharedPreferences.getInstance();
     await p.setString('llm_model', m.key);
     await _closeModel();
+  }
+
+  // ---- vision: "Look" (screens/look_screen.dart) -------------------------------------
+  /// Models that see images. Kept apart from the summary model: Look loads
+  /// one for a question, then the summary model comes back on its own.
+  static const List<GemmaModelInfo> visionModels = [
+    GemmaModelInfo(
+      key: 'fastvlm-0.5b',
+      name: 'FastVLM 0.5B',
+      sizeBytes: 520 * 1024 * 1024,
+      url: 'https://huggingface.co/litert-community/FastVLM-0.5B/resolve/main/FastVLM-0.5B.litertlm',
+      description: 'Small and quick: describes what the camera sees',
+      type: ModelType.general,
+    ),
+    GemmaModelInfo(
+      key: 'gemma-3n-e2b',
+      name: 'Gemma 3n E2B',
+      sizeBytes: 3100 * 1024 * 1024,
+      url: 'https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm',
+      description: 'Sharper eyes: reads signs, labels and menus, translates them',
+      type: ModelType.gemmaIt,
+      gated: true,
+    ),
+    GemmaModelInfo(
+      key: 'gemma-3n-e4b',
+      name: 'Gemma 3n E4B',
+      sizeBytes: 4400 * 1024 * 1024,
+      url: 'https://huggingface.co/google/gemma-3n-E4B-it-litert-lm/resolve/main/gemma-3n-E4B-it-int4.litertlm',
+      description: 'The sharpest: small print, handwriting, harder questions. Needs a recent phone',
+      type: ModelType.gemmaIt,
+      gated: true,
+    ),
+  ];
+
+  Future<GemmaModelInfo?> visionModel() async {
+    final key = (await SharedPreferences.getInstance()).getString('vision_model');
+    for (final m in visionModels) {
+      if (m.key == key && await isInstalled(m)) return m;
+    }
+    for (final m in visionModels.reversed) {
+      if (await isInstalled(m)) return m;
+    }
+    return null;
+  }
+
+  /// Downloads [m] for Look (doesn't change the summary model).
+  Future<void> installVision(GemmaModelInfo m, {void Function(double)? onProgress}) async {
+    await initializeEngine();
+    await _download(m, onProgress);
+    await _activate(m);
+    await (await SharedPreferences.getInstance()).setString('vision_model', m.key);
+    await _closeModel(); // installing made it the active one
+  }
+
+  Future<void> uninstallVision(GemmaModelInfo m) async {
+    await initializeEngine();
+    await _closeModel();
+    await FlutterGemma.uninstallModel(m.fileName);
+    final f = await localFile(m);
+    if (await f.exists()) await f.delete();
+  }
+
+  /// [prompt] about the photo [jpeg], or null without a vision model.
+  Future<String?> look(Uint8List jpeg, String prompt) async {
+    final m = await visionModel();
+    if (m == null) return null;
+    return _serial(() async {
+      await _closeModel();
+      await _activate(m);
+      final model = await FlutterGemma.getActiveModel(maxTokens: 2048, supportImage: true, maxNumImages: 1);
+      try {
+        final chat = await model.createChat(temperature: 0.2, topK: 20, supportImage: true, modelType: m.type);
+        await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
+        final r = await chat.generateChatResponse();
+        final raw = r is TextResponse ? r.token : r.toString();
+        return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').replaceAll(RegExp(r'[*#`]'), '').trim();
+      } finally {
+        try {
+          await model.close();
+        } catch (_) {}
+      }
+    });
   }
 
   Future<void> uninstall(GemmaModelInfo m) async {
     await initializeEngine();
     if (_loadedKey == m.key) await _closeModel();
     await FlutterGemma.uninstallModel(m.fileName);
+    final f = await localFile(m);
+    if (await f.exists()) await f.delete();
     final p = await SharedPreferences.getInstance();
     if (p.getString('llm_model') == m.key) {
       await p.remove('llm_model');
@@ -182,9 +295,7 @@ class GemmaService {
     if (!await isInstalled(info)) return null;
     await _closeModel();
     // Re-activate it (cheap if already installed) so the spec matches.
-    await FlutterGemma.installModel(modelType: info.type, fileType: ModelFileType.litertlm)
-        .fromNetwork(info.url)
-        .install();
+    await _activate(info);
     _model = await FlutterGemma.getActiveModel(maxTokens: 2048);
     _loadedKey = key;
     return _model;
@@ -204,19 +315,19 @@ class GemmaService {
   }
 
   Future<String?> _generate(String prompt, {double temperature = 0.2}) => _serial(() async {
-        InferenceModel? model;
-        try {
-          model = await _ensureModel();
-        } catch (e) {
-          print('[LLM] load failed: $e');
-        }
-        if (model == null) return null;
-        final chat = await model.createChat(temperature: temperature, topK: 20, modelType: byKey(_loadedKey).type);
-        await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
-        final response = await chat.generateChatResponse();
-        final raw = response is TextResponse ? response.token : response.toString();
-        return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').trim();
-      });
+    InferenceModel? model;
+    try {
+      model = await _ensureModel();
+    } catch (e) {
+      print('[LLM] load failed: $e');
+    }
+    if (model == null) return null;
+    final chat = await model.createChat(temperature: temperature, topK: 20, modelType: byKey(_loadedKey).type);
+    await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
+    final response = await chat.generateChatResponse();
+    final raw = response is TextResponse ? response.token : response.toString();
+    return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').trim();
+  });
 
   /// Answers [question] from memo excerpts ([contexts], numbered 1..n), citing
   /// them as [1], [2]... Null when no model is installed.
@@ -236,6 +347,138 @@ class GemmaService {
       'Notes:\n$buf\nQuestion: $question /no_think',
     );
     return out;
+  }
+
+  /// The voice assistant's fallback for requests its own rules don't know
+  /// (services/assistant_intents.dart): maps [request] to one of the same
+  /// actions, or answers it. Returns {"tool": ..., ...} - "answer" with
+  /// "text" for a plain answer - or null without a model.
+  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(
+      'You are the voice assistant of a smartwatch. It is ${now.toIso8601String().substring(0, 16)}.\n'
+      'Reply with ONLY one JSON object, no other text.\n'
+      'If the request is one of these actions, reply with it:\n'
+      '{"tool":"timer","seconds":300}\n'
+      '{"tool":"reminder","text":"what to remind","minutes":20}   (in N minutes)\n'
+      '{"tool":"reminder","text":"what to remind","time":"18:30","day":"today"}   (day: today or tomorrow)\n'
+      '{"tool":"music","cmd":"play"}   (cmd: play, pause, next, prev, volUp, volDown)\n'
+      '{"tool":"weather"}  {"tool":"agenda"}  {"tool":"battery"}  {"tool":"find_phone"}\n'
+      '{"tool":"dnd","on":true}  {"tool":"memos","query":"what to look for in the user\'s voice memos"}\n'
+      'Otherwise answer it yourself, in the language of the request, in at most 2 short sentences:\n'
+      '{"tool":"answer","text":"..."}\n\n'
+      'Request: $request /no_think',
+      temperature: 0.2,
+    );
+    if (out == null) return null;
+    final s = out.replaceAll('```json', '').replaceAll('```', '');
+    final a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a >= 0 && b > a) {
+      try {
+        final m = jsonDecode(s.substring(a, b + 1));
+        if (m is Map<String, dynamic> && m['tool'] is String) return m;
+      } catch (_) {}
+    }
+    // Not JSON: treat what it said as the answer.
+    final text = s.trim();
+    return text.isEmpty ? null : {'tool': 'answer', 'text': text};
+  }
+
+  /// Replies the user could send to [message] (services/smart_replies.dart),
+  /// or null without a model.
+  Future<List<String>?> suggestReplies(String app, String sender, String message) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(SmartReplies.prompt(app, sender, message), temperature: 0.6);
+    if (out == null) return null;
+    final r = SmartReplies.parse(out);
+    return r.isEmpty ? null : r;
+  }
+
+  /// A summary of notifications ([lines], oldest first) in [language]:
+  /// what needs an answer first, then the rest grouped. Null without a model.
+  Future<String?> digest(List<String> lines, String language) async {
+    if (!await hasModel()) return null;
+    var buf = lines.join('\n');
+    if (buf.length > 3000) buf = buf.substring(buf.length - 3000);
+    final out = await _generate(
+      'These are the user\'s phone notifications, oldest first:\n$buf\n\n'
+      'Summarize them for a smartwatch screen in $language, in at most 6 short lines. '
+      'First what needs a reply or action (who, what), then the rest grouped by app or person. '
+      'No greetings, no markdown. /no_think',
+      temperature: 0.3,
+    );
+    return out?.replaceAll(RegExp(r'[*#`]'), '').trim();
+  }
+
+  /// Today's breakfast, lunch and dinner ideas for the Life app: [diet] ("vegan",
+  /// "Mediterranean"...), [notes] (allergies, likes, dislikes - the user's own
+  /// words), [avoid] (ideas from the last days, so they change), [training]
+  /// (a training day: a bit more protein and carbs). Each under ~65 letters
+  /// so the watch shows it. Null without a model or when the answer isn't usable.
+  Future<(String, String, String)?> mealIdeas({
+    required String diet,
+    String notes = '',
+    List<String> avoid = const [],
+    bool training = false,
+    DateTime? day,
+  }) async {
+    if (!await hasModel()) return null;
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    final d = day ?? DateTime.now();
+    final out = await _generate(
+      'Suggest today\'s meals for a healthy, balanced day. Diet: $diet. '
+      '${notes.trim().isEmpty ? '' : 'About the person (follow it strictly, e.g. allergies): ${notes.trim()}. '}'
+      '${training ? 'It is a training day: a little more protein and carbohydrates. ' : ''}'
+      'Season: ${months[d.month - 1]}, use seasonal produce. Simple home cooking, mostly whole foods. '
+      '${avoid.isEmpty ? '' : 'Do not repeat these recent ones: ${avoid.take(9).join('; ')}. '}'
+      'Answer with exactly three lines and nothing else:\n'
+      'Breakfast: <dish, under 60 characters>\nLunch: <dish, under 60 characters>\nDinner: <dish, under 60 characters> /no_think',
+      temperature: 0.8,
+    );
+    return out == null ? null : parseMealIdeas(out);
+  }
+
+  /// The three dishes from the model's answer ("Breakfast: ..." lines, with or
+  /// without markdown), each trimmed to fit the watch; null if one is missing.
+  static (String, String, String)? parseMealIdeas(String out) {
+    String? pick(String label) {
+      final m = RegExp('^\\W*$label\\W*[:\\-]\\s*(.+)\$', caseSensitive: false, multiLine: true).firstMatch(out);
+      if (m == null) return null;
+      var t = m.group(1)!.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      t = t.replaceAll(RegExp(r'[.;]+$'), '');
+      if (t.length > 66) {
+        final cut = t.lastIndexOf(' ', 66);
+        t = t.substring(0, cut > 30 ? cut : 66);
+      }
+      return t.length < 4 ? null : t;
+    }
+
+    final b = pick('Breakfast'), l = pick('Lunch'), dn = pick('Dinner');
+    if (b == null || l == null || dn == null) return null;
+    return (b, l, dn);
+  }
+
+  /// [text] translated into [language], or null without a model.
+  Future<String?> translate(String text, String language) async {
+    if (!await hasModel()) return null;
+    final out = await _generate(
+      'Translate this message into $language. Reply with the translation only.\n\n$text /no_think',
+      temperature: 0.1,
+    );
+    return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
   }
 
   /// A 1-4 word name for a group of memos about [keywords], or null.
@@ -272,20 +515,23 @@ class GemmaService {
     final text = transcript.length > 3000 ? transcript.substring(0, 3000) : transcript;
     try {
       final chat = await model.createChat(temperature: 0.2, topK: 20, modelType: byKey(_loadedKey).type);
-      await chat.addQueryChunk(Message.text(
-        isUser: true,
-        text: 'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
-            'Answer with ONLY a JSON object, no other text, all text in '
-            '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
-            '{"title": "3-6 word title", '
-            '"summary": "2-3 sentences", '
-            '"importance": 1-5, '
-            '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
-            '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
-            '"actions": ["concrete things to do mentioned, short, empty if none"], '
-            '"people": ["names of people mentioned, empty if none"]}\n\n'
-            'Memo:\n$text /no_think',
-      ));
+      await chat.addQueryChunk(
+        Message.text(
+          isUser: true,
+          text:
+              'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
+              'Answer with ONLY a JSON object, no other text, all text in '
+              '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
+              '{"title": "3-6 word title", '
+              '"summary": "2-3 sentences", '
+              '"importance": 1-5, '
+              '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
+              '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
+              '"actions": ["concrete things to do mentioned, short, empty if none"], '
+              '"people": ["names of people mentioned, empty if none"]}\n\n'
+              'Memo:\n$text /no_think',
+        ),
+      );
       final response = await chat.generateChatResponse();
       final raw = response is TextResponse ? response.token : response.toString();
       final parsed = _parse(raw);
@@ -308,10 +554,10 @@ class GemmaService {
       imp = imp.clamp(1, 5);
       List<String> list(String k, int max, {bool lower = false}) => (j[k] is List)
           ? (j[k] as List)
-              .map((e) => lower ? e.toString().toLowerCase().trim() : e.toString().trim())
-              .where((t) => t.isNotEmpty && t.length < 120)
-              .take(max)
-              .toList()
+                .map((e) => lower ? e.toString().toLowerCase().trim() : e.toString().trim())
+                .where((t) => t.isNotEmpty && t.length < 120)
+                .take(max)
+                .toList()
           : <String>[];
       final title = (j['title'] ?? '').toString().trim();
       return {
@@ -333,7 +579,10 @@ class GemmaService {
     int importance = 2;
     if (lower.contains('urgent') || lower.contains('asap') || lower.contains('urgente')) {
       importance = 5;
-    } else if (lower.contains('important') || lower.contains('deadline') || lower.contains('importante') || lower.contains('scadenza')) {
+    } else if (lower.contains('important') ||
+        lower.contains('deadline') ||
+        lower.contains('importante') ||
+        lower.contains('scadenza')) {
       importance = 4;
     } else if (lower.contains('todo') || lower.contains('remind') || lower.contains('ricorda')) {
       importance = 3;
@@ -342,6 +591,7 @@ class GemmaService {
     void tag(String t, List<String> words) {
       if (words.any(lower.contains)) tags.add(t);
     }
+
     tag('meeting', ['meeting', 'riunione', 'call with']);
     tag('todo', ['todo', 'to do', 'da fare', 'remember', 'ricorda']);
     tag('idea', ['idea']);

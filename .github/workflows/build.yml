@@ -1,12 +1,15 @@
-# Builds the watch firmware and the companion app on every push and pull
-# request. A tag like v2.9.0 also makes a GitHub release with both files.
+# Builds the watch firmware and the companion app for pull requests (each
+# push to a PR's branch runs it once - branch pushes don't trigger a second
+# build). A tag like v2.9.0 also makes a GitHub release with both files.
+# The iPhone build runs only for tags and manual runs (see app-ios).
 name: build
 
 on:
   push:
-    branches: ["**"]
     tags: ["v*"]
   pull_request:
+    # the landing page (site/) has its own workflow (site.yml)
+    paths-ignore: ["site/**", ".github/workflows/site.yml"]
   # Run by hand (Actions > build > Run workflow) with a crash report's
   # backtrace: the firmware job builds that commit and prints the functions
   # and source lines.
@@ -19,7 +22,7 @@ on:
 
 env:
   ESP32_CORE: "3.3.10"
-  FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc"
+  FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=custom,CDCOnBoot=cdc"
 
 jobs:
   # The release firmware: PlatformIO (pioarduino) with power management,
@@ -60,10 +63,15 @@ jobs:
           test "$fw" = "$tag"
 
       - name: Build
+        env:
+          # The platform's own Python env (penv) takes "pioarduino>=6.2.0":
+          # keep it on 6.2.0 (pio/uv-constraints.txt says why).
+          UV_CONSTRAINT: ${{ github.workspace }}/pio/uv-constraints.txt
+          PIP_CONSTRAINT: ${{ github.workspace }}/pio/uv-constraints.txt
         run: |
           pio run -e watch 2>&1 | tee build.log
           test "${PIPESTATUS[0]}" = 0
-          grep -E "^(RAM|Flash):" build.log >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E "^(RAM|Flash):|tinyusb->psram" build.log >> "$GITHUB_STEP_SUMMARY" || true
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp .pio/build/watch/firmware.bin "AmoledSmartWatchOS-$fw.bin"
 
@@ -89,7 +97,7 @@ jobs:
 
       # The point of this build: make sure the rebuilt core (power management,
       # tickless idle) is what got linked, not the stock one.
-      - name: Check power management is in the image
+      - name: Check power management and the PSRAM moves are in the image
         run: |
           NM=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
           syms=$("$NM" .pio/build/watch/firmware.elf)
@@ -97,6 +105,17 @@ jobs:
             echo "$syms" | grep -qw "$s" || { echo "::error::$s missing - the stock core was linked, not the one built with custom_sdkconfig"; exit 1; }
           done
           echo "Power management and tickless idle linked in" >> "$GITHUB_STEP_SUMMARY"
+          # TinyUSB's buffers must be in PSRAM (0x3c.../0x3d...), not internal
+          # RAM (0x3f...) - Wi-Fi needs that room (pio/tinyusb_to_psram.py)
+          addr=$(echo "$syms" | awk '$3 == "_tud_cfg" { print $1; exit }')
+          cat .pio/tinyusb_to_psram.log 2>/dev/null || echo "(no tinyusb_to_psram.log)"
+          L=~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3
+          echo "sections.ld .ext_ram.bss: $(grep -c 'ext_ram.bss' $L/ld/sections.ld 2>/dev/null)"
+          echo "sdkconfig: $(grep -h 'ALLOW_BSS_SEG_EXTERNAL' $L/sdkconfig 2>/dev/null | head -2 | tr '\n' ' ')"
+          case "$addr" in
+            3c*|3d*) echo "TinyUSB buffers in PSRAM (_tud_cfg at 0x$addr)" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::TinyUSB buffers not in PSRAM (_tud_cfg at '$addr')"; exit 1 ;;
+          esac
 
       # The watch only installs signed updates when a key is set in
       # ota_pubkey.h; it then downloads the *.signed.bin from the release.
@@ -142,6 +161,21 @@ jobs:
 
       - uses: arduino/setup-arduino-cli@v2
 
+      - name: Fall, sleep, handwriting and motion tests (PC)
+        run: |
+          g++ -std=c++17 -Wall -Ifirmware tools/fall_test.cpp firmware/fall_detect.cpp -o fall_test
+          ./fall_test
+          g++ -std=c++17 -Wall -Ifirmware tools/sleep_test.cpp firmware/sleep_track.cpp -o sleep_test
+          ./sleep_test
+          g++ -std=c++17 -Wall -Ifirmware tools/stroke_test.cpp firmware/stroke_recog.cpp -o stroke_test
+          ./stroke_test
+          g++ -std=c++17 -Wall -Ifirmware tools/motion_test.cpp firmware/motion_detect.cpp -o motion_test
+          ./motion_test
+          g++ -std=c++17 -Wall -Ifirmware tools/silence_test.cpp -o silence_test
+          ./silence_test
+          g++ -std=c++17 -Wall -Ifirmware tools/voice_capture_test.cpp -o voice_capture_test
+          ./voice_capture_test
+
       - name: Cache cores and libraries
         uses: actions/cache@v4
         with:
@@ -167,8 +201,18 @@ jobs:
           arduino-cli compile -b "$FQBN" --libraries firmware/libraries \
             --warnings default --build-path build firmware 2>&1 | tee compile.log
           grep -E "Sketch uses|Global variables" compile.log >> "$GITHUB_STEP_SUMMARY"
+          # "Custom" lets the IDE allow up to 16 MB: the real limit is the 6 MB app slot in firmware/partitions.csv
+          size=$(stat -c %s build/firmware.ino.bin)
+          echo "App image: $size of 6291456 bytes (6 MB slot)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt 6291456 ]; then echo "::error::firmware.ino.bin ($size bytes) doesn't fit the 6 MB app slot"; exit 1; fi
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw-arduino.bin"
+
+      - name: Emulator on the PC, with self-tests (store, Wallet, home gestures)
+        run: |
+          pip install pillow
+          CXX=g++ bash tools/watch_sim/emu_host_test.sh "$RUNNER_TEMP/emu" | tee emu.log
+          grep -q "self-tests: 0 failed" emu.log
 
       - uses: actions/upload-artifact@v4
         with:
@@ -214,6 +258,8 @@ jobs:
               echo "retrying"; rm -rf "$ANDROID_HOME/ndk/$NDK"; sleep 10
             done
           done
+          # CMake for the watch emulator's native library (build.gradle.kts)
+          yes | "$SDKM" --install "cmake;3.22.1" > /dev/null
 
       - run: flutter pub get
 
@@ -269,6 +315,56 @@ jobs:
         with:
           name: app
           path: companion_app/AmoledWatch-*.apk
+
+  # The iPhone app: built without signing (an App Store / TestFlight build
+  # needs an Apple developer account and its certificates - not set up),
+  # so this checks that the Swift code, the pods and the watch emulator's
+  # C++ (ios/WatchEmu, fetched by the Podfile) all compile.
+  # Only for version tags and manual runs (Actions > build > Run workflow):
+  # macOS time costs 10x the Linux minutes, and PRs already build the same
+  # Dart code for Android.
+  app-ios:
+    if: github.event_name != 'pull_request'
+    runs-on: macos-15
+    permissions:
+      contents: write   # the .ipa onto a tag's release
+    defaults:
+      run:
+        working-directory: companion_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build for iOS (no signing)
+        run: flutter build ios --release --no-codesign
+
+      # An unsigned .ipa: an iPhone installs it once it's signed with an Apple
+      # ID - Sideloadly or AltStore do that (README, "iPhone"). A free Apple ID
+      # re-signs every 7 days and may leave out HealthKit.
+      - name: Pack an unsigned .ipa
+        run: |
+          fw=$(grep -oE 'FW_VERSION "[^"]+"' ../firmware/diag.h | cut -d'"' -f2)
+          rm -rf Payload && mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "AmoledWatch-ios-$fw-unsigned.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-ios
+          path: companion_app/AmoledWatch-ios-*-unsigned.ipa
+
+      # on a version tag, onto that release too (on its own, so a slow macOS
+      # queue never holds up the firmware and Android release)
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: companion_app/AmoledWatch-ios-*-unsigned.ipa
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

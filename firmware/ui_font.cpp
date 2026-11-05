@@ -1,3 +1,4 @@
+#include "app_settings_state.h"
 #include "ui_font.h"
 #include "ui.h"
 #include "ui_fonts_data.h"
@@ -22,10 +23,12 @@ void ui_fonts_set_smooth(bool on) { s_smooth = on; }
 bool ui_fonts_smooth() { return s_smooth; }
 
 UiFont ui_font_for_size(int size) {
+    // Settings > Display > Text size: body text (sizes 1-2) one step bigger
+    uint8_t ts = g_app_settings.text_size;
     switch (size) {
         case 0:
-        case 1: return FONT_S;
-        case 2: return FONT_M;
+        case 1: return ts ? FONT_M : FONT_S;
+        case 2: return ts >= 2 ? FONT_L : FONT_M;
         case 3: return FONT_L;
         case 4: return FONT_XL;
         case 5: return FONT_XXL;

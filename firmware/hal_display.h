@@ -35,6 +35,8 @@ void display_init();
 bool display_is_ok();
 void display_set_brightness(uint8_t level);   // applied by the sender between frames
 uint8_t display_get_brightness();
+// A ceiling over whatever brightness is set (255: none) - dimmer at night.
+void display_set_brightness_cap(uint8_t cap);
 
 // AMOLED hardware sleep/wake - blocks until the sender has done it.
 void display_sleep();

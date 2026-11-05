@@ -4,11 +4,13 @@
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
+#include "app_face_nav.h"
 #include "ui_font.h"
 #include "apps.h"
 #include "app_menu.h"
 #include "watchface_registry.h"
 #include "hal_rtc.h"
+#include "clock_fmt.h"
 #include "hal_power.h"
 #include "hal_imu.h"
 #include "hal_ble.h"
@@ -166,8 +168,8 @@ static void draw_widget(Arduino_GFX *g, const CachedWidget &w, const WatchTime &
         comp_draw(g, comp_from_key(w.dataSrc), w.x, w.y, w.radius > 10 ? w.radius : 40, w.color);
     }
     else if (strcmp(w.type, "digital_time") == 0) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+        char buf[12];
+        clock_hm_text(buf, sizeof(buf), t.hour, t.minute);
         draw_text_centered(g, w.x, w.y, buf, w.fs, w.color);
     }
     else if (strcmp(w.type, "date") == 0) {
@@ -310,21 +312,7 @@ static void custom_wf_draw() {
     pet_step_and_draw(g); // drawn last so widgets never paint over it
 }
 
-static void custom_wf_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            watchface_cycle_next();
-            break;
-        default:
-            break;
-    }
-}
+static void custom_wf_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 static void custom_wf_touch(int x, int y, bool pressed) {
     pet_handle_touch(x, y, pressed);

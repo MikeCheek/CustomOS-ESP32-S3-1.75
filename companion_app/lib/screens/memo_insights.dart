@@ -1,3 +1,5 @@
+import '../services/memo_export.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/knowledge_provider.dart';
@@ -8,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import 'recording_detail.dart';
+import '../services/memo_embeddings.dart';
 
 // Knowledge views over the voice memos: Insights dashboard, theme
 // collections, search with relevance scores, questions to the on-device AI.
@@ -30,12 +33,12 @@ String fmtDate(DateTime? d) {
 }
 
 Color importanceColor(int i) => switch (i) {
-      5 => AppColors.danger,
-      4 => AppColors.warning,
-      3 => AppColors.accent,
-      2 => AppColors.accent2,
-      _ => AppColors.textDim,
-    };
+  5 => AppColors.danger,
+  4 => AppColors.warning,
+  3 => AppColors.accent,
+  2 => AppColors.accent2,
+  _ => AppColors.textDim,
+};
 
 void openMemo(BuildContext context, RecordingEntry e) =>
     Navigator.push(context, MaterialPageRoute(builder: (_) => RecordingDetail(entry: e)));
@@ -68,23 +71,33 @@ class MemoTile extends StatelessWidget {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(color: c.withValues(alpha: 0.16), shape: BoxShape.circle),
-                  child: Icon(entry.transcript.isNotEmpty ? Icons.notes_rounded : Icons.graphic_eq_rounded, color: c, size: 18),
+                  child: Icon(
+                    entry.transcript.isNotEmpty ? Icons.notes_rounded : Icons.graphic_eq_rounded,
+                    color: c,
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        Flexible(
-                          child: Text(entry.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: AppColors.text, fontSize: 14, fontWeight: FontWeight.w600)),
-                        ),
-                        if (entry.favorite) ...[
-                          const SizedBox(width: 4),
-                          const Icon(Icons.star_rounded, size: 15, color: AppColors.warning),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              entry.displayTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: AppColors.text, fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (entry.favorite) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.star_rounded, size: 15, color: AppColors.warning),
+                          ],
                         ],
-                      ]),
+                      ),
                       if (meta.isNotEmpty) Text(meta, style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
                     ],
                   ),
@@ -145,16 +158,23 @@ class InsightsView extends ConsumerWidget {
           children: [
             StatTile(icon: Icons.mic_rounded, value: '${kb.entries.length}', label: 'memos'),
             StatTile(
-                icon: Icons.schedule_rounded,
-                color: AppColors.accent2,
-                value: hours >= 1 ? '${hours.toStringAsFixed(1)} h' : '${(kb.totalSeconds / 60).round()} min',
-                label: 'recorded'),
+              icon: Icons.schedule_rounded,
+              color: AppColors.accent2,
+              value: hours >= 1 ? '${hours.toStringAsFixed(1)} h' : '${(kb.totalSeconds / 60).round()} min',
+              label: 'recorded',
+            ),
             StatTile(
-                icon: Icons.text_fields_rounded,
-                color: AppColors.accent3,
-                value: _compact(kb.totalWords),
-                label: 'words transcribed'),
-            StatTile(icon: Icons.auto_awesome_rounded, color: AppColors.success, value: '$processed%', label: 'processed'),
+              icon: Icons.text_fields_rounded,
+              color: AppColors.accent3,
+              value: _compact(kb.totalWords),
+              label: 'words transcribed',
+            ),
+            StatTile(
+              icon: Icons.auto_awesome_rounded,
+              color: AppColors.success,
+              value: '$processed%',
+              label: 'processed',
+            ),
           ],
         ),
         if (topics.isNotEmpty) ...[
@@ -173,20 +193,22 @@ class InsightsView extends ConsumerWidget {
               series: trend,
               xLabels: [
                 for (var i = 0; i < 8; i++)
-                  i % 2 == 1 ? '${weeks[weeks.length - 8 + i].day}/${weeks[weeks.length - 8 + i].month}' : ''
+                  i % 2 == 1 ? '${weeks[weeks.length - 8 + i].day}/${weeks[weeks.length - 8 + i].month}' : '',
               ],
             ),
           ),
         ],
-        SectionLabel('Memos per week',
-            trailing: Text(
-              thisWeek == lastWeek
-                  ? 'same as last week'
-                  : thisWeek > lastWeek
-                      ? '+${thisWeek - lastWeek} vs last week'
-                      : '${thisWeek - lastWeek} vs last week',
-              style: TextStyle(color: thisWeek >= lastWeek ? AppColors.success : AppColors.textDim, fontSize: 12),
-            )),
+        SectionLabel(
+          'Memos per week',
+          trailing: Text(
+            thisWeek == lastWeek
+                ? 'same as last week'
+                : thisWeek > lastWeek
+                ? '+${thisWeek - lastWeek} vs last week'
+                : '${thisWeek - lastWeek} vs last week',
+            style: TextStyle(color: thisWeek >= lastWeek ? AppColors.success : AppColors.textDim, fontSize: 12),
+          ),
+        ),
         Panel(
           child: BarChart(
             values: perWeek,
@@ -225,11 +247,13 @@ class InsightsView extends ConsumerWidget {
           ),
         ),
         if (actions.isNotEmpty) ...[
-          SectionLabel('Open to-dos',
-              trailing: TextButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ActionsScreen())),
-                child: Text('All ${actions.length}'),
-              )),
+          SectionLabel(
+            'Open to-dos',
+            trailing: TextButton(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ActionsScreen())),
+              child: Text('All ${actions.length}'),
+            ),
+          ),
           Panel(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Column(children: [for (final a in actions.take(6)) ActionRow(a)]),
@@ -242,7 +266,9 @@ class InsightsView extends ConsumerWidget {
               items: [for (final p in people) (p.$1, p.$2)],
               color: AppColors.accent3,
               onTap: (i) => Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: people[i].$1))),
+                context,
+                MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: people[i].$1)),
+              ),
             ),
           ),
         ],
@@ -255,8 +281,8 @@ class InsightsView extends ConsumerWidget {
               for (final t in tags.entries.take(24))
                 ActionChip(
                   label: Text('#${t.key}  ${t.value}'),
-                  onPressed: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialTag: t.key))),
+                  onPressed: () =>
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialTag: t.key))),
                 ),
             ],
           ),
@@ -264,20 +290,35 @@ class InsightsView extends ConsumerWidget {
         if (highlights.isNotEmpty) ...[
           const SectionLabel('Important memos'),
           for (final e in highlights.take(5))
-            MemoTile(e,
-                below: Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35))),
+            MemoTile(
+              e,
+              below: Text(
+                e.summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+              ),
+            ),
         ],
       ],
     );
   }
 
-  static String _compact(int n) => n >= 10000 ? '${(n / 1000).round()}k' : n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
+  static String _compact(int n) => n >= 10000
+      ? '${(n / 1000).round()}k'
+      : n >= 1000
+      ? '${(n / 1000).toStringAsFixed(1)}k'
+      : '$n';
 
   void _openTopic(BuildContext context, KnowledgeBase kb, TopicStat t) {
     final items = [for (final i in t.memoIdx) kb.entries[i]]
       ..sort((a, b) => (b.recordedAt ?? DateTime(2000)).compareTo(a.recordedAt ?? DateTime(2000)));
-    Navigator.push(context, MaterialPageRoute(builder: (_) => MemoListScreen(title: t.label, items: items)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MemoListScreen(title: t.label, items: items),
+      ),
+    );
   }
 }
 
@@ -304,17 +345,21 @@ class ActionRow extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.text,
-                        style: TextStyle(
-                          color: done ? AppColors.textDim : AppColors.text,
-                          fontSize: 14,
-                          decoration: done ? TextDecoration.lineThrough : null,
-                        )),
+                    Text(
+                      item.text,
+                      style: TextStyle(
+                        color: done ? AppColors.textDim : AppColors.text,
+                        fontSize: 14,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
                     if (showMemo)
-                      Text('${item.entry.displayTitle} · ${fmtDate(item.entry.recordedAt)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.textFaint, fontSize: 12)),
+                      Text(
+                        '${item.entry.displayTitle} · ${fmtDate(item.entry.recordedAt)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
+                      ),
                   ],
                 ),
               ),
@@ -342,19 +387,37 @@ class _ActionsScreenState extends ConsumerState<ActionsScreen> {
     final all = kb.actions();
     final list = _showDone ? all : all.where((a) => !done.contains(a.key)).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('To-dos from memos'), actions: [
-        TextButton(
-            onPressed: () => setState(() => _showDone = !_showDone), child: Text(_showDone ? 'Hide done' : 'Show done')),
-      ]),
+      appBar: AppBar(
+        title: const Text('To-dos from memos'),
+        actions: [
+          IconButton(
+            tooltip: 'Share the list',
+            icon: const Icon(Icons.ios_share_rounded),
+            onPressed: list.isEmpty
+                ? null
+                : () => MemoExport.shareTodos([
+                    for (final e in {for (final a in list) a.entry}) e,
+                  ]),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _showDone = !_showDone),
+            child: Text(_showDone ? 'Hide done' : 'Show done'),
+          ),
+        ],
+      ),
       body: list.isEmpty
           ? const EmptyState(
               icon: Icons.task_alt_rounded,
               title: 'Nothing to do',
-              subtitle: 'Things you say you need to do in a memo show up here.')
+              subtitle: 'Things you say you need to do in a memo show up here.',
+            )
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
-                Panel(padding: const EdgeInsets.symmetric(vertical: 6), child: Column(children: [for (final a in list) ActionRow(a)])),
+                Panel(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Column(children: [for (final a in list) ActionRow(a)]),
+                ),
               ],
             ),
     );
@@ -368,19 +431,25 @@ class MemoListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(title)),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-          children: [
-            for (final e in items)
-              MemoTile(e,
-                  below: e.summary.isEmpty
-                      ? null
-                      : Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35))),
-          ],
-        ),
-      );
+    appBar: AppBar(title: Text(title)),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      children: [
+        for (final e in items)
+          MemoTile(
+            e,
+            below: e.summary.isEmpty
+                ? null
+                : Text(
+                    e.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+                  ),
+          ),
+      ],
+    ),
+  );
 }
 
 // ============================================================================================
@@ -424,7 +493,11 @@ class _CollectionsViewState extends ConsumerState<CollectionsView> {
           runSpacing: 4,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            ChoiceChip(label: const Text('By theme'), selected: !_byTag, onSelected: (_) => setState(() => _byTag = false)),
+            ChoiceChip(
+              label: const Text('By theme'),
+              selected: !_byTag,
+              onSelected: (_) => setState(() => _byTag = false),
+            ),
             ChoiceChip(label: const Text('By tag'), selected: _byTag, onSelected: (_) => setState(() => _byTag = true)),
             if (!_byTag && cols.isNotEmpty)
               TextButton.icon(
@@ -462,27 +535,41 @@ class _CollectionsViewState extends ConsumerState<CollectionsView> {
                 title: 'Other memos',
                 subtitle: '${kb.unclustered.length} not in a theme',
                 onTap: () => Navigator.push(
-                    context, MaterialPageRoute(builder: (_) => MemoListScreen(title: 'Other memos', items: kb.unclustered))),
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MemoListScreen(title: 'Other memos', items: kb.unclustered),
+                  ),
+                ),
               ),
             ),
         ] else ...[
           if (byTag.isEmpty)
             const Padding(
               padding: EdgeInsets.only(top: 40),
-              child: EmptyState(icon: Icons.tag_rounded, title: 'No tags yet', subtitle: 'Summaries add tags to memos.'),
+              child: EmptyState(
+                icon: Icons.tag_rounded,
+                title: 'No tags yet',
+                subtitle: 'Summaries add tags to memos.',
+              ),
             )
           else
-            RowGroup(children: [
-              for (final t in byTag.entries)
-                NavRow(
-                  icon: Icons.tag_rounded,
-                  color: AppColors.accent2,
-                  title: t.key,
-                  subtitle: '${t.value.length} memo${t.value.length == 1 ? '' : 's'}',
-                  onTap: () =>
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => MemoListScreen(title: '#${t.key}', items: t.value))),
-                ),
-            ]),
+            RowGroup(
+              children: [
+                for (final t in byTag.entries)
+                  NavRow(
+                    icon: Icons.tag_rounded,
+                    color: AppColors.accent2,
+                    title: t.key,
+                    subtitle: '${t.value.length} memo${t.value.length == 1 ? '' : 's'}',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MemoListScreen(title: '#${t.key}', items: t.value),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
         ],
       ],
     );
@@ -502,7 +589,12 @@ class _CollectionCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Panel(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CollectionScreen(collection: c, color: color))),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CollectionScreen(collection: c, color: color),
+          ),
+        ),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -519,10 +611,16 @@ class _CollectionCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700)),
-                      Text('${c.items.length} memos${last != null ? ' · last ${fmtDate(last)}' : ''}',
-                          style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        '${c.items.length} memos${last != null ? ' · last ${fmtDate(last)}' : ''}',
+                        style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
@@ -545,8 +643,12 @@ class _CollectionCard extends StatelessWidget {
             for (final e in c.items.take(3))
               Padding(
                 padding: const EdgeInsets.only(top: 3),
-                child: Text('•  ${e.displayTitle}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 13)),
+                child: Text(
+                  '•  ${e.displayTitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 13),
+                ),
               ),
           ],
         ),
@@ -565,7 +667,7 @@ class CollectionScreen extends ConsumerWidget {
     ref.watch(collectionNamesProvider);
     final name = ref.read(collectionNamesProvider.notifier).nameOf(collection);
     final c = collection;
-    final kb = KnowledgeBase.build(c.items);   // stats of just this theme
+    final kb = KnowledgeBase.build(c.items); // stats of just this theme
     final actions = kb.actions();
     final people = kb.people(n: 6);
     final secs = kb.totalSeconds;
@@ -573,6 +675,11 @@ class CollectionScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(name),
         actions: [
+          IconButton(
+            tooltip: 'Share these memos',
+            icon: const Icon(Icons.ios_share_rounded),
+            onPressed: () => MemoExport.shareAll(name, c.items),
+          ),
           IconButton(
             tooltip: 'Rename',
             icon: const Icon(Icons.edit_outlined),
@@ -583,25 +690,50 @@ class CollectionScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          Row(children: [
-            Expanded(child: StatTile(icon: Icons.mic_rounded, color: color, value: '${c.items.length}', label: 'memos')),
-            const SizedBox(width: 10),
-            Expanded(child: StatTile(icon: Icons.schedule_rounded, color: color, value: fmtDuration(secs).isEmpty ? '–' : fmtDuration(secs), label: 'audio')),
-            const SizedBox(width: 10),
-            Expanded(child: StatTile(icon: Icons.hub_rounded, color: color, value: '${(c.cohesion * 100).round()}%', label: 'similarity')),
-          ]),
-          const SectionLabel('Keywords'),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final k in c.keywords)
-              ActionChip(
-                label: Text(k),
-                onPressed: () =>
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: k))),
+          Row(
+            children: [
+              Expanded(
+                child: StatTile(icon: Icons.mic_rounded, color: color, value: '${c.items.length}', label: 'memos'),
               ),
-          ]),
+              const SizedBox(width: 10),
+              Expanded(
+                child: StatTile(
+                  icon: Icons.schedule_rounded,
+                  color: color,
+                  value: fmtDuration(secs).isEmpty ? '–' : fmtDuration(secs),
+                  label: 'audio',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: StatTile(
+                  icon: Icons.hub_rounded,
+                  color: color,
+                  value: '${(c.cohesion * 100).round()}%',
+                  label: 'similarity',
+                ),
+              ),
+            ],
+          ),
+          const SectionLabel('Keywords'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final k in c.keywords)
+                ActionChip(
+                  label: Text(k),
+                  onPressed: () =>
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => MemoSearchScreen(initialQuery: k))),
+                ),
+            ],
+          ),
           if (actions.isNotEmpty) ...[
             const SectionLabel('To-dos'),
-            Panel(padding: const EdgeInsets.symmetric(vertical: 6), child: Column(children: [for (final a in actions) ActionRow(a)])),
+            Panel(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [for (final a in actions) ActionRow(a)]),
+            ),
           ],
           if (people.isNotEmpty) ...[
             const SectionLabel('People'),
@@ -609,11 +741,17 @@ class CollectionScreen extends ConsumerWidget {
           ],
           const SectionLabel('Memos'),
           for (final e in c.items)
-            MemoTile(e,
-                below: e.summary.isEmpty
-                    ? null
-                    : Text(e.summary, maxLines: 2, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35))),
+            MemoTile(
+              e,
+              below: e.summary.isEmpty
+                  ? null
+                  : Text(
+                      e.summary,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+                    ),
+            ),
         ],
       ),
     );
@@ -625,7 +763,11 @@ class CollectionScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Collection name'),
-        content: TextField(controller: ctl, autofocus: true, decoration: const InputDecoration(hintText: 'Name')),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Name'),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
@@ -661,9 +803,30 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
   bool _asking = false;
   String? _answer;
   List<RecordingEntry> _sources = const [];
+  // search by meaning (memo_embeddings.dart), for the query it was made for
+  String _meaningFor = '';
+  List<(RecordingEntry, double)> _meaning = const [];
+  Timer? _meaningTimer;
+
+  void _queueMeaning() {
+    _meaningTimer?.cancel();
+    final q = _q.text.trim();
+    if (q.length < 3) return;
+    _meaningTimer = Timer(const Duration(milliseconds: 700), () async {
+      try {
+        final r = await MemoEmbeddings.instance.rank(q, ref.read(knowledgeProvider).entries);
+        if (mounted && _q.text.trim() == q)
+          setState(() {
+            _meaning = r;
+            _meaningFor = q;
+          });
+      } catch (_) {}
+    });
+  }
 
   @override
   void dispose() {
+    _meaningTimer?.cancel();
     _q.dispose();
     super.dispose();
   }
@@ -676,7 +839,7 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
       _asking = true;
       _answer = null;
     });
-    final ctx = ref.read(knowledgeProvider).contextFor(question);
+    final ctx = await MemoEmbeddings.instance.contextFor(ref.read(knowledgeProvider), question);
     String? answer;
     try {
       answer = ctx.isEmpty ? null : await GemmaService.instance.ask(question, ctx.map((c) => c.$2).toList());
@@ -689,7 +852,8 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
       _sources = ctx.map((c) => c.$1).toList();
       _answer = ctx.isEmpty
           ? 'No memo talks about that.'
-          : answer ?? 'Install a summary model in Transcription & AI to get answers. The best matching memos are below.';
+          : answer ??
+                'Install a summary model in Transcription & AI to get answers. The best matching memos are below.';
     });
   }
 
@@ -701,13 +865,13 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
     final hits = query.isEmpty && _tags.isEmpty
         ? const <SearchHit>[]
         : query.isEmpty
-            // tag filter only: list everything in the tag
-            ? [
-                for (final e in kb.entries)
-                  if (e.tags.any(_tags.contains) || e.topics.any(_tags.contains))
-                    if (!_importantOnly || e.importance >= 4) SearchHit(e, 1, e.summary, const [], 0, 0)
-              ]
-            : kb.search(query, tags: _tags, minImportance: _importantOnly ? 4 : 1);
+        // tag filter only: list everything in the tag
+        ? [
+            for (final e in kb.entries)
+              if (e.tags.any(_tags.contains) || e.topics.any(_tags.contains))
+                if (!_importantOnly || e.importance >= 4) SearchHit(e, 1, e.summary, const [], 0, 0),
+          ]
+        : kb.search(query, tags: _tags, minImportance: _importantOnly ? 4 : 1);
 
     return Scaffold(
       appBar: AppBar(
@@ -716,7 +880,10 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
           controller: _q,
           autofocus: widget.initialQuery.isEmpty && widget.initialTag == null,
           textInputAction: TextInputAction.search,
-          onChanged: (_) => setState(() => _answer = null),
+          onChanged: (_) {
+            setState(() => _answer = null);
+            _queueMeaning();
+          },
           onSubmitted: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: 'Search or ask your memos',
@@ -731,7 +898,8 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
                     onPressed: () => setState(() {
                       _q.clear();
                       _answer = null;
-                    })),
+                    }),
+                  ),
           ),
         ),
       ),
@@ -740,21 +908,23 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
         children: [
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              FilterChip(
-                label: const Text('Important'),
-                selected: _importantOnly,
-                onSelected: (v) => setState(() => _importantOnly = v),
-              ),
-              for (final t in {..._tags, ...tagCounts.keys.take(12)}) ...[
-                const SizedBox(width: 6),
+            child: Row(
+              children: [
                 FilterChip(
-                  label: Text('#$t'),
-                  selected: _tags.contains(t),
-                  onSelected: (v) => setState(() => v ? _tags.add(t) : _tags.remove(t)),
+                  label: const Text('Important'),
+                  selected: _importantOnly,
+                  onSelected: (v) => setState(() => _importantOnly = v),
                 ),
+                for (final t in {..._tags, ...tagCounts.keys.take(12)}) ...[
+                  const SizedBox(width: 6),
+                  FilterChip(
+                    label: Text('#$t'),
+                    selected: _tags.contains(t),
+                    onSelected: (v) => setState(() => v ? _tags.add(t) : _tags.remove(t)),
+                  ),
+                ],
               ],
-            ]),
+            ),
           ),
           const SizedBox(height: 10),
           if (query.length >= 3)
@@ -763,38 +933,57 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
               color: AppColors.accent.withValues(alpha: 0.10),
               onTap: _asking ? null : (_answer == null ? _ask : null),
               child: _answer == null
-                  ? Row(children: [
-                      _asking
-                          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.auto_awesome_rounded, color: AppColors.accent),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(_asking ? 'Reading your memos...' : 'Ask AI: "$query"',
+                  ? Row(
+                      children: [
+                        _asking
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.auto_awesome_rounded, color: AppColors.accent),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _asking ? 'Reading your memos...' : 'Ask AI: "$query"',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600)),
-                      ),
-                    ])
+                            style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    )
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(children: [
-                          Icon(Icons.auto_awesome_rounded, color: AppColors.accent, size: 18),
-                          SizedBox(width: 8),
-                          Text('Answer', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
-                        ]),
+                        const Row(
+                          children: [
+                            Icon(Icons.auto_awesome_rounded, color: AppColors.accent, size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Answer',
+                              style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
-                        SelectableText(_answer!, style: const TextStyle(color: AppColors.text, fontSize: 14, height: 1.45)),
+                        SelectableText(
+                          _answer!,
+                          style: const TextStyle(color: AppColors.text, fontSize: 14, height: 1.45),
+                        ),
                         if (_sources.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          Wrap(spacing: 6, runSpacing: 6, children: [
-                            for (var i = 0; i < _sources.length; i++)
-                              ActionChip(
-                                visualDensity: VisualDensity.compact,
-                                label: Text('[${i + 1}] ${_sources[i].displayTitle}', overflow: TextOverflow.ellipsis),
-                                onPressed: () => openMemo(context, _sources[i]),
-                              ),
-                          ]),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (var i = 0; i < _sources.length; i++)
+                                ActionChip(
+                                  visualDensity: VisualDensity.compact,
+                                  label: Text(
+                                    '[${i + 1}] ${_sources[i].displayTitle}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onPressed: () => openMemo(context, _sources[i]),
+                                ),
+                            ],
+                          ),
                         ],
                       ],
                     ),
@@ -811,18 +1000,38 @@ class _MemoSearchScreenState extends ConsumerState<MemoSearchScreen> {
                     if (h.snippet.isNotEmpty) HighlightText(h.snippet, h.hits, maxLines: 3),
                     if (h.queryTerms > 1) ...[
                       const SizedBox(height: 6),
-                      Text('${h.matchedTerms} of ${h.queryTerms} words',
-                          style: const TextStyle(color: AppColors.textFaint, fontSize: 11)),
+                      Text(
+                        '${h.matchedTerms} of ${h.queryTerms} words',
+                        style: const TextStyle(color: AppColors.textFaint, fontSize: 11),
+                      ),
                     ],
                   ],
                 ),
               ),
+            // memos close in meaning that the words didn't find
+            if (query.length >= 3 && _meaningFor == query) ...[
+              for (final (e, sc) in _meaning.where((m) => m.$2 >= 0.35 && !hits.any((h) => h.entry.name == m.$1.name)))
+                MemoTile(
+                  e,
+                  trailing: ScoreBar(sc.clamp(0, 1).toDouble()),
+                  below: Text(
+                    e.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+                  ),
+                ),
+            ],
           ] else ...[
             const SectionLabel('Try'),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final t in kb.topTopics(n: 8))
-                ActionChip(label: Text(t.label), onPressed: () => setState(() => _q.text = t.label)),
-            ]),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final t in kb.topTopics(n: 8))
+                  ActionChip(label: Text(t.label), onPressed: () => setState(() => _q.text = t.label)),
+              ],
+            ),
             const SizedBox(height: 16),
             const Text(
               'Results are ranked by relevance (word weight, similarity and how many of your words match). '

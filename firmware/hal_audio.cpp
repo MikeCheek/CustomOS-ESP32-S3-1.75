@@ -9,6 +9,7 @@
 #include <driver/i2s.h>
 #include <esp_heap_caps.h>
 #include <math.h>
+#include <esp_timer.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -61,6 +62,7 @@ static volatile bool s_pa_on = true;
 // as the speaker amp, and starts again before the next sound or recording.
 // The prebuilt Arduino core can't light-sleep anyway: there it keeps running.
 static volatile bool s_i2s_running = true;
+static volatile bool s_mic_hold = false;   // audio_mic_hold(): someone listens in the background
 
 static inline void i2s_ensure_running() {
 #if CONFIG_PM_ENABLE
@@ -97,7 +99,8 @@ static esp_err_t i2s_write_guarded(const void *data, size_t size, size_t *bytes_
 // — the task body and audio_play_sfx() are defined further down, once
 // play_tone_blocking() (the tone synthesis they share with audio_beep)
 // is available.
-struct SfxRequest { uint16_t freq_hz; uint16_t duration_ms; };
+// piano: 0 a plain tone, 1 piano notes - midi[0..n) when n > 0, else freq_hz
+struct SfxRequest { uint16_t freq_hz; uint16_t duration_ms; uint8_t piano; uint8_t n; uint8_t midi[4]; };
 static QueueHandle_t s_sfx_queue = nullptr;
 static TaskHandle_t  s_sfx_task_handle = nullptr;
 static void sfx_task(void *param);
@@ -642,7 +645,12 @@ bool audio_init() {
     if (!s_i2s_mutex) s_i2s_mutex = xSemaphoreCreateMutex();
     if (!s_sfx_queue) s_sfx_queue = xQueueCreate(4, sizeof(SfxRequest));
     if (!s_sfx_task_handle && s_sfx_queue) {
-        if (xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
+        // Stack in PSRAM (internal RAM is kept for Wi-Fi next to Bluetooth).
+        static StaticTask_t sfx_tcb;
+        StackType_t *sfx_stack = (StackType_t *)ps_malloc(4096);
+        if (sfx_stack) s_sfx_task_handle = xTaskCreateStaticPinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, sfx_stack, &sfx_tcb, 1);
+        if (!s_sfx_task_handle &&
+            xTaskCreatePinnedToCore(sfx_task, "sfx_task", 4096, NULL, 3, &s_sfx_task_handle, 1) != pdPASS) {
             DEBUG_PRINTF("[audio] sfx_task creation FAILED - game sound effects will be silent\n");
             s_sfx_task_handle = NULL;
         }
@@ -701,20 +709,224 @@ void audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
 
 // ---- SFX task body (queue/handles declared earlier, near audio_init) --
 
+// ---- The piano --------------------------------------------------------------------------------
+// A small polyphonic piano, mixed in the sfx task: up to 6 notes ring at
+// once (a chord, or one note still sounding under the next), each made of
+//   - partials slightly sharper than whole multiples (a real string's
+//     stiffness), none above what 16 kHz can carry (no aliased squeaks),
+//   - each partial dying away twice - fast at first, then a long tail -
+//     the upper ones sooner, so the tone mellows as it sounds,
+//   - two strings a hair apart on the lower partials (the slow beating
+//     that makes a piano sound like one),
+//   - a short felt-hammer knock at the start,
+// and a damper fade when the note's time is up, never a cut. Low notes
+// lean on their harmonics: the watch's small speaker can't move air at
+// 130 Hz, and the ear hears the pitch from them anyway.
+// Chunks of 128 samples (8 ms) are written ~40 ms ahead of the speaker, and
+// the queue is read between chunks, so a tap is heard right away.
+#define PN_VOICES 6
+#define PN_PARTS 7
+struct PianoVoice {
+    bool on;
+    bool released;
+    uint8_t midi;
+    int age, len;                  // samples
+    float damp;                    // 1, falling once released
+    int np;
+    uint32_t ph[PN_PARTS], inc[PN_PARTS];
+    uint32_t ph2[2], inc2[2];      // the second string, partials 1-2
+    float e1[PN_PARTS], e2[PN_PARTS], d1[PN_PARTS], d2[PN_PARTS];
+    float noise, nlp;              // the hammer
+    uint32_t seed;
+};
+static PianoVoice s_pv[PN_VOICES];
+static int16_t s_sine[1024];
+static bool s_sine_ok = false;
+
+static void pn_table() {
+    if (s_sine_ok) return;
+    for (int i = 0; i < 1024; i++) s_sine[i] = (int16_t)(sinf(i * 6.2831853f / 1024) * 32767);
+    s_sine_ok = true;
+}
+
+static bool pn_active() {
+    for (auto &v : s_pv)
+        if (v.on) return true;
+    return false;
+}
+
+static void pn_start(float f, uint8_t midi, uint16_t duration_ms, float vel) {
+    if (f < 20 || f > 4200) return;
+    // the same key again: the old one's damper comes down
+    for (auto &v : s_pv)
+        if (v.on && v.midi == midi && !v.released) v.released = true;
+    // a free voice, else the quietest
+    PianoVoice *best = nullptr;
+    float quiet = 1e9f;
+    for (auto &v : s_pv) {
+        if (!v.on) { best = &v; break; }
+        float e = v.damp * (v.e1[0] + v.e2[0]) * (v.released ? 0.5f : 1.0f);
+        if (e < quiet) { quiet = e; best = &v; }
+    }
+    PianoVoice &v = *best;
+    memset(&v, 0, sizeof(v));
+    v.on = true;
+    v.midi = midi;
+    v.damp = 1;
+    v.len = SAMPLE_RATE * (duration_ms < 200 ? 200 : duration_ms) / 1000;
+    // the string: stiffer (more inharmonic) going up
+    float B = 0.00025f + 0.0005f * (f / 1000.0f);
+    // how long it rings: long in the bass, short at the top
+    float tau = 3.2f * powf(261.6f / f, 0.65f);
+    if (tau > 4.0f) tau = 4.0f;
+    if (tau < 0.35f) tau = 0.35f;
+    // partial weights: a warm spectrum; the small speaker gets less fundamental in the bass
+    static const float W[PN_PARTS] = {1.0f, 0.62f, 0.36f, 0.24f, 0.14f, 0.09f, 0.05f};
+    float bass = f < 400 ? 0.45f + 0.55f * (f / 400.0f) : 1.0f;
+    float bright = f < 1000 ? 1.0f : 1000.0f / f;   // upper notes: fewer, softer overtones
+    v.np = 0;
+    for (int n = 0; n < PN_PARTS; n++) {
+        float k = n + 1;
+        float fn = k * f * sqrtf(1.0f + B * k * k);
+        if (fn > 7200) break;                      // past what 16 kHz can carry
+        float w = W[n] * (n == 0 ? bass : 1.0f) * (n >= 2 ? bright : 1.0f) * vel;
+        v.inc[n] = (uint32_t)((double)fn * 4294967296.0 / SAMPLE_RATE);
+        v.ph[n] = (uint32_t)(n * 0x2F00000u);      // not all in phase: a softer edge
+        float t2 = tau / powf(k, 0.75f), t1 = t2 * 0.16f;
+        v.e1[n] = w * 0.55f;
+        v.e2[n] = w * 0.45f;
+        v.d1[n] = expf(-1.0f / (t1 * SAMPLE_RATE));
+        v.d2[n] = expf(-1.0f / (t2 * SAMPLE_RATE));
+        v.np++;
+    }
+    // the second string: ~2 cents sharp
+    for (int n = 0; n < 2 && n < v.np; n++) v.inc2[n] = (uint32_t)(v.inc[n] * 1.0012);
+    v.noise = 0.18f * vel * (0.6f + 0.4f * fminf(f / 800.0f, 1.0f));
+    v.seed = 0x9E3779B9u ^ (midi * 2654435761u);
+}
+
+// mixes `n` samples of every ringing note into buf (stereo)
+static void pn_render(int16_t *buf, int n) {
+    for (int i = 0; i < n; i++) {
+        float mix = 0;
+        for (auto &v : s_pv) {
+            if (!v.on) continue;
+            float s = 0;
+            for (int p = 0; p < v.np; p++) {
+                float e = v.e1[p] + v.e2[p];
+                float x = s_sine[v.ph[p] >> 22];
+                if (p < 2) {   // two strings
+                    x = 0.5f * (x + s_sine[v.ph2[p] >> 22]);
+                    v.ph2[p] += v.inc2[p];
+                }
+                s += x * e;
+                v.ph[p] += v.inc[p];
+                v.e1[p] *= v.d1[p];
+                v.e2[p] *= v.d2[p];
+            }
+            // the hammer: a short, dull knock
+            if (v.age < SAMPLE_RATE / 160) {
+                v.seed = v.seed * 1664525u + 1013904223u;
+                float r = (int32_t)v.seed / 2147483648.0f;
+                v.nlp += 0.35f * (r - v.nlp);
+                s += v.nlp * v.noise * 32767.0f * (1.0f - (float)v.age / (SAMPLE_RATE / 160));
+            }
+            float a = v.age < 24 ? v.age / 24.0f : 1.0f;   // 1.5 ms attack
+            if (v.age >= v.len) v.released = true;
+            if (v.released) v.damp *= 0.99955f;           // the damper: ~140 ms
+            mix += s * a * v.damp;
+            v.age++;
+            if (v.damp < 0.002f || (v.age > SAMPLE_RATE / 4 && v.e2[0] + v.e1[0] < 0.0015f)) v.on = false;
+        }
+        // all of it: straight through, and only near full scale gently
+        // rounded off (a curve all the way down would distort every chord)
+        float y = mix * (0.24f / 32767.0f);
+        float ay = fabsf(y);
+        if (ay > 0.6f) {
+            float o2 = 0.6f + 0.38f * tanhf((ay - 0.6f) / 0.38f);
+            y = y < 0 ? -o2 : o2;
+        }
+        int16_t o = (int16_t)(y * 32767.0f);
+        buf[i * 2] = o;
+        buf[i * 2 + 1] = o;
+    }
+}
+
+static float midi_hz(int m) { return 440.0f * powf(2.0f, (m - 69) / 12.0f); }
+
+static void pn_take(const SfxRequest &r) {
+    if (r.n > 0) {
+        float vel = r.n > 1 ? 0.75f : 0.9f;
+        for (int i = 0; i < r.n && i < 4; i++) pn_start(midi_hz(r.midi[i]), r.midi[i], r.duration_ms, i == 0 ? vel : vel * 0.8f);
+    } else {
+        // a frequency: its nearest key (the same tuning)
+        int m = (int)lroundf(69 + 12 * log2f(r.freq_hz / 440.0f));
+        pn_start(r.freq_hz, (uint8_t)constrain(m, 0, 127), r.duration_ms, 0.9f);
+    }
+}
+
+// Runs while any note rings; new requests join the mix. A plain tone
+// request waits until the piano has gone quiet.
+static void piano_engine(const SfxRequest &first) {
+    pn_table();
+    pn_take(first);
+    const int CH = 128;
+    int16_t buf[CH * 2];
+    int64_t t0 = esp_timer_get_time();
+    int64_t done = 0;
+    while (pn_active()) {
+        SfxRequest r;
+        while (xQueuePeek(s_sfx_queue, &r, 0) == pdTRUE && r.piano) {
+            xQueueReceive(s_sfx_queue, &r, 0);
+            pn_take(r);
+        }
+        pn_render(buf, CH);
+        size_t written = 0;
+        i2s_write_guarded(buf, CH * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+        done += CH;
+        int64_t ahead_us = done * 1000000 / SAMPLE_RATE - (esp_timer_get_time() - t0);
+        if (ahead_us > 40000) vTaskDelay(pdMS_TO_TICKS((ahead_us - 30000) / 1000));
+        else if (ahead_us < -20000) { t0 = esp_timer_get_time(); done = 0; }   // fell behind: start the clock again
+    }
+}
+
 static void sfx_task(void *param) {
     (void)param;
     SfxRequest req;
     for (;;) {
         if (xQueueReceive(s_sfx_queue, &req, portMAX_DELAY) == pdTRUE) {
-            if (s_ok) play_tone_blocking(req.freq_hz, req.duration_ms);
+            if (!s_ok) continue;
+            if (req.piano) piano_engine(req);
+            else play_tone_blocking(req.freq_hz, req.duration_ms);
         }
     }
 }
 
 void audio_play_sfx(uint16_t freq_hz, uint16_t duration_ms) {
     if (!s_ok || !s_sfx_queue) return;
-    SfxRequest req = { freq_hz, duration_ms };
+    SfxRequest req = { freq_hz, duration_ms, 0, 0, {0} };
     xQueueSend(s_sfx_queue, &req, 0); // non-blocking — drop if the queue is full
+}
+
+static void queue_note(const SfxRequest &req) {
+    if (xQueueSend(s_sfx_queue, &req, 0) != pdTRUE) {   // full: the newest note wins
+        SfxRequest old;
+        xQueueReceive(s_sfx_queue, &old, 0);
+        xQueueSend(s_sfx_queue, &req, 0);
+    }
+}
+
+void audio_play_note(uint16_t freq_hz, uint16_t duration_ms) {
+    if (!s_ok || !s_sfx_queue) return;
+    SfxRequest req = { freq_hz, duration_ms, 1, 0, {0} };
+    queue_note(req);
+}
+
+void audio_play_chord(const uint8_t *midi, int n, uint16_t duration_ms) {
+    if (!s_ok || !s_sfx_queue || n <= 0) return;
+    SfxRequest req = { 0, duration_ms, 1, (uint8_t)(n > 4 ? 4 : n), {0} };
+    for (int i = 0; i < req.n; i++) req.midi[i] = midi[i];
+    queue_note(req);
 }
 
 int audio_mic_level_percent() {
@@ -1122,6 +1334,18 @@ static const int REC_SD_BUF_SIZE = 4096; // 4KB SD write buffer for performance
 
 // Write a minimal 44-byte RIFF/WAV header (updated on stop)
 static bool s_rec_mono = false;   // voice replies: mic1+mic2 averaged, half the size
+// Optional clean-up of those mono recordings (voice_sr.cpp: noise
+// suppression + auto gain). begin() runs before the recording task starts,
+// process() on every block inside it, end() when it finishes.
+static const AudioMonoFilter *s_mono_filter = nullptr;
+// "Skip silences" (Settings > Sound > Voice): the Recorder's stereo
+// recordings leave out long pauses (silence_gate.h).
+#include "silence_gate.h"
+#include "app_settings_state.h"
+static SilenceGate s_gate;
+static bool s_rec_gate = false;
+static bool s_rec_filtering = false;
+void audio_set_mono_filter(const AudioMonoFilter *f) { s_mono_filter = f; }
 
 static void wav_write_header(File &f, uint32_t data_size) {
     uint32_t file_size = data_size + 36;
@@ -1160,6 +1384,7 @@ static void wav_write_header(File &f, uint32_t data_size) {
 
 static void rec_task(void *param) {
     int16_t buf[REC_BUF_SAMPLES];
+    int16_t fbuf[REC_BUF_SAMPLES * 2];   // the mono filter's output (it can release more than one block at once)
     uint8_t sd_buf[REC_SD_BUF_SIZE];
     int sd_buf_pos = 0;
 
@@ -1201,15 +1426,24 @@ static void rec_task(void *param) {
             }
         }
 
+        // a long pause: not written (the level meters above still move)
+        if (s_rec_gate && !s_gate.keep(s_rec_mic_level, (int)(bytes_read / 4 / (SAMPLE_RATE / 1000)))) continue;
+
+        int16_t *out = buf;
         if (s_rec_mono) {
             int frames = (int)bytes_read / 4;
             for (int i = 0; i < frames; i++) buf[i] = (int16_t)(((int32_t)buf[2 * i] + buf[2 * i + 1]) / 2);
             bytes_read = frames * 2;
+            if (s_rec_filtering) {
+                int n = s_mono_filter->process(buf, frames, fbuf, REC_BUF_SAMPLES * 2);
+                out = fbuf;
+                bytes_read = n > 0 ? n * 2 : 0;
+            }
         }
 
         // Copy to SD write buffer
         int remaining = (int)bytes_read;
-        uint8_t *src = (uint8_t *)buf;
+        uint8_t *src = (uint8_t *)out;
         while (remaining > 0 && s_recording) {
             int space = REC_SD_BUF_SIZE - sd_buf_pos;
             int to_copy = remaining < space ? remaining : space;
@@ -1240,6 +1474,7 @@ static void rec_task(void *param) {
     s_rec_file.close();
 
     DEBUG_PRINTF("[audio] recording stopped: %lu bytes written\n", (unsigned long)data_size);
+    if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
     s_rec_mic_level = 0;
     s_scope_count = 0;
     s_recording = false;
@@ -1301,6 +1536,9 @@ static bool start_record(const char *filename) {
     s_last_out_ms = millis();
     i2s_ensure_running();
     s_recording = true;
+    s_rec_filtering = s_rec_mono && s_mono_filter && s_mono_filter->begin();
+    s_rec_gate = !s_rec_mono && g_app_settings.rec_skip_silence;
+    s_gate.reset();
 
     // Create recording task on core 1 with a 16KB stack allocated
     // from PSRAM (see s_rec_task_stack's declaration above for why) -
@@ -1309,6 +1547,7 @@ static bool start_record(const char *filename) {
     if (!s_rec_task_stack) s_rec_task_stack = (uint8_t *)ps_malloc(16384);
     if (!s_rec_task_stack) {
         DEBUG_PRINTF("[audio] rec_task stack alloc from PSRAM FAILED - aborting record\n");
+        if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
         s_recording = false;
         s_rec_file.close();
         SD.remove(path);
@@ -1318,6 +1557,7 @@ static bool start_record(const char *filename) {
         rec_task, "rec_task", 16384, NULL, 5, s_rec_task_stack, &s_rec_task_tcb, 1);
     if (!s_rec_task_handle) {
         DEBUG_PRINTF("[audio] rec_task creation FAILED - aborting record\n");
+        if (s_rec_filtering) { s_mono_filter->end(); s_rec_filtering = false; }
         s_recording = false;
         s_rec_file.close();
         SD.remove(path);
@@ -1773,6 +2013,27 @@ bool audio_get_stream_info(AudioStreamInfo *out) {
     return false;
 }
 
+// ---- Background listening (voice_sr.cpp's wake word) ------------------------------------
+int audio_mic_read(int16_t *stereo, int max_frames, uint32_t timeout_ms) {
+    if (!s_ok || !s_mic_ok || max_frames <= 0) return 0;
+    // The recorder owns the microphone while it runs; media playback can
+    // be at another rate and would only be heard back (there's no echo
+    // cancelling reference).
+    if (s_recording || s_wav_playing || s_mp3_playing || s_pcm_src_rate) return 0;
+    if (!s_i2s_running) {
+        if (!s_i2s_mutex || xSemaphoreTake(s_i2s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return 0;
+        i2s_ensure_running();
+        xSemaphoreGive(s_i2s_mutex);
+    }
+    size_t bytes_read = 0;
+    if (i2s_read(I2S_PORT, stereo, (size_t)max_frames * 4, &bytes_read, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) return 0;
+    int frames = (int)(bytes_read / 4);
+    if (frames > 0) mic_apply_gain(stereo, frames * 2);
+    return frames;
+}
+
+void audio_mic_hold(bool on) { s_mic_hold = on; }
+
 void audio_idle_power() {
     if (!s_pa_on || millis() - s_last_out_ms <= 4000 || audio_is_playing()) return;
     // Same mutex as the writers; if one holds it, audio is in flight anyway.
@@ -1781,7 +2042,7 @@ void audio_idle_power() {
         s_pa_on = false;
         digitalWrite(PIN_AUDIO_PA, AUDIO_PA_ACTIVE_HIGH ? LOW : HIGH);
 #if CONFIG_PM_ENABLE
-        if (s_i2s_running && !s_recording) {
+        if (s_i2s_running && !s_recording && !s_mic_hold) {
             i2s_zero_dma_buffer(I2S_PORT);
             i2s_stop(I2S_PORT);
             s_i2s_running = false;
@@ -1870,6 +2131,8 @@ uint8_t audio_get_volume() { return 80; }
 int audio_mic_level_percent() { return 0; }
 void audio_beep(uint16_t, uint16_t) {}
 void audio_play_sfx(uint16_t, uint16_t) {}
+void audio_play_note(uint16_t, uint16_t) {}
+void audio_play_chord(const uint8_t *, int, uint16_t) {}
 bool audio_play_wav(const char *) { return false; }
 bool audio_play_mp3(const char *) { return false; }
 bool audio_update() { return false; }
@@ -1889,5 +2152,8 @@ int audio_get_mic_waveform(int16_t *, int16_t *, int) { return 0; }
 bool audio_pcm_configure(uint32_t, uint8_t) { return false; }
 void audio_pcm_write(const int16_t *, size_t) {}
 void audio_pcm_restore_default() {}
+void audio_set_mono_filter(const AudioMonoFilter *) {}
+int audio_mic_read(int16_t *, int, uint32_t) { return 0; }
+void audio_mic_hold(bool) {}
 
 #endif

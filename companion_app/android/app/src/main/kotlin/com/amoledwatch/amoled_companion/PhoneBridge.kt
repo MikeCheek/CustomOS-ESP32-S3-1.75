@@ -2,6 +2,7 @@ package com.amoledwatch.amoled_companion
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -24,6 +25,7 @@ import android.net.Uri
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.telephony.SmsManager
 import android.app.NotificationManager
 import androidx.core.content.FileProvider
 import java.io.File
@@ -58,6 +60,8 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     private var widgetSink: EventChannel.EventSink? = null
     private var calendarObserver: ContentObserver? = null
     private var dndSink: EventChannel.EventSink? = null
+    private var cameraSink: EventChannel.EventSink? = null
+    private var cameraCallback: android.hardware.camera2.CameraManager.AvailabilityCallback? = null
     private var dndReceiver: BroadcastReceiver? = null
 
     private val navCallback = NotificationListener.NotificationCallback { ev ->
@@ -78,7 +82,10 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     }
 
     init {
-        MethodChannel(messenger, "com.amoledwatch.native").setMethodCallHandler { call, result ->
+        val native = MethodChannel(messenger, "com.amoledwatch.native")
+        // the floating watch was dropped on its ✕: tell the app (it slows the emulator again)
+        EmuOverlay.onClosed = { main.post { native.invokeMethod("overlayClosed", null) } }
+        native.setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
                     "isNotificationListenerEnabled" -> result.success(isNotificationListenerEnabled())
@@ -103,6 +110,22 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     }
                     "mediaCommand" -> result.success(media.command(call.argument<String>("cmd") ?: ""))
                     "findPhone" -> { findPhone(call.argument<Boolean>("on") ?: false); result.success(true) }
+                    "sendSms" -> {
+                        // Only for the fall alert's emergency text (app_fall on the watch).
+                        if (app.checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                            result.error("permission", "SEND_SMS not granted", null)
+                        } else {
+                            try {
+                                val sms = if (Build.VERSION.SDK_INT >= 31) app.getSystemService(SmsManager::class.java)
+                                          else @Suppress("DEPRECATION") SmsManager.getDefault()
+                                val parts = sms.divideMessage(call.argument<String>("text") ?: "")
+                                sms.sendMultipartTextMessage(call.argument<String>("to") ?: "", null, parts, null, null)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("sms", e.message, null)
+                            }
+                        }
+                    }
                     "getBattery" -> result.success(batteryNow())
                     "getLocation" -> result.success(lastLocation())
                     "getContacts" -> {
@@ -142,6 +165,18 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                         }
                     }
                     "watchCalendar" -> { watchCalendar(); result.success(true) }
+                    "addReminder" -> {
+                        if (app.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+                            result.error("permission", "WRITE_CALENDAR not granted", null)
+                        } else {
+                            val title = call.argument<String>("title") ?: ""
+                            val begin = call.argument<Number>("begin")?.toLong() ?: 0L
+                            Thread {
+                                val id = try { addReminder(title, begin) } catch (e: Exception) { -1L }
+                                main.post { result.success(id) }
+                            }.start()
+                        }
+                    }
                     "updateWidget" -> {
                         @Suppress("UNCHECKED_CAST")
                         WatchWidget.store(app, (call.arguments as? Map<String, Any?>) ?: emptyMap())
@@ -167,6 +202,27 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                             result.success(false)   // no browser
                         }
                     }
+                    // ---- the watch asked for the camera remote while the app was in the background ----
+                    "cameraNotify" -> { cameraNotification(); result.success(true) }
+                    // ---- the watch as a remote for another camera app (NativeCamera) ----
+                    "camPrompt" -> { NativeCamera.prompt(app, call.argument<Boolean>("force") ?: false); result.success(true) }
+                    "camPromptCancel" -> { NativeCamera.cancelPrompt(app); result.success(true) }
+                    "camPromptEnabled" -> result.success(NativeCamera.promptEnabled(app))
+                    "camSetPromptEnabled" -> {
+                        NativeCamera.setPromptEnabled(app, call.argument<Boolean>("on") ?: true)
+                        result.success(true)
+                    }
+                    "camNativeStart" -> { NativeCamera.start(app, false); result.success(true) }
+                    "camNativeStop" -> { NativeCamera.stop(app); result.success(true) }
+                    "camNativeAction" -> result.success(NativeCamera.action(call.argument<String>("a") ?: ""))
+                    "camAccessOn" -> result.success(NativeCamera.accessOn(app))
+                    "camAccessOpen" -> { NativeCamera.openAccessSettings(app); result.success(true) }
+                    // ---- the emulated watch floating over other apps (EmuOverlay) ----
+                    "overlayCan" -> result.success(EmuOverlay.canDraw(app))
+                    "overlayAsk" -> { EmuOverlay.askPermission(app); result.success(null) }
+                    "overlayShow" -> result.success(EmuOverlay.show(app))
+                    "overlayHide" -> { EmuOverlay.hide(); result.success(null) }
+                    "overlayShowing" -> result.success(EmuOverlay.showing)
                     // ---- images for the watch (WatchImages) ----
                     "appIconJpeg" -> result.success(WatchImages.appIconJpeg(app, call.argument<String>("package") ?: ""))
                     "albumArtJpeg" -> {
@@ -282,6 +338,51 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                 }
             })
 
+        // Any app opening a camera (and closing it): the watch offers its camera
+        // remote, the way it shows directions when navigation starts.
+        EventChannel(messenger, "com.amoledwatch.native/camera").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    cameraSink = events
+                    if (cameraCallback == null) {
+                        val cm = app.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+                        val inUse = mutableSetOf<String>()
+                        val cb = object : android.hardware.camera2.CameraManager.AvailabilityCallback() {
+                            override fun onCameraUnavailable(cameraId: String) {
+                                if (inUse.add(cameraId) && inUse.size == 1) main.post { cameraSink?.success(true) }
+                            }
+                            override fun onCameraAvailable(cameraId: String) {
+                                if (inUse.remove(cameraId) && inUse.isEmpty()) main.post { cameraSink?.success(false) }
+                            }
+                        }
+                        try {
+                            cm.registerAvailabilityCallback(cb, main)
+                            cameraCallback = cb
+                        } catch (_: Exception) {}
+                    }
+                }
+                override fun onCancel(arguments: Any?) {
+                    cameraSink = null
+                    cameraCallback?.let {
+                        try {
+                            (app.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager)
+                                .unregisterAvailabilityCallback(it)
+                        } catch (_: Exception) {}
+                    }
+                    cameraCallback = null
+                }
+            })
+
+        // The watch running another camera app: its state and the live view (NativeCamera)
+        EventChannel(messenger, "com.amoledwatch.native/camnative").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    NativeCamera.sink = events
+                    NativeCamera.emit(app)
+                }
+                override fun onCancel(arguments: Any?) { NativeCamera.sink = null }
+            })
+
         EventChannel(messenger, "com.amoledwatch.native/battery").setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -300,6 +401,31 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
 
     private val notificationManager: NotificationManager
         get() = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    // A heads-up notification: tap it and the app opens on its camera remote
+    // (Android doesn't let an app bring itself to the front from the background).
+    private fun cameraNotification() {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val ch = "camera_remote"
+        if (android.os.Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ch) == null) {
+            nm.createNotificationChannel(android.app.NotificationChannel(ch, "Camera remote", NotificationManager.IMPORTANCE_HIGH))
+        }
+        val open = Intent(app, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_ACTION, "camera")
+        val pi = android.app.PendingIntent.getActivity(app, 7, open,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        val b = if (android.os.Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(app, ch)
+                else @Suppress("DEPRECATION") android.app.Notification.Builder(app)
+        val n = b.setSmallIcon(app.applicationInfo.icon)
+            .setContentTitle("Camera remote")
+            .setContentText("The watch wants the camera - tap to open it")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setTimeoutAfter(60000)
+            .build()
+        try { nm.notify(4107, n) } catch (_: SecurityException) {}
+    }
 
     private fun dndOn(): Boolean =
         notificationManager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL &&
@@ -471,6 +597,44 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
     // ---- calendar ----------------------------------------------------------------
 
     /** Event instances from a day ago to now + [hours], visible calendars only. */
+    /// A 5-minute event with an alert at its start in the phone's main
+    /// writable calendar, for the voice assistant's reminders and alarms.
+    /// The calendar observer then syncs it to the watch, which reminds on
+    /// its own. Returns the event id, or -1.
+    private fun addReminder(title: String, begin: Long): Long {
+        var calId = -1L
+        app.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.IS_PRIMARY,
+                CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.VISIBLE),
+            null, null, null
+        )?.use { c ->
+            var best = -1
+            while (c.moveToNext()) {
+                if (c.getInt(2) < CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR || c.getInt(3) == 0) continue
+                val score = if (c.getInt(1) != 0) 2 else 1
+                if (score > best) { best = score; calId = c.getLong(0) }
+            }
+        }
+        if (calId < 0) return -1
+        val ev = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, begin)
+            put(CalendarContract.Events.DTEND, begin + 5 * 60_000L)
+            put(CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+            put(CalendarContract.Events.HAS_ALARM, 1)
+        }
+        val uri = app.contentResolver.insert(CalendarContract.Events.CONTENT_URI, ev) ?: return -1
+        val id = uri.lastPathSegment?.toLongOrNull() ?: return -1
+        app.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, ContentValues().apply {
+            put(CalendarContract.Reminders.EVENT_ID, id)
+            put(CalendarContract.Reminders.MINUTES, 0)
+            put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+        })
+        return id
+    }
+
     private fun readEvents(hours: Int): List<Map<String, Any>> {
         val now = System.currentTimeMillis()
         // A day back: all-day events are stored UTC midnight to UTC midnight,

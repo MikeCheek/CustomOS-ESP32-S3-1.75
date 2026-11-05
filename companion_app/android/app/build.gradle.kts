@@ -19,12 +19,29 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // The watch emulator: the firmware's screen code as a native library
+    // (src/main/cpp/CMakeLists.txt).
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    // Several native plugins (whisper.cpp, LiteRT, sherpa-onnx) may each
+    // bring the same C++ runtime: keep one copy instead of failing the merge.
+    packaging {
+        jniLibs {
+            pickFirsts += listOf("**/libc++_shared.so", "**/libonnxruntime.so")
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.amoledwatch.amoled_companion"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(26, flutter.minSdkVersion)   // Health Connect (health plugin) needs 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

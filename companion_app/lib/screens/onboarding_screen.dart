@@ -9,6 +9,8 @@ import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'scan_screen.dart';
+import '../services/model_fetch.dart';
+import '../widgets/platform_notice.dart';
 
 /// First-run setup: pair the watch, then grant what each feature needs, one
 /// step at a time with a sentence on why. Every step can be skipped and
@@ -103,9 +105,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
       _speechError = null;
     });
     try {
-      await WhisperService.instance.download(onProgress: (p) {
-        if (mounted) setState(() => _speechProgress = p);
-      });
+      // through the shared jobs: keeps going in the background, finished at the next start
+      final w = WhisperService.instance;
+      await ModelJobs.instance.run(
+        'wcpp:${w.model.name}',
+        job: (report) async {
+          await w.download(
+            onProgress: (p) {
+              report(p);
+              if (mounted) setState(() => _speechProgress = p);
+            },
+          );
+          await w.setModel(w.model);
+        },
+      );
     } catch (e) {
       _speechError = e.toString().replaceFirst('Exception: ', '');
     }
@@ -127,15 +140,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
         color: AppColors.accent,
         art: Image.asset('assets/logo.png', width: 112, height: 112),
         title: 'Your watch, linked to your phone',
-        body: 'Notifications with replies, calls, music controls, weather, voice memos with transcripts, '
-            'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
-            'A few quick steps and you\'re set.',
+        body: isIos
+            ? 'Weather, your agenda and reminders, voice memos with transcripts, the assistant, photo faces, '
+                  'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
+                  'A few quick steps and you\'re set.'
+            : 'Notifications with replies, calls, music controls, weather, voice memos with transcripts, '
+                  'find my phone and firmware updates - all over Bluetooth, and nothing leaves your phone.\n\n'
+                  'A few quick steps and you\'re set.',
       ),
       _Step(
         icon: Icons.bluetooth_searching_rounded,
         color: AppColors.accent2,
         title: 'Pair the watch',
-        body: 'Turn Bluetooth on on the watch (Settings › Bluetooth), keep it close, then pick "AmoledWatch". '
+        body:
+            'Turn Bluetooth on on the watch (Settings › Bluetooth), keep it close, then pick "AmoledWatch". '
             'If asked for a code, it\'s shown on the watch\'s Bluetooth status screen.',
         done: ble.isConnected,
         doneText: 'Connected to ${ble.deviceName ?? 'AmoledWatch'}',
@@ -143,26 +161,33 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
           _Action(ble.isConnected ? 'Pair a different watch' : 'Find my watch', _pair, primary: !ble.isConnected),
         ],
       ),
-      _Step(
-        icon: Icons.notifications_active_rounded,
-        color: AppColors.accent3,
-        title: 'Notifications and calls',
-        body: 'To show your phone\'s notifications on the watch - and reply, dismiss, answer calls and '
-            'control music from it - allow notification access for AmoledWatch on the next screen.',
-        done: _s.notificationAccess,
-        doneText: settings.forwardNotifications ? 'Notifications go to the watch' : 'Access allowed',
-        actions: [
-          if (!_s.notificationAccess) _Action('Allow notification access', _notificationAccess, primary: true),
-        ],
-      ),
+      // iPhone: iOS doesn't let apps read notifications (see Notifications & calls)
+      if (!isIos)
+        _Step(
+          icon: Icons.notifications_active_rounded,
+          color: AppColors.accent3,
+          title: 'Notifications and calls',
+          body:
+              'To show your phone\'s notifications on the watch - and reply, dismiss, answer calls and '
+              'control music from it - allow notification access for AmoledWatch on the next screen.',
+          done: _s.notificationAccess,
+          doneText: settings.forwardNotifications ? 'Notifications go to the watch' : 'Access allowed',
+          actions: [
+            if (!_s.notificationAccess) _Action('Allow notification access', _notificationAccess, primary: true),
+          ],
+        ),
       _Step(
         icon: Icons.sync_lock_rounded,
         color: AppColors.success,
         title: 'Stay connected',
-        body: 'The app keeps the watch linked while it\'s closed, with a small status notification. '
-            'Weather uses your approximate location; your calendar gives the watch an agenda and reminders.',
+        body: isIos
+            ? 'The app keeps the watch linked in the background. Notifications show fall alerts and model '
+                  'downloads. Weather uses your approximate location; your calendar gives the watch an agenda and '
+                  'reminders.'
+            : 'The app keeps the watch linked while it\'s closed, with a small status notification. '
+                  'Weather uses your approximate location; your calendar gives the watch an agenda and reminders.',
         checklist: [
-          _CheckItem('Status notification', _s.postNotifications, () async {
+          _CheckItem(isIos ? 'Notifications' : 'Status notification', _s.postNotifications, () async {
             await Permission.notification.request();
             final st = ref.read(settingsProvider);
             await ref.read(settingsProvider.notifier).update(st.copyWith(backgroundLink: true));
@@ -188,72 +213,88 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> with Widget
         icon: Icons.record_voice_over_rounded,
         color: AppColors.warning,
         title: 'Voice memos & voice replies',
-        body: 'Recordings from the watch are transcribed here on the phone, and you can dictate replies to '
+        body:
+            'Recordings from the watch are transcribed here on the phone, and you can dictate replies to '
             'messages on the watch. This needs a one-time speech model download (about 140 MB - Wi-Fi recommended).',
         done: _s.speechModel,
         doneText: 'Speech model installed',
         progress: _speechProgress,
         error: _speechError,
         actions: [
-          if (!_s.speechModel && _speechProgress == null) _Action('Download speech model', _downloadSpeech, primary: true),
+          if (!_s.speechModel && _speechProgress == null)
+            _Action('Download speech model', _downloadSpeech, primary: true),
         ],
       ),
       _Step(
         icon: Icons.check_circle_rounded,
         color: AppColors.success,
         title: 'All set',
-        body: 'You can change any of this later in Settings. Settings › Diagnostics shows what\'s still missing '
+        body:
+            'You can change any of this later in Settings. Settings › Diagnostics shows what\'s still missing '
             'and lets you update the watch firmware.',
       ),
     ];
 
     return Scaffold(
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
-            child: Row(children: [
-              for (var i = 0; i < _count; i++)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  margin: const EdgeInsets.only(right: 6),
-                  width: i == _page ? 22 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: i <= _page ? AppColors.accent : AppColors.surfaceHigh,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              const Spacer(),
-              if (_page < _count - 1) TextButton(onPressed: _finish, child: const Text('Skip setup')),
-            ]),
-          ),
-          Expanded(
-            child: PageView(
-              controller: _pages,
-              onPageChanged: (i) {
-                setState(() => _page = i);
-                _refresh();
-              },
-              children: pages,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            child: Row(children: [
-              if (_page > 0)
-                TextButton(
-                  onPressed: () => _pages.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeOut),
-                  child: const Text('Back'),
-                ),
-              const Spacer(),
-              FilledButton(
-                onPressed: _next,
-                child: Text(_page == 0 ? 'Get started' : _page == _count - 1 ? 'Open the app' : 'Continue'),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
+              child: Row(
+                children: [
+                  for (var i = 0; i < _count; i++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      margin: const EdgeInsets.only(right: 6),
+                      width: i == _page ? 22 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: i <= _page ? AppColors.accent : AppColors.surfaceHigh,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  const Spacer(),
+                  if (_page < _count - 1) TextButton(onPressed: _finish, child: const Text('Skip setup')),
+                ],
               ),
-            ]),
-          ),
-        ]),
+            ),
+            Expanded(
+              child: PageView(
+                controller: _pages,
+                onPageChanged: (i) {
+                  setState(() => _page = i);
+                  _refresh();
+                },
+                children: pages,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Row(
+                children: [
+                  if (_page > 0)
+                    TextButton(
+                      onPressed: () =>
+                          _pages.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeOut),
+                      child: const Text('Back'),
+                    ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _next,
+                    child: Text(
+                      _page == 0
+                          ? 'Get started'
+                          : _page == _count - 1
+                          ? 'Open the app'
+                          : 'Continue',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -284,7 +325,7 @@ class _Step extends StatelessWidget {
   final List<_CheckItem> checklist;
   final double? progress;
   final String? error;
-  final Widget? art;   // replaces the icon tile (welcome page: the app logo)
+  final Widget? art; // replaces the icon tile (welcome page: the app logo)
 
   const _Step({
     required this.icon,
@@ -307,16 +348,23 @@ class _Step extends StatelessWidget {
       children: [
         Align(
           alignment: Alignment.centerLeft,
-          child: art ??
+          child:
+              art ??
               Container(
                 width: 76,
                 height: 76,
-                decoration: BoxDecoration(color: color.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(24)),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(24),
+                ),
                 child: Icon(icon, color: color, size: 40),
               ),
         ),
         const SizedBox(height: 28),
-        Text(title, style: const TextStyle(color: AppColors.text, fontSize: 26, fontWeight: FontWeight.w700, height: 1.2)),
+        Text(
+          title,
+          style: const TextStyle(color: AppColors.text, fontSize: 26, fontWeight: FontWeight.w700, height: 1.2),
+        ),
         const SizedBox(height: 14),
         Text(body, style: const TextStyle(color: AppColors.textDim, fontSize: 15, height: 1.5)),
         const SizedBox(height: 26),
@@ -326,9 +374,16 @@ class _Step extends StatelessWidget {
             child: Align(alignment: Alignment.centerLeft, child: StatusPill(doneText!)),
           ),
         if (progress != null) ...[
-          LinearProgressIndicator(value: progress! > 0 ? progress : null, minHeight: 6, borderRadius: BorderRadius.circular(3)),
+          LinearProgressIndicator(
+            value: progress! > 0 ? progress : null,
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(3),
+          ),
           const SizedBox(height: 8),
-          Text('Downloading… ${(progress! * 100).round()}%', style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+          Text(
+            'Downloading… ${(progress! * 100).round()}%',
+            style: const TextStyle(color: AppColors.textDim, fontSize: 13),
+          ),
           const SizedBox(height: 14),
         ],
         if (error != null)
@@ -337,17 +392,19 @@ class _Step extends StatelessWidget {
             child: Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
           ),
         if (checklist.isNotEmpty)
-          RowGroup(children: [
-            for (final c in checklist)
-              NavRow(
-                icon: c.ok ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                color: c.ok ? AppColors.success : AppColors.textDim,
-                title: c.label,
-                subtitle: c.ok ? 'Allowed' : 'Tap to allow',
-                onTap: c.onTap,
-                trailing: const SizedBox.shrink(),
-              ),
-          ]),
+          RowGroup(
+            children: [
+              for (final c in checklist)
+                NavRow(
+                  icon: c.ok ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  color: c.ok ? AppColors.success : AppColors.textDim,
+                  title: c.label,
+                  subtitle: c.ok ? 'Allowed' : 'Tap to allow',
+                  onTap: c.onTap,
+                  trailing: const SizedBox.shrink(),
+                ),
+            ],
+          ),
         for (final a in actions)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),

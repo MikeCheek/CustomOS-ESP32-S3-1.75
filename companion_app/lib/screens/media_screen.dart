@@ -5,6 +5,7 @@ import '../providers/companion_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/platform_notice.dart';
 
 /// What the phone is playing, mirrored on the watch (Phone > Music) with
 /// play/pause, skip and volume buttons that control the phone.
@@ -20,6 +21,27 @@ class MediaScreen extends ConsumerWidget {
     final hasMedia = m != null && link.mediaTitle.isNotEmpty;
     final vol = (m?['volume'] as num?)?.toInt() ?? 0;
     final vmax = (m?['volumeMax'] as num?)?.toInt() ?? 15;
+
+    if (isIos) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Music')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: const [
+            IosLimitNotice(
+              title: 'Phone music control isn\'t possible on iPhone',
+              text:
+                  'iOS doesn\'t let apps see or control what other apps are playing (Spotify, Apple Music...), '
+                  'so Now playing and the watch\'s music remote need an Android phone.',
+              stillWorks: [
+                'The watch\'s own Music player: MP3/AAC files on its SD card (Apps > Send files)',
+                'Its Bluetooth speaker and headphones, as before',
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Music controls')),
@@ -45,15 +67,19 @@ class MediaScreen extends ConsumerWidget {
                   child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 52),
                 ),
                 const SizedBox(height: 20),
-                Text(hasMedia ? link.mediaTitle : 'Nothing playing',
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700)),
+                Text(
+                  hasMedia ? link.mediaTitle : 'Nothing playing',
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 4),
-                Text(hasMedia ? link.mediaArtist : 'Start music in any app on your phone',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textDim, fontSize: 14)),
+                Text(
+                  hasMedia ? link.mediaArtist : 'Start music in any app on your phone',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textDim, fontSize: 14),
+                ),
                 const SizedBox(height: 22),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -68,7 +94,10 @@ class MediaScreen extends ConsumerWidget {
                       iconSize: 40,
                       style: IconButton.styleFrom(backgroundColor: AppColors.text, fixedSize: const Size(72, 72)),
                       onPressed: hasMedia ? () => native.mediaCommand('toggle') : null,
-                      icon: Icon(link.mediaPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.black),
+                      icon: Icon(
+                        link.mediaPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        color: Colors.black,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     IconButton(
@@ -107,15 +136,17 @@ class MediaScreen extends ConsumerWidget {
             ),
           ),
           const SectionLabel('On the watch'),
-          RowGroup(children: [
-            ToggleRow(
-              icon: Icons.watch_outlined,
-              title: 'Show phone music on the watch',
-              subtitle: 'Phone app › Music: play, pause, skip, volume',
-              value: s.mediaToWatch,
-              onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(mediaToWatch: v)),
-            ),
-          ]),
+          RowGroup(
+            children: [
+              ToggleRow(
+                icon: Icons.watch_outlined,
+                title: 'Show phone music on the watch',
+                subtitle: 'Phone app › Music: play, pause, skip, volume',
+                value: s.mediaToWatch,
+                onChanged: (v) => ref.read(settingsProvider.notifier).update(s.copyWith(mediaToWatch: v)),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           const Text(
             'Works with any app that shows media controls (Spotify, YouTube Music, podcasts…). '

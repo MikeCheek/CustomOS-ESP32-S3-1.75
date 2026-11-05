@@ -39,7 +39,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "hal_controller.h"
-#include "hal_save.h"
+#include "casino_wallet.h"
 #include "game_audio.h"
 #include "ui.h"
 #include <Arduino_GFX_Library.h>
@@ -96,20 +96,8 @@ static int32_t s_round_start_money;    // for the result screen's +/- delta
 #define BJ_SAVE_MAGIC 0x424a4b32u // "BJK2" - bumped from the single-seat save format
 struct BJSave { uint32_t magic; int32_t money; };
 
-static void load_money() {
-    BJSave s;
-    if (game_load_blob("blackjack_money", &s, sizeof(s)) && s.magic == BJ_SAVE_MAGIC) {
-        s_money = s.money;
-    } else {
-        s_money = START_MONEY;
-    }
-}
-static void save_money() {
-    BJSave s;
-    s.magic = BJ_SAVE_MAGIC;
-    s.money = s_money;
-    game_save_blob("blackjack_money", &s, sizeof(s));
-}
+static void load_money() { s_money = casino_credit(); }   // the Casino's shared wallet
+static void save_money() { casino_set(s_money); }
 
 // ---- Deck / dealing -------------------------------------------------------
 static void shuffle_deck() {
@@ -581,8 +569,8 @@ static void blackjack_draw() {
     if (s_state == BJ_GAMEOVER) {
         ui_edge_ring(0, 360, ui_dim(COLOR_BAD, 0.5f), 8, 4, false);
         ui_text_center(LCD_WIDTH / 2, 170, COLOR_BAD, "OUT OF CHIPS", 3);
-        ui_text_center(LCD_WIDTH / 2, 220, COLOR_TEXT_DIM, "Tap to restart with", 1);
-        snprintf(buf, sizeof(buf), "$%d", START_MONEY);
+        ui_text_center(LCD_WIDTH / 2, 220, COLOR_TEXT_DIM, "Tap: the cashier tops you up to", 1);
+        snprintf(buf, sizeof(buf), "$%d", CASINO_TOP_UP);
         ui_text_center(LCD_WIDTH / 2, 262, COLOR_GOLD, buf, 4);
         return;
     }
@@ -704,8 +692,7 @@ static void blackjack_touch(int x, int y, bool pressed) {
     if (!tap_edge) return;
 
     if (s_state == BJ_GAMEOVER) {
-        s_money = START_MONEY;
-        save_money();
+        s_money = casino_top_up();   // the cashier
         start_betting();
         return;
     }

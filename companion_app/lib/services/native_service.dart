@@ -12,6 +12,10 @@ class NativeService {
   static const _calendarStream = EventChannel('com.amoledwatch.native/calendar');
   static const _widgetStream = EventChannel('com.amoledwatch.native/widget');
   static const _dndStream = EventChannel('com.amoledwatch.native/dnd');
+  static const _cameraStream = EventChannel('com.amoledwatch.native/camera');
+  Stream<bool>? _camera;
+  static const _camNativeStream = EventChannel('com.amoledwatch.native/camnative');
+  Stream<Map<String, dynamic>>? _camNative;
   Stream<bool>? _dnd;
 
   Stream<Map<String, dynamic>>? _notifs;
@@ -31,10 +35,53 @@ class NativeService {
     }
   }
 
+  // ---- the emulated watch floating over other apps (Android) -------------------------
+  final _overlayClosed = StreamController<void>.broadcast();
+  bool _handlerSet = false;
+
+  /// The floating watch was dropped on its ✕.
+  Stream<void> get overlayClosed {
+    if (!_handlerSet) {
+      _handlerSet = true;
+      _method.setMethodCallHandler((call) async {
+        if (call.method == 'overlayClosed') _overlayClosed.add(null);
+        return null;
+      });
+    }
+    return _overlayClosed.stream;
+  }
+
+  /// Android: a notification to open the camera remote (the app is in the background).
+  Future<void> cameraNotify() => _call('cameraNotify');
+
+  // ---- the watch as a remote for another camera app (Android, NativeCamera.kt) ----
+  /// {"k":"state","on","view","acc"} and {"k":"frame","jpeg"}.
+  Stream<Map<String, dynamic>> get camNative => _camNative ??= _camNativeStream
+      .receiveBroadcastStream()
+      .where((e) => e is Map)
+      .map((e) => Map<String, dynamic>.from(e as Map))
+      .asBroadcastStream();
+
+  /// "Camera open - use the watch?" ([force]: even if turned off, for the watch's own ask).
+  Future<void> camPrompt({bool force = false}) => _call('camPrompt', {'force': force});
+  Future<void> camPromptCancel() => _call('camPromptCancel');
+  Future<bool> camPromptEnabled() async => (await _call<bool>('camPromptEnabled')) ?? true;
+  Future<void> camSetPromptEnabled(bool on) => _call('camSetPromptEnabled', {'on': on});
+  Future<void> camNativeStart() => _call('camNativeStart');
+  Future<void> camNativeStop() => _call('camNativeStop');
+  Future<bool> camNativeAction(String a) async => (await _call<bool>('camNativeAction', {'a': a})) ?? false;
+  Future<bool> camAccessOn() async => (await _call<bool>('camAccessOn')) ?? false;
+  Future<void> camAccessOpen() => _call('camAccessOpen');
+
+  Future<bool> overlayCan() async => (await _call<bool>('overlayCan')) ?? false;
+  Future<void> overlayAsk() => _call('overlayAsk');
+  Future<bool> overlayShow() async => (await _call<bool>('overlayShow')) ?? false;
+  Future<void> overlayHide() => _call('overlayHide');
+  Future<bool> overlayShowing() async => (await _call<bool>('overlayShowing')) ?? false;
+
   // ---- notifications ---------------------------------------------------------
 
-  Future<bool> isNotificationListenerEnabled() async =>
-      (await _call<bool>('isNotificationListenerEnabled')) ?? false;
+  Future<bool> isNotificationListenerEnabled() async => (await _call<bool>('isNotificationListenerEnabled')) ?? false;
 
   Future<void> openNotificationListenerSettings() => _call('openNotificationListenerSettings');
 
@@ -74,6 +121,10 @@ class NativeService {
 
   Future<void> findPhone(bool on) => _call('findPhone', {'on': on});
 
+  /// Sends a text from the phone (fall alert only). Needs SEND_SMS; throws
+  /// PlatformException when it couldn't.
+  Future<void> sendSms(String to, String text) => _method.invokeMethod('sendSms', {'to': to, 'text': text});
+
   /// {lat, lon} from the last known location, or null.
   Future<Map<String, double>?> lastLocation() async {
     final m = await _call<Map<dynamic, dynamic>>('getLocation');
@@ -84,8 +135,10 @@ class NativeService {
   }
 
   /// Keeps the app (and the watch link) running in the background.
-  Future<bool> startLinkService({String title = 'AmoledWatch connected', String text = 'Notifications and controls are linked'}) async =>
-      (await _call<bool>('startLinkService', {'title': title, 'text': text})) ?? false;
+  Future<bool> startLinkService({
+    String title = 'AmoledWatch connected',
+    String text = 'Notifications and controls are linked',
+  }) async => (await _call<bool>('startLinkService', {'title': title, 'text': text})) ?? false;
 
   Future<void> stopLinkService() => _call('stopLinkService');
 
@@ -118,6 +171,23 @@ class NativeService {
     return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  /// Adds a reminder (a short event with an alert at [at]) to the phone's
+  /// main calendar. The event id, or null (no write permission / calendar).
+  Future<int?> addReminder(String title, DateTime at) async {
+    try {
+      final id = await _method.invokeMethod<int>('addReminder', {'title': title, 'begin': at.millisecondsSinceEpoch});
+      return id != null && id >= 0 ? id : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The phone's battery: {level (%), charging}.
+  Future<Map<String, dynamic>?> battery() async {
+    final m = await _method.invokeMethod<Map<dynamic, dynamic>>('getBattery');
+    return m == null ? null : Map<String, dynamic>.from(m);
+  }
+
   /// Fires "changed" (debounced) when the phone's calendar changes.
   Stream<String> get calendarChanges =>
       _calendar ??= _calendarStream.receiveBroadcastStream().map((e) => e.toString()).asBroadcastStream();
@@ -144,6 +214,10 @@ class NativeService {
   Future<void> openDndAccess() => _call('openDndAccess');
 
   /// The phone's DND switching on / off.
+  /// Android: true when any app opens a camera, false when the last one closes.
+  Stream<bool> get cameraInUse =>
+      _camera ??= _cameraStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
+
   Stream<bool> get dndChanges => _dnd ??= _dndStream.receiveBroadcastStream().map((e) => e == true).asBroadcastStream();
 
   /// Opens a web link in the browser. False if there's none to open it.

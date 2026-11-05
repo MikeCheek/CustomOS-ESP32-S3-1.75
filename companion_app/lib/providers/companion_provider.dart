@@ -12,10 +12,25 @@ import '../services/ble_service.dart';
 import '../services/native_service.dart';
 import '../services/weather_service.dart';
 import '../services/whisper_service.dart';
+import '../services/assistant_intents.dart';
+import '../services/gemma_service.dart';
 import 'ble_provider.dart';
 import 'notes_provider.dart';
 import 'settings_provider.dart';
 import 'knowledge_provider.dart';
+import 'fitness_provider.dart';
+import 'home_provider.dart';
+import 'sleep_provider.dart';
+import 'wallet_provider.dart';
+import '../services/camera_remote.dart';
+import 'look_provider.dart';
+import 'life_provider.dart';
+import 'usage_provider.dart';
+import '../services/smart_replies.dart';
+import '../services/tts_service.dart';
+import '../services/safety.dart';
+import '../services/notif_ai.dart';
+import '../services/memo_embeddings.dart';
 
 /// One calendar event instance, in local time.
 class CalendarItem {
@@ -65,15 +80,15 @@ class CalendarItem {
 
 /// What the phone link knows right now.
 class CompanionState {
-  final bool linkActive;            // the watch speaks the phone-link protocol
-  final int watchSteps;             // -1 = unknown
-  final int watchBattery;           // -1 = unknown
+  final bool linkActive; // the watch speaks the phone-link protocol
+  final int watchSteps; // -1 = unknown
+  final int watchBattery; // -1 = unknown
   final bool watchCharging;
   final DateTime? watchReportAt;
   final Map<String, int> stepsHistory; // yyyy-mm-dd -> steps
   final int phoneBattery;
   final bool phoneCharging;
-  final Map<String, dynamic>? media;   // last now-playing from the phone
+  final Map<String, dynamic>? media; // last now-playing from the phone
   final WeatherSnapshot? weather;
   final String? weatherError;
   final bool weatherLoading;
@@ -82,13 +97,13 @@ class CompanionState {
   // From the watch's hello / diagnostics
   final String? watchFirmware;
   final String? watchResetReason;
-  final int watchCrashId;           // 0 = no crash report on the watch
-  final int seenCrashId;            // last crash report the user looked at
-  final String? crashReport;        // fetched with requestDiagnostics()
+  final int watchCrashId; // 0 = no crash report on the watch
+  final int seenCrashId; // last crash report the user looked at
+  final String? crashReport; // fetched with requestDiagnostics()
   final String? watchSystem;
   final DateTime? diagnosticsAt;
-  final String? dictation;          // voice reply being transcribed, for the UI
-  final List<CalendarItem> agenda;  // next ~2 days, as sent to the watch
+  final String? dictation; // voice reply being transcribed, for the UI
+  final List<CalendarItem> agenda; // next ~2 days, as sent to the watch
   final bool calendarAllowed;
   final Map<String, dynamic>? navigation; // current turn-by-turn step, null = not navigating
 
@@ -233,6 +248,14 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     _subs.add(_native.navigationStream.listen(_onNavigation, onError: (_) {}));
     _subs.add(_native.calendarChanges.listen((_) => refreshCalendar(), onError: (_) {}));
     _subs.add(_native.widgetActions.listen(_onWidgetAction, onError: (_) {}));
+    if (Platform.isAndroid) _subs.add(_native.cameraInUse.listen(_onCameraInUse, onError: (_) {}));
+    if (Platform.isAndroid) _subs.add(_native.camNative.listen(CameraRemote.instance.onNative, onError: (_) {}));
+    CameraRemote.instance.send = (m) async {
+      if (_ble.hasPhoneLink) await _ble.sendLink({'t': 'cam', ...m});
+    };
+    CameraRemote.instance.sendView = (h, j) async {
+      if (_ble.hasPhoneLink) await _ble.sendImage('p', h, j);
+    };
     _subs.add(_native.dndChanges.listen(_onPhoneDnd, onError: (_) {}));
     _ref.listen(knowledgeProvider, (_, __) => _todosChanged());
     _ref.listen(doneActionsProvider, (_, __) => _todosChanged());
@@ -280,18 +303,21 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     await Future.delayed(const Duration(milliseconds: 600));
     if (!_ble.isConnected) return;
     await _ble.sendLink({'t': 'hi'});
+    // the watch's world clock needs to know where it is
+    await _ble.sendLink({'t': 'tz', 'o': DateTime.now().timeZoneOffset.inMinutes});
     await _sendState();
     final w = state.weather;
-    if (_settings.weatherAuto &&
-        (w == null || DateTime.now().difference(w.fetchedAt) > const Duration(minutes: 30))) {
+    if (_settings.weatherAuto && (w == null || DateTime.now().difference(w.fetchedAt) > const Duration(minutes: 30))) {
       await refreshWeather();
     } else if (w != null) {
       await _ble.sendWeather(w.toWatch());
+      await _ble.sendLink(w.toWatchHours());
     }
     await refreshCalendar();
     await _sendBedtime();
     await _sendQuickReplies();
     await _sendComplications();
+    await _ref.read(lifeProvider.notifier).sendAll(); // the Life plan and today's meal ideas
     _lastTodo = '';
     await _sendTodos();
     if (_settings.dndSync) {
@@ -309,7 +335,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   // ---- Do Not Disturb + quick replies ------------------------------------------------
 
-  bool _dndFromWatch = false;   // ignore the echo of a change the watch asked for
+  bool _dndFromWatch = false; // ignore the echo of a change the watch asked for
 
   Future<void> _onPhoneDnd(bool on) async {
     if (_dndFromWatch) return;
@@ -321,7 +347,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     if (!_settings.dndSync) return;
     _dndFromWatch = true;
     try {
-      await _native.setDnd(on);   // false (ignored) without DND access
+      await _native.setDnd(on); // false (ignored) without DND access
     } finally {
       Future.delayed(const Duration(seconds: 2), () => _dndFromWatch = false);
     }
@@ -337,16 +363,51 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   String _lastTodo = '';
   Timer? _todoDebounce;
 
-  /// Open to-dos from the memos, for the watch's "To-dos" complication.
+  /// Open to-dos from the memos: the count and first for the watch's "To-dos"
+  /// complication, and the list for its Reminders app (ticked off there:
+  /// [_onWatchTodo]).
   Future<void> _sendTodos() async {
     if (!_ble.hasPhoneLink) return;
     final done = _ref.read(doneActionsProvider);
     final open = _ref.read(knowledgeProvider).actions().where((a) => !done.contains(a.key)).toList();
     final top = open.isEmpty ? '' : open.first.text;
-    final key = '${open.length}|$top';
+    final key = '${open.length}|${open.map((a) => a.key).join('\n')}';
     if (key == _lastTodo) return;
     _lastTodo = key;
     await _ble.sendLink({'t': 'todo', 'n': open.length, 'top': top.length > 36 ? top.substring(0, 36) : top});
+    // the list, a few per message (the link takes ~1 KB at a time)
+    final items = [
+      for (final a in open.take(24)) {'k': todoKey(a.key), 'x': _clip(a.text, 72)},
+    ];
+    for (var i = 0; i == 0 || i < items.length; i += 7) {
+      await _ble.sendLink({
+        't': 'todos',
+        if (i == 0) 'r': 1,
+        'l': items.sublist(i, (i + 7).clamp(0, items.length)),
+        if (i + 7 >= items.length) 'done': 1,
+      });
+    }
+  }
+
+  /// A short, stable id for a to-do (FNV-1a of its key), as the watch knows it.
+  static String todoKey(String key) {
+    var h = 0x811c9dc5;
+    for (final b in utf8.encode(key)) {
+      h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
+  /// Ticked off in the watch's Reminders app.
+  Future<void> _onWatchTodo(String k) async {
+    final done = _ref.read(doneActionsProvider);
+    for (final a in _ref.read(knowledgeProvider).actions()) {
+      if (todoKey(a.key) == k && !done.contains(a.key)) {
+        await _ref.read(doneActionsProvider.notifier).toggle(a.key);
+        break;
+      }
+    }
+    _todosChanged();
   }
 
   void _todosChanged() {
@@ -363,7 +424,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   Future<void> _sendQuickReplies() async {
     if (!_ble.hasPhoneLink) return;
     // Empty list = back to the watch's built-in presets.
-    await _ble.sendLink({'t': 'qr', 'l': _settings.quickReplies.take(10).map((r) => r.length > 38 ? r.substring(0, 38) : r).toList()});
+    await _ble.sendLink({
+      't': 'qr',
+      'l': _settings.quickReplies.take(10).map((r) => r.length > 38 ? r.substring(0, 38) : r).toList(),
+    });
   }
 
   /// Phone battery + now playing, e.g. after (re)connecting or on request.
@@ -398,7 +462,14 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         );
         break;
       case 'dict':
-        await _transcribeReply((e['id'] as num?)?.toInt() ?? 0, (e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '');
+        await _transcribeReply(
+          (e['id'] as num?)?.toInt() ?? 0,
+          (e['n'] as num?)?.toInt() ?? 0,
+          e['f'] as String? ?? '',
+        );
+        break;
+      case 'ask':
+        await _assistant((e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '');
         break;
       case 'med':
         await _native.mediaCommand(e['a'] as String? ?? '');
@@ -427,6 +498,81 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         final id = (e['id'] as num?)?.toInt() ?? 0;
         await _native.notificationAction(id, e['a'] == 'answer' ? 'answer' : 'decline');
         break;
+      case 'digest':
+        unawaited(() async {
+          try {
+            await _ble.sendLink({'t': 'digest', 'tx': _clip(await NotifAi.instance.digest(), 700)});
+          } catch (err) {
+            await _ble.sendLink({'t': 'digest', 'err': _clip(err.toString().replaceFirst('Exception: ', ''), 120)});
+          }
+        }());
+        break;
+      case 'tr':
+        final trId = (e['id'] as num?)?.toInt() ?? 0;
+        unawaited(() async {
+          try {
+            await _ble.sendLink({'t': 'tr', 'id': trId, 'tx': _clip(await NotifAi.instance.translate(trId), 460)});
+          } catch (err) {
+            await _ble.sendLink({
+              't': 'tr',
+              'id': trId,
+              'err': _clip(err.toString().replaceFirst('Exception: ', ''), 120),
+            });
+          }
+        }());
+        break;
+      case 'fall':
+        unawaited(_onFall(e['ok'] == 1));
+        break;
+      case 'sos':
+        // Emergency SOS from the watch (hold PWR): the same alert, other words
+        if (e['ok'] == 1) {
+          await _native.findPhone(false);
+        } else {
+          final c = await Safety.contact();
+          if (c.phone.isEmpty) await _ble.sendLink({'t': 'sos', 'ok': 0, 'why': 'No emergency contact set in the app'});
+          unawaited(_onFall(false, sos: true));
+        }
+        break;
+      case 'life':
+        _ref.read(lifeProvider.notifier).onWatch(e);
+        break;
+      case 'sleep':
+        await _ref.read(sleepProvider.notifier).onWatch(e);
+        break;
+      case 'lh':
+        _ref.read(lifeProvider.notifier).onHistory(e);
+        break;
+      case 'fh':
+        _ref.read(fitnessProvider.notifier).onHistory(e);
+        break;
+      case 'usage':
+        _ref.read(usageProvider.notifier).onPart(e);
+        break;
+      case 'cam':
+        CameraRemote.instance.onWatch(e);
+        break;
+      case 'wal':
+        await _ref.read(walletProvider.notifier).onWatch(e);
+        break;
+      case 'home':
+        _ref.read(homeProvider.notifier).fromWatch(e);
+        break;
+      case 'look':
+        _ref.read(lookProvider.notifier).fromWatch(e);
+        // slots changed on the watch: the app's copy follows (no echo: the same slots don't resend)
+        final comp = (e['comp'] as List?)?.map((x) => '$x').toList();
+        if (comp != null && comp.join(',') != _settings.compSlots.take(3).join(',')) {
+          _ref.read(settingsProvider.notifier).update(_settings.copyWith(compSlots: comp));
+        }
+        break;
+      case 'todo':
+        if (e['d'] == 1) await _onWatchTodo(e['k'] as String? ?? '');
+        break;
+      case 'wo':
+        await _ref.read(fitnessProvider.notifier).addWorkout(e);
+        await _ble.sendLink({'t': 'woack', 'st': e['st']});
+        break;
       case 'ntf':
         final id = (e['id'] as num?)?.toInt() ?? 0;
         if (e['a'] == 'reply') {
@@ -440,6 +586,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   void _onWatchReport(Map<String, dynamic> e) {
     if (!mounted) return;
+    _ref.read(fitnessProvider.notifier).onReport(e);
+    _ref.read(usageProvider.notifier).onReport((e['bat'] as num?)?.toInt() ?? -1, (e['chg'] ?? 0) == 1);
     final steps = (e['st'] as num?)?.toInt() ?? -1;
     final hist = Map<String, int>.from(state.stepsHistory);
     if (steps >= 0) {
@@ -568,7 +716,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
           'ad': e.allDay ? 1 : 0,
           if (e.location.isNotEmpty) 'lo': _clip(e.location, 36),
           'c': e.color,
-        }
+        },
     ];
     // Several messages if needed (the watch takes up to 1 KB per message).
     var batch = <Map<String, dynamic>>[];
@@ -639,6 +787,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   Future<void> _onWidgetAction(String action) async {
     if (action == 'find' && _ble.isConnected) await findWatch();
+    if (action == 'camera' && !CameraRemote.instance.screenOpen) CameraRemote.instance.openScreen?.call();
   }
 
   /// Pushes the numbers the home-screen widget shows (only when they changed).
@@ -656,15 +805,15 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       final dayName = !day.isAfter(today)
           ? 'Today'
           : day == tomorrow
-              ? 'Tomorrow'
-              : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day.weekday - 1];
+          ? 'Tomorrow'
+          : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day.weekday - 1];
       final when = next.allDay
           ? dayName
           : (next.start.isBefore(now)
-              ? 'Now'
-              : dayName == 'Today'
-                  ? hm
-                  : '$dayName $hm');
+                ? 'Now'
+                : dayName == 'Today'
+                ? hm
+                : '$dayName $hm');
       nextLabel = '$when · ${next.title}';
     }
     final data = <String, dynamic>{
@@ -704,7 +853,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     File? tmp;
     try {
       await whisper.loadPrefs();
-      if (!await whisper.isDownloaded()) {
+      if (!await whisper.ready()) {
         return fail('Download the speech model in the companion app first');
       }
       if (mounted) state = state.copyWith(dictation: 'Receiving voice reply');
@@ -729,7 +878,362 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     }
   }
 
+  // ---- voice assistant --------------------------------------------------------------
+
+  /// The watch asked something out loud (app_assistant.cpp): fetch the
+  /// recording, transcribe it, work out what it asks for - the rules in
+  /// assistant_intents.dart first, then the local LLM - do it, and send the
+  /// answer back. Timers run on the watch; everything else happens here.
+  Future<void> _assistant(int seq, String file) async {
+    Future<void> status(String st) => _ble.sendLink({'t': 'ask', 'n': seq, 'st': st});
+    Future<void> fail(String why) => _ble.sendLink({'t': 'ask', 'n': seq, 'err': why});
+    if (file.isEmpty) return fail('Nothing recorded');
+    final whisper = WhisperService.instance;
+    File? tmp;
+    try {
+      await whisper.loadPrefs();
+      if (!await whisper.ready()) {
+        return fail('Download the speech model in the companion app first');
+      }
+      await status('Listening');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: receiving');
+      final bytes = await _ref.read(notesProvider.notifier).fetchTemp(file, timeout: const Duration(seconds: 60));
+      final dir = await getTemporaryDirectory();
+      tmp = File('${dir.path}/assistant_$seq.wav');
+      await tmp.writeAsBytes(bytes);
+      await status('Understanding');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: transcribing');
+      final heard = (await whisper.transcribe(
+        tmp.path,
+      )).replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (heard.isEmpty) return fail('Didn\'t catch that - try again');
+      if (mounted) state = state.copyWith(dictation: 'Assistant: "$heard"');
+      final reply = await _assistantReply(heard, () => status('Thinking'));
+      await _ble.sendLink({
+        't': 'ask',
+        'n': seq,
+        'q': _clip(heard, 160),
+        'a': _clip(reply.answer, 360),
+        if (reply.timer != null) 'do': 'timer',
+        if (reply.timer != null) 's': reply.timer,
+      });
+      // Then say it on the watch's speaker, when a voice is installed.
+      unawaited(_speakAnswer(reply.answer, parseAssistantIntent(heard, DateTime.now()).italian ? 'it' : 'en'));
+    } catch (e) {
+      await fail(_clip(e.toString().replaceFirst('Exception: ', ''), 90));
+    } finally {
+      if (mounted) state = state.copyWith(dictation: null);
+      try {
+        if (tmp != null && await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// The watch asked "Did you fall?" and got no answer: ring this phone and
+  /// text the emergency contact (Settings > Safety). ok: it was fine after all.
+  Future<void> _onFall(bool ok, {bool sos = false}) async {
+    if (ok) {
+      await _native.findPhone(false);
+      return;
+    }
+    await _native.findPhone(true);
+    final c = await Safety.contact();
+    if (c.phone.isEmpty) return;
+    try {
+      final loc = await _native.lastLocation();
+      await _native.sendSms(c.phone, Safety.alertText(DateTime.now(), lat: loc?['lat'], lon: loc?['lon'], sos: sos));
+      if (sos) await _ble.sendLink({'t': 'sos', 'ok': 1});
+    } catch (e) {
+      print('[Companion] ${sos ? 'SOS' : 'fall alert'} text failed: $e');
+      if (sos) await _ble.sendLink({'t': 'sos', 'ok': 0});
+    }
+  }
+
+  Future<void> _speakAnswer(String text, String lang) async {
+    try {
+      final tts = TtsService.instance;
+      if (text.trim().isEmpty || !await tts.enabled()) return;
+      final voice = await tts.voiceFor(lang);
+      if (voice == null) return;
+      final wav = await tts.speak(voice, _clip(text, 360));
+      if (_ble.isConnected) await _ble.sendFile('say:answer.wav', wav);
+    } catch (e) {
+      print('[Companion] spoken answer failed: $e');
+    }
+  }
+
+  /// The assistant from the phone (app: Assistant): [wavPath] was recorded
+  /// here. Same rules, LLM and actions as from the watch; a timer goes to
+  /// the watch when it's connected.
+  Future<({String heard, String answer})> askFromPhone(String wavPath) async {
+    final whisper = WhisperService.instance;
+    await whisper.loadPrefs();
+    if (!await whisper.ready()) throw Exception('Download a speech model first (AI models)');
+    final heard = (await whisper.transcribe(
+      wavPath,
+    )).replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (heard.isEmpty) throw Exception('Didn\'t catch that - try again');
+    final reply = await _assistantReply(heard, () async {});
+    var answer = reply.answer;
+    if (reply.timer != null) {
+      if (_ble.hasPhoneLink) {
+        await _ble.sendLink({'t': 'tmr', 's': reply.timer});
+      } else {
+        answer = '$answer (connect the watch: timers run on it)';
+      }
+    }
+    return (heard: heard, answer: answer);
+  }
+
+  /// What to say back to [heard] (and a watch timer to set, in seconds;
+  /// 0 cancels it). [thinking] is called before the LLM is asked.
+  Future<({String answer, int? timer})> _assistantReply(String heard, Future<void> Function() thinking) async {
+    final now = DateTime.now();
+    var intent = parseAssistantIntent(heard, now);
+    final it = intent.italian;
+    String t(String en, String itx) => it ? itx : en;
+    final gemma = GemmaService.instance;
+
+    // Not something the rules know: let the LLM map it to an action or answer.
+    if (intent.kind == IntentKind.none) {
+      await thinking();
+      final r = await gemma.assistantRoute(heard, now);
+      if (r == null) {
+        return (
+          answer: t(
+            'I can set timers and reminders, control music, and tell you the weather or your agenda. '
+                'Install a language model in the app to ask anything else.',
+            'Posso impostare timer e promemoria, controllare la musica, dirti il meteo o gli impegni. '
+                'Installa un modello linguistico nell\'app per chiedere altro.',
+          ),
+          timer: null,
+        );
+      }
+      intent = _intentFromLlm(r, now, it);
+      if (intent.kind == IntentKind.none) return (answer: (r['text'] ?? '').toString().trim(), timer: null);
+    }
+
+    String hm(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    String dur(int s) {
+      final h = s ~/ 3600, m = s % 3600 ~/ 60, sec = s % 60;
+      final parts = <String>[
+        if (h > 0) it ? '$h ${h == 1 ? 'ora' : 'ore'}' : '$h hour${h == 1 ? '' : 's'}',
+        if (m > 0) it ? '$m ${m == 1 ? 'minuto' : 'minuti'}' : '$m minute${m == 1 ? '' : 's'}',
+        if (sec > 0) it ? '$sec secondi' : '$sec seconds',
+      ];
+      return parts.join(it ? ' e ' : ' and ');
+    }
+
+    switch (intent.kind) {
+      case IntentKind.timer:
+        return (
+          answer: t('Timer set for ${dur(intent.seconds!)}.', 'Timer di ${dur(intent.seconds!)} avviato.'),
+          timer: intent.seconds,
+        );
+      case IntentKind.cancelTimer:
+        return (answer: t('Timer cancelled.', 'Timer annullato.'), timer: 0);
+      case IntentKind.reminder:
+        final at = intent.at!;
+        final id = await _native.addReminder(intent.text ?? t('Reminder', 'Promemoria'), at);
+        if (id == null) {
+          return (
+            answer: t(
+              'I couldn\'t add it to your calendar - allow calendar access in the companion app.',
+              'Non sono riuscito ad aggiungerlo al calendario: consenti l\'accesso al calendario nell\'app.',
+            ),
+            timer: null,
+          );
+        }
+        final today = at.day == now.day && at.month == now.month;
+        final when = today
+            ? t('today at ${hm(at)}', 'oggi alle ${hm(at)}')
+            : t('tomorrow at ${hm(at)}', 'domani alle ${hm(at)}');
+        final daysAway = DateTime(at.year, at.month, at.day).difference(DateTime(now.year, now.month, now.day)).inDays;
+        final whenText = daysAway <= 1
+            ? when
+            : t('on ${at.day}/${at.month} at ${hm(at)}', 'il ${at.day}/${at.month} alle ${hm(at)}');
+        return (
+          answer: t('Reminder set: ${intent.text}, $whenText.', 'Promemoria: ${intent.text}, $whenText.'),
+          timer: null,
+        );
+      case IntentKind.music:
+        final ok = await _native.mediaCommand(intent.command!);
+        if (!ok)
+          return (
+            answer: t('Nothing is playing on your phone.', 'Non c\'è niente in riproduzione sul telefono.'),
+            timer: null,
+          );
+        const en = {
+          'play': 'Playing.',
+          'pause': 'Paused.',
+          'next': 'Next track.',
+          'prev': 'Previous track.',
+          'volUp': 'Volume up.',
+          'volDown': 'Volume down.',
+        };
+        const itx = {
+          'play': 'Riproduzione.',
+          'pause': 'In pausa.',
+          'next': 'Brano successivo.',
+          'prev': 'Brano precedente.',
+          'volUp': 'Volume su.',
+          'volDown': 'Volume giù.',
+        };
+        return (answer: (it ? itx : en)[intent.command] ?? 'OK', timer: null);
+      case IntentKind.weather:
+        final w = state.weather;
+        if (w == null) return (answer: t('I don\'t have the weather yet.', 'Non ho ancora il meteo.'), timer: null);
+        final f = w.forecast.isNotEmpty ? w.forecast.first : null;
+        final rest = f == null
+            ? ''
+            : t(' Today ${f.low.round()}° to ${f.high.round()}°.', ' Oggi da ${f.low.round()}° a ${f.high.round()}°.');
+        return (answer: '${w.tempC.round()}°, ${w.condition}.$rest', timer: null);
+      case IntentKind.time:
+        return (answer: t('It\'s ${hm(now)}.', 'Sono le ${hm(now)}.'), timer: null);
+      case IntentKind.date:
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const giorni = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+        return (
+          answer: t(
+            '${days[now.weekday - 1]}, ${now.day}/${now.month}/${now.year}.',
+            'Oggi è ${giorni[now.weekday - 1]} ${now.day}/${now.month}/${now.year}.',
+          ),
+          timer: null,
+        );
+      case IntentKind.battery:
+        final b = await _native.battery();
+        final lvl = (b?['level'] as num?)?.toInt() ?? -1;
+        if (lvl < 0)
+          return (answer: t('I can\'t read the phone\'s battery.', 'Non riesco a leggere la batteria.'), timer: null);
+        final ch = b?['charging'] == true;
+        return (
+          answer: t(
+            'Your phone is at $lvl%${ch ? ', charging' : ''}.',
+            'Il telefono è al $lvl%${ch ? ', in carica' : ''}.',
+          ),
+          timer: null,
+        );
+      case IntentKind.agenda:
+        List<Map<String, dynamic>> events;
+        try {
+          events = await _native.getEvents(hours: 36);
+        } catch (_) {
+          return (
+            answer: t('Allow calendar access in the companion app.', 'Consenti l\'accesso al calendario nell\'app.'),
+            timer: null,
+          );
+        }
+        final upcoming = [
+          for (final e in events)
+            if (((e['end'] as num?)?.toInt() ?? 0) > now.millisecondsSinceEpoch && e['allDay'] != true) e,
+        ];
+        if (upcoming.isEmpty)
+          return (answer: t('Nothing else on your calendar today.', 'Nessun altro impegno oggi.'), timer: null);
+        final parts = [
+          for (final e in upcoming.take(3))
+            '${hm(DateTime.fromMillisecondsSinceEpoch((e['begin'] as num).toInt()))} ${e['title']}',
+        ];
+        return (answer: '${t('Next:', 'Prossimi:')} ${parts.join(', ')}.', timer: null);
+      case IntentKind.findPhone:
+        await _native.findPhone(true);
+        if (mounted) state = state.copyWith(findingPhone: true);
+        return (answer: t('Ringing your phone.', 'Faccio squillare il telefono.'), timer: null);
+      case IntentKind.dnd:
+        final ok = await _native.setDnd(intent.on!);
+        if (!ok)
+          return (
+            answer: t(
+              'Allow Do Not Disturb access in the companion app.',
+              'Consenti l\'accesso a Non disturbare nell\'app.',
+            ),
+            timer: null,
+          );
+        return (
+          answer: intent.on!
+              ? t('Do Not Disturb is on.', 'Non disturbare attivo.')
+              : t('Do Not Disturb is off.', 'Non disturbare disattivato.'),
+          timer: null,
+        );
+      case IntentKind.memos:
+        final kb = _ref.read(knowledgeProvider);
+        final q = intent.text ?? heard;
+        final ctx = await MemoEmbeddings.instance.contextFor(kb, q);
+        if (ctx.isEmpty)
+          return (
+            answer: t('I couldn\'t find anything about that in your memos.', 'Non ho trovato niente nei tuoi memo.'),
+            timer: null,
+          );
+        await thinking();
+        final ans = await gemma.ask(q, [for (final c in ctx) c.$2]);
+        final text = (ans ?? ctx.first.$1.summary).replaceAll(RegExp(r'\s*\[\d+\]'), '').trim();
+        return (answer: text.isEmpty ? ctx.first.$1.displayTitle : text, timer: null);
+      case IntentKind.none:
+        return (answer: '', timer: null);
+    }
+  }
+
+  /// The LLM's {"tool": ...} as an intent (IntentKind.none for an answer).
+  AssistantIntent _intentFromLlm(Map<String, dynamic> r, DateTime now, bool it) {
+    int? n(Object? v) => v is num ? v.toInt() : int.tryParse('${v ?? ''}');
+    switch (r['tool']) {
+      case 'timer':
+        final s = n(r['seconds']);
+        if (s != null && s > 0 && s <= 86400) return AssistantIntent(IntentKind.timer, italian: it, seconds: s);
+        break;
+      case 'reminder':
+        final text = (r['text'] ?? '').toString().trim();
+        DateTime? at;
+        final mins = n(r['minutes']);
+        if (mins != null && mins > 0) at = now.add(Duration(minutes: mins));
+        final tm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch((r['time'] ?? '').toString());
+        if (at == null && tm != null) {
+          at = DateTime(now.year, now.month, now.day, int.parse(tm.group(1)!), int.parse(tm.group(2)!));
+          if (r['day'] == 'tomorrow' || !at.isAfter(now)) at = at.add(const Duration(days: 1));
+        }
+        if (at != null) {
+          return AssistantIntent(
+            IntentKind.reminder,
+            italian: it,
+            at: at,
+            text: text.isEmpty ? (it ? 'Promemoria' : 'Reminder') : text,
+          );
+        }
+        break;
+      case 'music':
+        const cmds = {'play', 'pause', 'next', 'prev', 'volUp', 'volDown'};
+        if (cmds.contains(r['cmd'])) return AssistantIntent(IntentKind.music, italian: it, command: r['cmd'] as String);
+        break;
+      case 'weather':
+        return AssistantIntent(IntentKind.weather, italian: it);
+      case 'agenda':
+        return AssistantIntent(IntentKind.agenda, italian: it);
+      case 'battery':
+        return AssistantIntent(IntentKind.battery, italian: it);
+      case 'find_phone':
+        return AssistantIntent(IntentKind.findPhone, italian: it);
+      case 'dnd':
+        return AssistantIntent(IntentKind.dnd, italian: it, on: r['on'] != false);
+      case 'memos':
+        return AssistantIntent(IntentKind.memos, italian: it, text: (r['query'] ?? '').toString());
+    }
+    return AssistantIntent(IntentKind.none, italian: it);
+  }
+
   // ---- phone -> watch -----------------------------------------------------------------
+
+  /// Another app opened the phone's camera (or closed it): the watch offers
+  /// its remote, the way it shows directions. The app's own camera screen
+  /// tells the watch itself.
+  /// Waits a moment both ways: face unlock opens the camera for a second,
+  /// and a camera app flipping between lenses closes it for a moment.
+  Future<void> _onCameraInUse(bool on) async {
+    _cameraInUse = on;
+    await Future.delayed(Duration(milliseconds: on ? 1500 : 2500));
+    if (_cameraInUse != on || !_ble.hasPhoneLink) return;
+    await CameraRemote.instance.onCameraInUse(on);
+  }
+
+  bool _cameraInUse = false;
 
   /// The watch asked for an app icon ('i') or the album cover ('a') it
   /// saw in a notification / now-playing message.
@@ -771,8 +1275,20 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     }
 
     if (type == 'removed') {
+      NotifAi.instance.remove(id);
       if (_ble.hasPhoneLink) await _ble.sendLink({'t': 'nrm', 'id': id});
       return;
+    }
+    // The Messages screen and the LLM features see them even when they
+    // aren't forwarded to the watch.
+    if (type == 'posted' || type.isEmpty) {
+      NotifAi.instance.add(
+        id,
+        n['app'] as String? ?? '',
+        n['title'] as String? ?? '',
+        n['text'] as String? ?? '',
+        n['canReply'] == true,
+      );
     }
     if (!_settings.forwardNotifications) return;
     final app = n['app'] as String? ?? '';
@@ -797,12 +1313,32 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'rp': n['canReply'] == true ? 1 : 0,
         if (icon != 0) 'ic': icon,
       });
+      if (n['canReply'] == true && text.isNotEmpty) unawaited(_suggestReplies(id, app, title, text));
     } else {
       // Older watch firmware: plain text only.
       final body = title.isNotEmpty && text.isNotEmpty ? '$title: $text' : (title.isNotEmpty ? title : text);
       await _ble.sendNotification(app.isNotEmpty ? '[$app] $body' : body);
     }
     if (mounted) state = state.copyWith(forwardedToday: state.forwardedToday + 1);
+  }
+
+  // Smart replies: the LLM writes a few replies for a message; at most a
+  // couple waiting, so a burst of messages doesn't queue minutes of work.
+  int _srPending = 0;
+  Future<void> _suggestReplies(int id, String app, String sender, String text) async {
+    if (_srPending >= 2 || !await SmartReplies.enabled()) return;
+    _srPending++;
+    try {
+      final replies = await GemmaService.instance.suggestReplies(app, sender, _clip(text, 400));
+      if (replies != null) NotifAi.instance.setReplies(id, replies);
+      if (replies != null && _ble.hasPhoneLink) {
+        await _ble.sendLink({'t': 'sr', 'id': id, 'l': replies});
+      }
+    } catch (e) {
+      print('[Companion] smart replies failed: $e');
+    } finally {
+      _srPending--;
+    }
   }
 
   Future<void> _onPhoneMedia(Map<String, dynamic> m) async {
@@ -828,14 +1364,16 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         if (((m['artHash'] as num?)?.toInt() ?? 0) != 0) 'ah': (m['artHash'] as num).toInt(),
       });
     } else {
-      await _ble.sendMediaState(MediaState(
-        title: m['title'] as String? ?? '',
-        artist: m['artist'] as String? ?? '',
-        album: m['album'] as String? ?? '',
-        playing: m['playing'] == true,
-        position: (m['position'] as num?)?.toInt() ?? 0,
-        duration: (m['duration'] as num?)?.toInt() ?? 0,
-      ));
+      await _ble.sendMediaState(
+        MediaState(
+          title: m['title'] as String? ?? '',
+          artist: m['artist'] as String? ?? '',
+          album: m['album'] as String? ?? '',
+          playing: m['playing'] == true,
+          position: (m['position'] as num?)?.toInt() ?? 0,
+          duration: (m['duration'] as num?)?.toInt() ?? 0,
+        ),
+      );
     }
   }
 
@@ -861,14 +1399,15 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       }
       final loc = await _native.lastLocation();
       if (loc == null) {
-        throw Exception(interactive
-            ? 'No location yet - open Maps once, then retry'
-            : 'Location unavailable');
+        throw Exception(interactive ? 'No location yet - open Maps once, then retry' : 'Location unavailable');
       }
       final w = await WeatherService.fetch(loc['lat']!, loc['lon']!);
       if (!mounted) return;
       state = state.copyWith(weather: w, weatherLoading: false);
-      if (_ble.isConnected) await _ble.sendWeather(w.toWatch());
+      if (_ble.isConnected) {
+        await _ble.sendWeather(w.toWatch());
+        if (_ble.hasPhoneLink) await _ble.sendLink(w.toWatchHours());
+      }
     } catch (e) {
       if (!mounted) return;
       state = state.copyWith(weatherLoading: false, weatherError: e.toString().replaceFirst('Exception: ', ''));
@@ -921,5 +1460,4 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   }
 }
 
-final companionProvider =
-    StateNotifierProvider<CompanionNotifier, CompanionState>((ref) => CompanionNotifier(ref));
+final companionProvider = StateNotifierProvider<CompanionNotifier, CompanionState>((ref) => CompanionNotifier(ref));

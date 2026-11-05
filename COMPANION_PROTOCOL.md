@@ -25,7 +25,7 @@ strips the last 72 bytes and sends the signature with `0x05`.
 | `0003` | Time | phone → watch | 7 bytes: year-2000, month, day, hour, minute, second, 0 |
 | `0004` | Contacts | phone → watch | JSON array `[{"name","phone","email"}]`, framed (see below); a write starting with `[` is a whole list |
 | `0005` | Media (legacy) | phone → watch | JSON `{"title","artist","album","playing","position","duration"}` |
-| `0006` | File / data | phone → watch | prefix `0x01` watchface JSON (first chunk: `0x01` + total len 2 LE + data, then `0x01` + data), `0x02` weather JSON, `0x03` fitness JSON, otherwise a file transfer: header `nameLen(4 LE) totalSize(4 LE) name`, chunks `len(4 LE) offset(4 LE) data`. Files up to 4 MB, accepted on the watch (bigger: Wi-Fi `/put`). A name `rec:<name>.wav`/`.mp3` (up to 4 MB) is saved into /Recordings |
+| `0006` | File / data | phone → watch | prefix `0x01` watchface JSON (first chunk: `0x01` + total len 2 LE + data, then `0x01` + data), `0x02` weather JSON, `0x03` fitness JSON, otherwise a file transfer: header `nameLen(4 LE) totalSize(4 LE) name`, chunks `len(4 LE) offset(4 LE) data`. Files up to 4 MB, accepted on the watch (bigger: Wi-Fi `/put`). A name `rec:<name>.wav`/`.mp3` (up to 4 MB) is saved into /Recordings. A name `wn:<model>/<file>` (`wn9_*` model, file `wn9_data`, `wn9_index` or `_MODEL_INFO_`, sent in that order) is a wake word saved into /srmodels/<model>/ without asking. The command model goes the same way: `wn:mn7_en/<file>` with `mn7_data`, `mn7_index`, then `_MODEL_INFO_` (MultiNet7 English, ~2.7 MB). A name `pf:<name>.pwf` (name: up to 20 letters, digits, `_`, `-`; the format in firmware/app_photo_watchface.h) is a photo watch face saved as /faces/photos/<name>.pwf without asking and shown at once (up to 20 of them). A name `pt:<name>.txt` (up to 16 KB, the format of firmware/piano_songs.h) is a Piano Tiles song saved into /piano/ without asking. A name `say:<x>.wav` (16 kHz mono, up to 1 MB) is the assistant's answer spoken: saved as /Recordings/_say.wav and played if the assistant is still open |
 | `0007` | Notes | both | phone writes `0x01` list, `0x02`+name download, `0x03`+name delete, `0x05` next chunk (`0x05`+n = n more chunks: the app keeps a window of chunks in flight), transcript as `0x06`+total(2 LE)+data then `0x07`+data. Watch notifies `0x10` list header, `0x11` list chunk, `0x12` file chunk, `0x13` done |
 | `0008` | Controller | phone → watch | 2 bytes: d-pad bits, button bits |
 | `0009` | **Phone link** | both | JSON messages, framed (see below) |
@@ -62,15 +62,18 @@ Phone → watch (`"t"` = type):
 | `{"t":"wifi","on":1}` / `{"t":"wifi","on":0}` | start / stop the Wi-Fi transfer server (see below) |
 | `{"t":"crash"}` / `{"t":"crash","clr":1}` | send diagnostics (and clear the crash report) |
 | `{"t":"dict","id":123,"n":1,"tx":"text"}` / `{"t":"dict","id":123,"n":1,"err":"why"}` | voice reply transcription result (`n` echoes the watch's attempt number) |
+| `{"t":"ask","n":1,"st":"Thinking"}` | voice assistant progress (shown while the watch waits) |
+| `{"t":"ask","n":1,"q":"heard","a":"answer","do":"timer","s":300}` / `{"t":"ask","n":1,"err":"why"}` | voice assistant result; `do`/`s` optional: `timer` sets the watch timer to `s` seconds (0 cancels) |
 
 Watch → phone (`"e"` = event):
 
 | Message | Meaning |
 |---|---|
-| `{"e":"hi","bat":80,"chg":0,"st":1234,"fw":"2.5.0","rr":"power on","cr":0,"up":12}` / `{"e":"st",...}` | watch battery, charging, steps today; on connect, then every 5 min. `hi` adds firmware version, last reset reason, crash report id (0 = none) and uptime s |
+| `{"e":"hi","bat":80,"chg":0,"st":1234,"mv":120,"ex":18,"sd":4,"gm":300,"ge":30,"gs":10,"fw":"2.5.0","rr":"power on","cr":0,"up":12,"fh":[[20261007,350,41,11,9000]]}` / `{"e":"st",...}` | watch battery, charging, steps today, activity rings today (move kcal, exercise min, stand hours) and their goals (fw 3.5+); on connect, then every 5 min. `hi` adds firmware version, last reset reason, crash report id (0 = none), uptime s and the last days' rings `fh` ([yyyymmdd, kcal, min, hours, steps], newest first) |
 | `{"e":"wifi","st":"ready","ip":"192.168.1.20","port":8080,"k":"<key>"}` / `{"e":"wifi","st":"err","why":"..."}` / `{"e":"wifi","st":"off"}` | Wi-Fi transfer server state |
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
+| `{"e":"ask","n":1,"f":"_ask.wav"}` | voice assistant question recorded: download `f`, transcribe, act on it, answer with `t:"ask"` |
 | `{"e":"req"}` | please resend battery + now playing |
 | `{"e":"img","k":"i"\|"a","h":789}` | send this app icon / album cover (as `0x03` frames); asked once per image, again after 20 s if nothing came |
 | `{"e":"med","a":"toggle"\|"next"\|"prev"\|"volUp"\|"volDown"}` | media control |
@@ -78,6 +81,9 @@ Watch → phone (`"e"` = event):
 | `{"e":"call","a":"answer"\|"decline","id":456}` | answer / decline / hang up |
 | `{"e":"ntf","a":"dismiss","id":123}` | dismiss on the phone |
 | `{"e":"ntf","a":"reply","id":123,"tx":"On my way"}` | quick reply through the notification's reply action |
+| `{"e":"fall"}` / `{"e":"fall","ok":1}` | fall detection (fw 3.5+): nobody answered "Did you fall?" in 30 s - the phone rings and texts the emergency contact with its location; `ok` = the person answered afterwards (stop ringing) |
+| `{"e":"digest"}` | "Catch me up" on the watch: the phone's LLM sums up the last day's notifications, answers `{"t":"digest","tx":"..."}` (or `err`) |
+| `{"e":"tr","id":123}` | translate notification `id` into the phone's language: `{"t":"tr","id":123,"tx":"..."}` (or `err`) |
 
 Text is UTF-8. The watch keeps Latin-1 letters (its smooth fonts draw them) and folds everything else
 (`ble_fold_utf8`).
@@ -150,7 +156,40 @@ uses it. While a Wi-Fi transfer runs, `scan`/`set`/`test` reply `ok:0` with a re
 | phone → watch | `{"t":"dnd","on":0\|1}` | the phone's DND changed (sent on connect too, if DND sync is on in the app) |
 | phone → watch | `{"t":"dnd","bed":0\|1,"from":1380,"to":420}` | bedtime window (minutes after midnight; may cross midnight) |
 | watch → phone | `{"e":"dnd","on":0\|1}` | DND tile used on the watch; the app applies it with `setInterruptionFilter` if it has DND access |
+| phone → watch | `{"t":"pf","a":"list"}` · `{"t":"pf","a":"show","n":"<name>"}` · `{"t":"pf","a":"del","n":"<name>"}` · `{"t":"pf","a":"rot","m":0\|1\|2}` | photo faces (fw 3.5+): list them, show one (it becomes the watch face), delete one, change them on tap only / every hour / every day. The watch answers each with the list below |
+| watch → phone | `{"e":"pf","l":["p20261103154512",...],"cur":"<name>","rot":0,"max":20}` | the photo faces on the SD card, sorted, the one shown and the rotation; also sent after a `pf:` transfer |
 | phone → watch | `{"t":"qr","l":["OK","On my way",...]}` | quick replies (max 10, 38 chars each); `[]` = built-in presets. "Dictate" always stays first |
+| phone → watch | `{"t":"sr","id":123,"l":["Sure, see you at 8!","Can I tell you later?","What should I bring?"]}` | smart replies for notification `id` (app 3.5+): up to 3, 38 chars each, written by the phone's LLM; shown after "Dictate", before the quick replies. The watch keeps them for its last 6 messages |
+| phone → watch | `{"t":"tz","o":60}` | the phone's offset from UTC in minutes, sent after `hi` (fw 3.5+: the World clock) |
+| phone → watch | `{"t":"wxh","hi":21,"lo":12,"h":[[14,19.5,61],...]}` | today's high/low and the next 12 hours (hour, °C, WMO code) for the Weather app (fw 3.5+), after each weather push |
+| phone → watch | `{"t":"look","wf":1,"acc":3,"sec":1,"eyes":1,"date":1,"pet":0,"wx":1,"aod":0,"h24":1,"ts":0,"ml":0,"br":200}` | the app's Faces tab (fw 3.5+), any of these: the face worn (`wf`, an index into `faces`), the Eyes face's accent (0-7) and parts, weather effects, always-on, 24-hour clock, text size (0-2), apps as a list, brightness (8-255) |
+| watch → phone | `{"e":"look","wf":1,"faces":["Eyes","Minimal","Custom","Photo"],"acc":3,...,"comp":["steps","rings","battery"]}` | the watch's look: on `hi`, after every `look`, and whenever it changes on the watch |
+| phone → watch | `{"t":"home"}` · `{"t":"home","style":"apple"}` · `{"t":"home","a":{"tap":"apps","left":"tiles"},"tiles":["activity","music"]}` | the face's gestures (Faces > Gestures and Tiles): ask, a style (`standard`, `apple`, `wearos`, `galaxy`, `classic`), or any gestures (`tap`, `double`, `hold`, `up`, `down`, `left` = in from the right, `right` = in from the left, `boot`) set to an action (`none`, `apps`, `notifs`, `stack`, `control`, `tiles`, `faces`, `nextface`, `prevface`, `assistant`, `music`, `playpause`, `timer`, `stopwatch`, `workout`, `torch`, `recorder`, `life`, `activity`, `weather`, `calendar`, `settings`, `face` = the face's own, tap only), and the Tiles shown in order (`activity`, `weather`, `next`, `music`, `timer`, `life`, `world`, `alarm`, `reminders`, `battery`) |
+| watch → phone | `{"e":"home","a":{"tap":"apps",...},"style":"standard","tiles":["activity",...]}` | on `hi`, after every `home`, and whenever it changes on the watch (`style`: `custom` when it matches none) |
+| phone → watch | `{"t":"wal","op":"put","i":0,"n":"Ryanair FR 1234","s":"Seat 12A","k":"aztec","w":27,"h":27,"r":10,"crc":123,"tot":92,"o":0,"b":"<base64>"}` | a Wallet pass into slot `i` (0-7): its code already turned into modules by the app, `w` x `h` (`h` = 1 for a barcode), 1 bit each row by row, MSB first, sent in parts (`o` = byte offset, `tot` = all of them, at most 4096); `r`: a module's height in tenths of its width (PDF417: about 30); name, line, kind and `crc` in the first part |
+| phone → watch | `{"t":"wal","op":"del","i":3}` · `{"t":"wal","op":"ask"}` | clear a slot; ask for the list |
+| watch → phone | `{"e":"wal","l":[["Ryanair FR 1234",123],[],...]}` | the slots (an empty one is empty): on `hi`, `ask` and after each change - the app sends what differs |
+| phone → watch | `{"t":"life","df":480,"dt":1320,"w":{"on":1,"g":8,"ev":90},"s":{"on":1,"g":3,"ev":120,"f":540,"t":1080},"tr":{"on":1,"dy":42,"g":30,"at":1080},"m":{"on":1,"g":3,"at":1260},"me":{"on":1,"b":480,"l":780,"d":1170},"so":{"on":1,"dy":65,"at":1140,"who":"Mum"},"wd":{"on":1,"at":1350}}` | the Life plan (fw 3.5+): the day's window, then water (glasses, every N min), stretch (breaks, every N min, working hours), training (days bit 0 = Sunday, minutes, time), mindful minutes and time, meal times, a social check-in, wind-down; times in minutes after midnight |
+| phone → watch | `{"t":"meals","b":"Greek yogurt...","l":"...","d":"..."}` | today's meal ideas (up to ~70 letters each) |
+| watch → phone | `{"e":"life","d":20261104,"w":3,"st":1,"mi":2,"tr":12,"me":2,"so":0,"wd":0,"sc":42,"h":[[20261103,8,3,3,30,3,1,1,100],...]}` | today in Life (water glasses, stretch breaks, mindful min, exercise min, meals, social, wind-down, score %) after each change, and the last days `h` on `hi` |
+| phone → watch | `{"t":"body","kg":70,"cm":175}` | weight (30-250 kg) and height (100-230 cm) for calories and the stride (fw 3.5+); the watch answers with a status report, which carries `kg` and `cm` too |
+| phone → watch | `{"t":"usage"}` | the app's Diagnostics asks how the watch is used (fw 3.5+); three answers follow |
+| watch → phone | `{"e":"usage","p":0,"iv":10,"bat":"5251ff...","chg":"0001..."}` | the battery every 10 min over 24 h, oldest first, two hex digits each (`ff` = no sample), and charging per sample |
+| watch → phone | `{"e":"usage","p":1,"on":[...24],"wk":[...24],"ony":[...24]}` | screen-on seconds and wake-ups per hour today, screen-on yesterday |
+| watch → phone | `{"e":"usage","p":2,"apps":[["Music",1234],...],"wake":64,"disc":2,"ntf":41,"boot":12,"crash":0,"heap":61,"psram":7100,"sd":[30436,4210],"up":52000,"rr":"Power on"}` | seconds per app today (top 12), counters, lowest free internal RAM (KB), free PSRAM (KB), SD total/used (MB), uptime, last reset |
+| watch → phone | `{"e":"usage","p":3,"off":36000,"pm":1,"aw":{"wakeword":30000,"gps":600}}` | what kept the watch from sleeping deeply with the screen off today (unplugged), seconds each: `build` (no power management in this firmware), `setting` (Deep sleep off), `wakeword`, `aod`, `gps`, `wifi`, `espnow`, `audio`, `usbmode`; `off`: seconds with the screen off; `pm`: 1 when the firmware has power management (fw 3.5+) |
+| watch → phone | `{"e":"usage","p":4,"wk":[[20261103,95,120,38,1],...]}` | the last 7 days, newest first: date, screen-on minutes, wake-ups, battery % used unplugged, times charged (fw 3.5+) |
+| watch → phone | `{"e":"fh","h":[[20260801,312,24,9,6482],...]}` | after `hi`: the activity days past the status report's 7 (up to 90), 15 a message - same rows as `fh` in the report |
+| watch → phone | `{"e":"lh","h":[[...],...]}` | after the `life` report: the Life days past its 7 (up to 90), 15 a message - same rows as its `h` |
+| watch → phone | `{"e":"sleep","n":[[20261104,1392,366,209,7],...]}` | after `hi` and each morning: the last 30 nights, newest first, 15 a message - the morning's date, start (minutes after midnight), minutes asleep, still, awake |
+| phone → watch | `{"t":"cam","on":1,"tm":3,"fl":"auto","fr":0,"vm":0,"z":15,"rec":0}` · `{"t":"cam","on":1,"ext":1}` · `{"t":"cam","on":0}` | the camera remote: the app's camera screen is open (its state: self-timer s, flash off/auto/on, front, video mode, zoom x10, recording) - the watch shows the remote by itself; `ext`: another app opened the camera (Android; the watch doesn't come up by itself, the phone asks first); `on:0` closes it |
+| phone → watch | `{"t":"cam","on":1,"nat":1,"tm":3,"pv":1}` · `{"t":"cam","msg":"..."}` | the watch runs another camera app (Android, `NativeCamera.kt`): its self-timer, and whether its view is shared (`pv`); a word to show for a moment ("Couldn't press the shutter") |
+| phone → watch | `{"t":"cam","cd":3}` · `{"t":"cam","ok":1}` | the self-timer counting down; a photo was taken. The live view comes as image frames of kind `p` (~2 a second, a 144 px JPEG) |
+| watch → phone | `{"e":"cam","a":"shot"}` | the remote's buttons: `shot`, `flip`, `mode` (photo/video), `timer`, `flash`, `zoom-`, `zoom+`, `open` (open the camera screen on the phone), `native` (run the camera app that's open), `view` (ask the phone again to share that app's view) |
+| watch → phone | `{"e":"sos"}` | Emergency SOS (fw 3.5+, hold PWR, slide): the phone rings and texts the emergency contact with its location, then answers `{"t":"sos","ok":1}` or `{"t":"sos","ok":0,"why":"..."}` |
+| phone → watch | `{"t":"woack","st":<start>}` | a workout arrived (see `wo`); the watch stops resending it |
+| watch → phone | `{"e":"wo","ty":"Outdoor Run","st":<start>,"du":1800,"m":5230,"kc":310,"stp":4800,"gps":1}` | a finished workout (fw 3.5+): start in local epoch seconds, seconds, metres (0 = none), active kcal, steps, GPS distance. Sent again on every `hi` until acked |
+| phone → watch | `{"t":"tmr","s":600}` | a timer asked for on the phone's assistant (app 3.5+): set on the watch, `0` cancels |
 
 While DND (switch or bedtime) is on, the watch shows no notification popups and plays no reminder or navigation
 sounds; incoming calls still ring.
@@ -161,6 +200,8 @@ sounds; incoming calls still ring.
 |---|---|---|
 | phone → watch | `{"t":"comp","s":["steps","next_event","battery"]}` | the 3 slots on the Default/Minimal faces, left to right |
 | phone → watch | `{"t":"todo","n":4,"top":"Call Marco"}` | open to-dos from the voice memos (for the `todos` complication) |
+| phone → watch | `{"t":"todos","r":1,"l":[{"k":"9f3a01bc","x":"Call Marco"},...]}` … `{"t":"todos","l":[...],"done":1}` | the open to-dos for the Reminders app (fw 3.5+), 7 per message; `r` starts a new list, `done` replaces the watch's. `k` = FNV-1a of the to-do's key, 8 hex digits |
+| watch → phone | `{"e":"todo","k":"9f3a01bc","d":1}` | ticked off on the watch; the phone marks it done and sends the list again |
 
 Keys: `none`, `steps`, `battery`, `phone_battery`, `next_event`, `weather`, `notifications`, `navigation`, `todos`,
 `seconds`. Custom watchface JSON: `{"type":"complication","dataSrc":"next_event","x":120,"y":330,"radius":42}`.

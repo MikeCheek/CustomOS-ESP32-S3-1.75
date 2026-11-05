@@ -24,9 +24,12 @@ struct AppSettings {
     // Screen timeout in seconds, set by the battery mode (battery_mode.h).
     // 0 = never auto-sleep. Display is fully hardware-powered-off while
     // asleep (see hal_display.cpp's display_sleep()), not just dimmed.
-    uint16_t sleep_timeout_s = 120;
+    uint16_t sleep_timeout_s = 30;    // screen timeout; lowering the wrist turns it off sooner
     bool wake_on_touch = true;
     bool wake_on_motion = true;
+    bool wrist_down_sleep = true;
+    bool morning_brief = true;
+    bool night_dim = true;             // dimmer during the bedtime hours (dnd_from_min..dnd_to_min)         // the first look each morning: weather, sleep, the day (app_briefing.h)      // lower the wrist (screen turned aside) to sleep
     // Skips the sleep_timeout_s auto-sleep entirely while the watch
     // is on charge (power_is_charging(), hal_power.h) - no reason to
     // dim/lock a watch sitting on its charger.
@@ -91,9 +94,54 @@ struct AppSettings {
     uint16_t dnd_from_min = 23 * 60;         // bedtime start, minutes after midnight
     uint16_t dnd_to_min = 7 * 60;            // bedtime end
     bool smooth_fonts = true;                // ui_font.h - smooth fonts with accents
+    bool clock_24h = true;                   // clock_fmt.h - off: 9:05 PM
+    char photo_face[24] = "";                // the Photo face's current photo, "" = the first
+    uint8_t photo_rotate = 0;                // Photo face: 0 tap only, 1 every hour, 2 every day
+    bool developer_mode = false;             // the app menu also shows tests and diagnostics
+    bool menu_list = false;                  // the app menu as an A-Z list instead of the honeycomb
+    uint16_t move_goal = 300;                // fitness.h: active kcal a day
+    uint8_t weight_kg = 70;                  // for calories (fitness.h, workouts)
+    uint8_t height_cm = 175;                 // for the stride: distance from steps
+    bool tips_seen = false;                  // app_tips.h: shown once
+    uint8_t exercise_goal = 30;              // minutes a day
+    uint8_t stand_goal = 10;                 // hours a day
+    bool stand_remind = true;
+    bool sound_cues = true;
+    // The main (Eyes) face, set on the watch or from the app's Faces tab (face_look.h)
+    uint8_t face_accent = 0;                 // FACE_ACCENTS index
+    bool face_seconds = true;                // the seconds arc round the edge
+    bool face_eyes = true;
+    bool face_date = true;
+    bool face_pet = true;                    // the pet walking on the faces                  // haptics.h: a tone pattern per kind of event
+    uint8_t text_size = 0;                   // 0 default, 1 large, 2 larger (ui_font.cpp)
+    bool low_power = false;                  // Low Power Mode (low_power.h)
+    bool lp_prev_aod = false, lp_prev_wx = false, lp_prev_wake = false;   // what it turned off
+    uint8_t lp_prev_mode = 1;                // at ten to the hour, if you haven't moved in it
+
+    // ---- Voice (voice_sr.cpp) --------------------------------------------------
+    bool voice_wake = false;                 // listen for the wake word (more battery)
+    bool voice_wake_asleep = false;          // ...also with the screen off
+    bool voice_clean = true;                 // noise suppression + auto gain on voice recordings
+    bool rec_skip_silence = false;           // the Recorder leaves out long pauses
+    bool voice_commands = true;              // after the wake word: offline commands (MultiNet), when installed
+    char wake_model[24] = "";                // folder in /srmodels, "" = the first one there
+    bool fall_detect = false;                // app_fall.h: ask "Did you fall?", then alert the phone
+    bool sleep_track = true;                 // app_sleep.h: movement-based sleep tracking at night
+    bool alarm_on = false;                   // the smart alarm
+    uint16_t alarm_min = 7 * 60;             // its time, minutes after midnight
+    bool activity_track = true;              // app_activity.h: still / walking / running all day
+    bool flick_back = false;                 // two quick wrist flicks = back
+
+    // ---- Home gestures (home_gestures.h) ------------------------------------
+    // HomeAction per HomeSlot: tap, double-tap, hold, up, down, from the
+    // right, from the left, BOOT - the Standard style.
+    uint8_t home_act[8] = {1, 11, 6, 3, 4, 5, 2, 4};
+    // TileKind in order, TILE_END after the last shown
+    uint8_t tiles[10] = {0, 1, 2, 3, 4, 5, 6, 0xFF, 0xFF, 0xFF};
 
     // ---- Battery mode (battery_mode.h) ---------------------------------------
     uint8_t battery_mode = 1;           // BatteryMode, 1 = Balanced
+    uint8_t charge_mode = 1;            // 0 full, 1 optimized (80% overnight, full by the morning), 2 stop at 80%
     // What Saver/Ultra switched off, restored when going back to a normal mode.
     bool    saver_prev_wifi = false;
     bool    saver_prev_gps = false;

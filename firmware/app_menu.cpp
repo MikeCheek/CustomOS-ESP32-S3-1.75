@@ -8,19 +8,38 @@
 #include "hal_touch.h"
 #include <Arduino_GFX_Library.h>
 #include <math.h>
+#include "ui_font.h"
+#include <string.h>
+#include <esp_heap_caps.h>
+#include "app_settings_state.h"
+#include "app_clock.h"
+#include "app_weather.h"
+#include "app_reminders.h"
+#include "app_workout.h"
+#include "app_life.h"
+#include "app_tips.h"
+#include "app_wallet.h"
+#include "app_camera.h"
+
+struct IconPen;   // below: draws an icon's shapes at full size
 
 enum MenuCategory { CAT_GAMES, CAT_TOOLS, CAT_TESTS, CAT_COUNT };
-static const uint16_t CATEGORY_COLOR[CAT_COUNT] = { COLOR_GOOD, COLOR_ACCENT, COLOR_ACCENT2 };
-static const char *CATEGORY_NAME[CAT_COUNT] = { "Games", "Tools", "Tests" };
 
 struct MenuEntry {
     const char *label;
     MenuCategory category;
-    void (*icon_fn)(Arduino_GFX *g, int cx, int cy, float br);
+    void (*icon_fn)(IconPen *g, int cx, int cy, float br);
     Screen *screen;
+    bool dev = false;   // only with Settings > System > Developer mode
+    uint16_t disc = 0;  // the icon's disc colour (0: taken from its drawing)
+    int8_t folder = -1; // >= 0: this is a folder holding that category (games, developer tools)
 };
 
 extern Screen settings_screen;
+extern Screen assistant_screen;
+extern Screen sleep_screen;
+extern Screen draw_screen;
+extern Screen activity_screen;
 extern Screen notifications_screen;
 extern Screen ble_status_screen;
 extern Screen battery_screen;
@@ -41,13 +60,13 @@ extern Screen recorder_screen;
 extern Screen breakout_screen;
 extern Screen pet_screen;
 extern Screen flappy_screen;
+extern Screen piano_screen;
 extern Screen fruitninja_screen;
 extern Screen runner_screen;
 extern Screen maze_screen;
 extern Screen sprite_test_screen;
 extern Screen ninjadungeon_screen;
-extern Screen blackjack_screen;
-extern Screen cavern_screen;
+extern Screen casino_screen;   // Crystal Cavern, Blackjack and Roulette, one wallet (casino.h)
 extern Screen bambu_printer_screen;
 extern Screen phone_screen;
 extern Screen calendar_screen;
@@ -74,7 +93,123 @@ static uint16_t blend565(uint16_t fg, uint16_t bg, float alpha) {
 }
 #define IC(color) blend565((uint16_t)(color), COLOR_PANEL, br)
 
-static void icon_settings(Arduino_GFX *g, int cx, int cy, float br) {
+// ---- The pen: the icons are drawn at their own (small) size, in pixels
+// around (cx, cy); the pen draws the same shapes scaled up into a big
+// buffer, as real shapes (circles, triangles, rounded rects, thick
+// lines), so the icon comes out sharp at any size instead of enlarged
+// pixels. A pixel p of the small drawing is centred at O + p * S.
+struct IconPen {
+    uint16_t *buf = nullptr;
+    int n = 0;            // the buffer is n x n
+    float s = 1, o = 0;   // scale and where the small drawing's 0 lands
+
+    float P(float p) const { return o + p * s; }   // a pixel's centre
+    void px(int x, int y, uint16_t c) { if (x >= 0 && y >= 0 && x < n && y < n) buf[y * n + x] = c; }
+    // every buffer pixel whose centre is in [x0,x1) x [y0,y1) that passes in(fx, fy)
+    template <typename F> void area(float x0, float y0, float x1, float y1, uint16_t c, F in) {
+        int ix0 = (int)floorf(x0), iy0 = (int)floorf(y0), ix1 = (int)ceilf(x1), iy1 = (int)ceilf(y1);
+        if (ix0 < 0) ix0 = 0;
+        if (iy0 < 0) iy0 = 0;
+        if (ix1 > n) ix1 = n;
+        if (iy1 > n) iy1 = n;
+        for (int y = iy0; y < iy1; y++)
+            for (int x = ix0; x < ix1; x++)
+                if (in(x + 0.5f, y + 0.5f)) buf[y * n + x] = c;
+    }
+
+    void fillRect(float x, float y, float w, float h, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f);
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) { return fx >= x0 && fx < x1 && fy >= y0 && fy < y1; });
+    }
+    void drawFastHLine(float x, float y, float w, uint16_t c) { fillRect(x, y, w, 1, c); }
+    void drawFastVLine(float x, float y, float h, uint16_t c) { fillRect(x, y, 1, h, c); }
+    void fillCircle(float x, float y, float r, uint16_t c) {
+        float cx = P(x), cy = P(y), R = (r + 0.5f) * s, R2 = R * R;
+        area(cx - R, cy - R, cx + R, cy + R, c, [&](float fx, float fy) { return (fx - cx) * (fx - cx) + (fy - cy) * (fy - cy) <= R2; });
+    }
+    void drawCircle(float x, float y, float r, uint16_t c) {
+        float cx = P(x), cy = P(y), Ro = (r + 0.5f) * s, Ri = (r - 0.5f) * s;
+        if (Ri < 0) Ri = 0;
+        area(cx - Ro, cy - Ro, cx + Ro, cy + Ro, c, [&](float fx, float fy) {
+            float d2 = (fx - cx) * (fx - cx) + (fy - cy) * (fy - cy);
+            return d2 <= Ro * Ro && d2 >= Ri * Ri;
+        });
+    }
+    void drawEllipse(float x, float y, float rx, float ry, uint16_t c) {
+        float cx = P(x), cy = P(y), ax = (rx + 0.5f) * s, ay = (ry + 0.5f) * s, bx = (rx - 0.5f) * s, by = (ry - 0.5f) * s;
+        area(cx - ax, cy - ay, cx + ax, cy + ay, c, [&](float fx, float fy) {
+            float u = (fx - cx) / ax, v = (fy - cy) / ay;
+            if (u * u + v * v > 1) return false;
+            if (bx <= 0 || by <= 0) return true;
+            u = (fx - cx) / bx; v = (fy - cy) / by;
+            return u * u + v * v >= 1;
+        });
+    }
+    // distance from (fx, fy) outside a rounded rect (<= 0 inside)
+    static float rr_dist(float fx, float fy, float x0, float y0, float x1, float y1, float r) {
+        float qx = fabsf(fx - (x0 + x1) / 2) - ((x1 - x0) / 2 - r), qy = fabsf(fy - (y0 + y1) / 2) - ((y1 - y0) / 2 - r);
+        float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+        float in = qx > qy ? qx : qy;
+        return sqrtf(ox * ox + oy * oy) + (in < 0 ? in : 0) - r;
+    }
+    void fillRoundRect(float x, float y, float w, float h, float r, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f), R = r * s;
+        float lim = ((x1 - x0) < (y1 - y0) ? (x1 - x0) : (y1 - y0)) / 2;
+        if (R > lim) R = lim;
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) { return rr_dist(fx, fy, x0, y0, x1, y1, R) <= 0; });
+    }
+    void drawRoundRect(float x, float y, float w, float h, float r, uint16_t c) {
+        float x0 = P(x - 0.5f), y0 = P(y - 0.5f), x1 = P(x + w - 0.5f), y1 = P(y + h - 0.5f), R = r * s;
+        float lim = ((x1 - x0) < (y1 - y0) ? (x1 - x0) : (y1 - y0)) / 2;
+        if (R > lim) R = lim;
+        area(x0, y0, x1, y1, c, [&](float fx, float fy) {
+            float d = rr_dist(fx, fy, x0, y0, x1, y1, R);
+            return d <= 0 && d > -s;   // one small pixel wide
+        });
+    }
+    // a line one small pixel wide, with round ends
+    void drawLine(float xa, float ya, float xb, float yb, uint16_t c) {
+        float ax = P(xa), ay = P(ya), bx = P(xb), by = P(yb), hw = 0.5f * s * 1.08f;
+        float dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        float lx = (ax < bx ? ax : bx) - hw, ly = (ay < by ? ay : by) - hw, hx = (ax > bx ? ax : bx) + hw, hy = (ay > by ? ay : by) + hw;
+        area(lx, ly, hx, hy, c, [&](float fx, float fy) {
+            float t = l2 > 0 ? ((fx - ax) * dx + (fy - ay) * dy) / l2 : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            float ex = fx - (ax + t * dx), ey = fy - (ay + t * dy);
+            return ex * ex + ey * ey <= hw * hw;
+        });
+    }
+    // the small triangle covered its edge pixels too: grow it by half a pixel
+    void fillTriangle(float xa, float ya, float xb, float yb, float xc, float yc, uint16_t c) {
+        float X[3] = {P(xa), P(xb), P(xc)}, Y[3] = {P(ya), P(yb), P(yc)};
+        float area2 = (X[1] - X[0]) * (Y[2] - Y[0]) - (Y[1] - Y[0]) * (X[2] - X[0]);
+        if (fabsf(area2) < 1e-3f) { drawLine(xa, ya, xb, yb, c); drawLine(xb, yb, xc, yc, c); return; }
+        float sg = area2 > 0 ? 1.0f : -1.0f, grow = 0.5f * s;
+        float lx = X[0], hx = X[0], ly = Y[0], hy = Y[0];
+        for (int i = 1; i < 3; i++) {
+            lx = X[i] < lx ? X[i] : lx; hx = X[i] > hx ? X[i] : hx;
+            ly = Y[i] < ly ? Y[i] : ly; hy = Y[i] > hy ? Y[i] : hy;
+        }
+        float len[3];
+        for (int i = 0; i < 3; i++) {
+            int j = (i + 1) % 3;
+            len[i] = sqrtf((X[j] - X[i]) * (X[j] - X[i]) + (Y[j] - Y[i]) * (Y[j] - Y[i]));
+            if (len[i] < 1e-3f) len[i] = 1e-3f;
+        }
+        area(lx - grow, ly - grow, hx + grow, hy + grow, c, [&](float fx, float fy) {
+            for (int i = 0; i < 3; i++) {
+                int j = (i + 1) % 3;
+                // signed distance to edge i (positive inside)
+                float e = sg * ((X[j] - X[i]) * (fy - Y[i]) - (Y[j] - Y[i]) * (fx - X[i])) / len[i];
+                if (e < -grow) return false;
+            }
+            return true;
+        });
+    }
+};
+
+
+static void icon_settings(IconPen *g, int cx, int cy, float br) {
     // Gear: circle with teeth
     g->fillCircle(cx, cy, 20, IC(COLOR_ACCENT));
     g->fillCircle(cx, cy, 12, IC(COLOR_BG));
@@ -86,7 +221,7 @@ static void icon_settings(Arduino_GFX *g, int cx, int cy, float br) {
     }
 }
 
-static void icon_snake(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_snake(IconPen *g, int cx, int cy, float br) {
     // Snake body
     uint16_t c = IC(COLOR_GOOD);
     int sx[] = {-12, -4, 4, 12};
@@ -97,33 +232,40 @@ static void icon_snake(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 14, cy - 2, 3, IC(COLOR_TEXT)); // eye
 }
 
-static void icon_reaction(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_reaction(IconPen *g, int cx, int cy, float br) {
     // Lightning bolt
     g->fillTriangle(cx - 2, cy - 18, cx + 10, cy - 4, cx + 2, cy - 4, IC(COLOR_ACCENT3));
     g->fillTriangle(cx + 2, cy - 4, cx - 10, cy + 18, cx - 2, cy + 4, IC(COLOR_ACCENT3));
 }
 
-static void icon_dodger(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_dodger(IconPen *g, int cx, int cy, float br) {
     // Shield shape
     g->fillTriangle(cx, cy - 18, cx + 16, cy - 6, cx - 16, cy - 6, IC(COLOR_BAD));
     g->fillRoundRect(cx - 16, cy - 6, 32, 20, 0, IC(COLOR_BAD));
     g->fillTriangle(cx, cy + 18, cx + 16, cy + 4, cx - 16, cy + 4, IC(COLOR_BAD));
 }
 
-static void icon_simon(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_simon(IconPen *g, int cx, int cy, float br) {
     // Diamond
     g->fillTriangle(cx, cy - 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT));
     g->fillTriangle(cx, cy + 16, cx + 14, cy, cx - 14, cy, IC(COLOR_ACCENT2));
 }
 
-static void icon_plane(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_piano(IconPen *g, int cx, int cy, float br) {
+    // Piano keys: four white keys, three black ones on top
+    for (int k = 0; k < 4; k++) g->fillRoundRect(cx - 21 + k * 11, cy - 16, 10, 32, 2, IC(COLOR_TEXT));
+    for (int k = 0; k < 3; k++) g->fillRect(cx - 14 + k * 11, cy - 16, 6, 19, IC(COLOR_BG));
+    g->fillCircle(cx + 15, cy - 12, 4, IC(COLOR_ACCENT));
+}
+
+static void icon_plane(IconPen *g, int cx, int cy, float br) {
     // Paper-plane silhouette: nose + swept wings
     g->fillTriangle(cx, cy - 18, cx - 14, cy + 14, cx + 14, cy + 14, IC(COLOR_GOOD));
     g->fillTriangle(cx - 22, cy + 12, cx, cy - 2, cx - 12, cy + 16, IC(COLOR_GOOD));
     g->fillTriangle(cx + 22, cy + 12, cx, cy - 2, cx + 12, cy + 16, IC(COLOR_GOOD));
 }
 
-static void icon_breakout(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_breakout(IconPen *g, int cx, int cy, float br) {
     // A row of colored bricks, a paddle, and a ball
     g->fillRoundRect(cx - 22, cy - 18, 14, 8, 2, IC(COLOR_GOOD));
     g->fillRoundRect(cx - 6, cy - 18, 14, 8, 2, IC(COLOR_WARN));
@@ -132,24 +274,21 @@ static void icon_breakout(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 16, cy + 16, 32, 7, 3, IC(COLOR_ACCENT));
 }
 
-static void icon_blackjack(Arduino_GFX *g, int cx, int cy, float br) {
-    // Two overlapping playing cards, a small red diamond pip on each
-    uint16_t card_c = IC(COLOR565(0xF0, 0xF0, 0xE8));
-    uint16_t pip_c = IC(COLOR565(0xE0, 0x30, 0x30));
-    g->fillRoundRect(cx - 16, cy - 14, 20, 28, 3, IC(COLOR_TEXT_DIM));
-    g->fillRoundRect(cx - 4, cy - 10, 20, 28, 3, card_c);
-    g->fillTriangle(cx + 6, cy - 2, cx + 2, cy + 4, cx + 10, cy + 4, pip_c);
-    g->fillTriangle(cx + 6, cy + 10, cx + 2, cy + 4, cx + 10, cy + 4, pip_c);
+static void icon_casino(IconPen *g, int cx, int cy, float br) {
+    // A roulette wheel (red / black / a green pocket) and a gold chip
+    g->fillCircle(cx - 3, cy - 2, 18, IC(COLOR565(0x70, 0x40, 0x1E)));
+    for (int i = 0; i < 8; i++) {
+        float a0 = i * 0.7854f, a1 = a0 + 0.7854f;
+        uint16_t c = i == 0 ? COLOR565(0x10, 0x90, 0x48) : i % 2 ? COLOR565(0xC8, 0x20, 0x2C) : COLOR565(0x20, 0x20, 0x24);
+        g->fillTriangle(cx - 3, cy - 2, cx - 3 + (int)(cosf(a0) * 15), cy - 2 + (int)(sinf(a0) * 15),
+                        cx - 3 + (int)(cosf(a1) * 15), cy - 2 + (int)(sinf(a1) * 15), IC(c));
+    }
+    g->fillCircle(cx - 3, cy - 2, 6, IC(COLOR565(0xE8, 0xC0, 0x50)));
+    g->fillCircle(cx + 14, cy + 14, 9, IC(COLOR565(0xE8, 0xC0, 0x50)));
+    g->fillCircle(cx + 14, cy + 14, 5, IC(COLOR565(0xB0, 0x80, 0x20)));
 }
 
-static void icon_cavern(Arduino_GFX *g, int cx, int cy, float br) {
-    // A small cluster of colored crystals - a circle, a square and a triangle
-    g->fillCircle(cx - 12, cy + 6, 9, IC(COLOR565(0x50, 0x90, 0xFF)));
-    g->fillRect(cx + 2, cy - 2, 16, 16, IC(COLOR565(0xFF, 0xD8, 0x30)));
-    g->fillTriangle(cx - 2, cy - 16, cx - 12, cy - 2, cx + 8, cy - 2, IC(COLOR565(0xB0, 0x60, 0xF0)));
-}
-
-static void icon_pet(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_pet(IconPen *g, int cx, int cy, float br) {
     // A small friendly face - round head, two ears, two eyes
     uint16_t body = IC(COLOR565(0xFF, 0xB8, 0x6B));
     g->fillCircle(cx, cy, 16, body);
@@ -160,7 +299,7 @@ static void icon_pet(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx - 3, cy + 6, cx + 3, cy + 6, cx, cy + 10, IC(COLOR565(0x66, 0x33, 0x11)));
 }
 
-static void icon_flappy(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_flappy(IconPen *g, int cx, int cy, float br) {
     // A little bird between two green pipe gaps
     uint16_t pipe = IC(COLOR_GOOD);
     g->fillRoundRect(cx - 24, cy - 22, 10, 16, 2, pipe);
@@ -171,7 +310,7 @@ static void icon_flappy(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 8, cy, cx + 16, cy - 3, cx + 16, cy + 3, IC(COLOR_BAD));
 }
 
-static void icon_fruitninja(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_fruitninja(IconPen *g, int cx, int cy, float br) {
     // Two sliced fruit halves with a diagonal slice line
     g->fillCircle(cx - 8, cy - 4, 11, IC(COLOR_BAD));
     g->fillCircle(cx + 9, cy + 6, 9, IC(COLOR_WARN));
@@ -180,7 +319,7 @@ static void icon_fruitninja(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawLine(cx - 21, cy + 17, cx + 23, cy - 15, line);
 }
 
-static void icon_runner(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_runner(IconPen *g, int cx, int cy, float br) {
     // A small runner figure over 3 converging lane lines
     uint16_t lane = IC(COLOR_PANEL);
     g->drawLine(cx - 20, cy + 18, cx - 4, cy - 20, lane);
@@ -191,14 +330,14 @@ static void icon_runner(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy - 12, 6, body);
 }
 
-static void icon_maze(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_maze(IconPen *g, int cx, int cy, float br) {
     // Converging corridor walls with a small enemy silhouette ahead
     g->fillTriangle(cx - 22, cy + 18, cx - 6, cy + 18, cx - 2, cy - 4, IC(COLOR_ACCENT));
     g->fillTriangle(cx + 22, cy + 18, cx + 6, cy + 18, cx + 2, cy - 4, IC(COLOR_ACCENT));
     g->fillRoundRect(cx - 5, cy - 2, 10, 14, 3, IC(COLOR_BAD));
 }
 
-static void icon_recorder(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_recorder(IconPen *g, int cx, int cy, float br) {
     // Microphone
     uint16_t c = IC(COLOR_BAD);
     g->fillRoundRect(cx - 6, cy - 16, 12, 22, 6, c);
@@ -207,7 +346,7 @@ static void icon_recorder(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 8, cy + 22, 16, 3, 1, c);
 }
 
-static void icon_notifications(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_notifications(IconPen *g, int cx, int cy, float br) {
     // Bell
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 12, cy - 14, 24, 20, 10, c);
@@ -215,7 +354,7 @@ static void icon_notifications(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 10, 2, IC(COLOR_BG));
 }
 
-static void icon_ble(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_ble(IconPen *g, int cx, int cy, float br) {
     // Bluetooth rune
     uint16_t c = IC(COLOR_ACCENT);
     g->fillRoundRect(cx - 3, cy - 16, 6, 32, 2, c);
@@ -225,7 +364,7 @@ static void icon_ble(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 14, 3, c);
 }
 
-static void icon_battery(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_battery(IconPen *g, int cx, int cy, float br) {
     uint16_t c = IC(COLOR_GOOD);
     g->drawRoundRect(cx - 16, cy - 10, 32, 20, 4, c);
     g->fillRect(cx + 16, cy - 4, 4, 8, c);
@@ -233,7 +372,7 @@ static void icon_battery(Arduino_GFX *g, int cx, int cy, float br) {
 }
 
 
-static void icon_espnow(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_espnow(IconPen *g, int cx, int cy, float br) {
     // A small joystick base + stick, with radiating "wireless" arcs
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 14, cy + 6, 28, 10, 4, c);
@@ -243,7 +382,7 @@ static void icon_espnow(Arduino_GFX *g, int cx, int cy, float br) {
     g->drawCircle(cx, cy - 12, 24, IC(COLOR_TEXT_DIM));
 }
 
-static void icon_bambu(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_bambu(IconPen *g, int cx, int cy, float br) {
     // A simple gantry-style 3D printer frame with a small printed
     // object on the bed - fillRect/fillTriangle only, no drawRect
     // outline (see this project's established note elsewhere on why).
@@ -255,7 +394,7 @@ static void icon_bambu(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx, cy - 2, cx - 8, cy + 8, cx + 8, cy + 8, IC(COLOR_ACCENT2)); // printed object
 }
 
-static void icon_media(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_media(IconPen *g, int cx, int cy, float br) {
     // Play note
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillCircle(cx - 4, cy + 10, 6, c);
@@ -263,7 +402,7 @@ static void icon_media(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 6, cy - 14, cx + 18, cy - 10, cx + 6, cy - 6, c);
 }
 
-static void icon_gallery(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_gallery(IconPen *g, int cx, int cy, float br) {
     // Photo: frame, sun and two hills
     uint16_t c = IC(COLOR_GOOD);
     g->fillRoundRect(cx - 18, cy - 14, 36, 28, 5, c);
@@ -273,7 +412,7 @@ static void icon_gallery(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx + 8, cy - 5, 3, IC(COLOR_WARN));
 }
 
-static void icon_music(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_music(IconPen *g, int cx, int cy, float br) {
     // Two beamed notes
     uint16_t c = IC(COLOR_ACCENT);
     g->fillCircle(cx - 9, cy + 11, 6, c);
@@ -284,7 +423,42 @@ static void icon_music(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx - 5, cy - 12, cx + 17, cy - 9, cx - 5, cy - 6, c);
 }
 
-static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_assistant(IconPen *g, int cx, int cy, float br) {
+    // A speech bubble with a sound wave
+    uint16_t c = IC(COLOR_ACCENT);
+    g->fillRoundRect(cx - 20, cy - 16, 40, 28, 12, c);
+    g->fillTriangle(cx - 10, cy + 10, cx - 2, cy + 10, cx - 14, cy + 20, c);
+    uint16_t w = IC(COLOR_BG);
+    static const int8_t H[5] = { 4, 10, 16, 10, 4 };
+    for (int k = 0; k < 5; k++) g->fillRoundRect(cx - 12 + k * 6, cy - 2 - H[k] / 2, 3, H[k], 1, w);
+}
+
+static void icon_sleep(IconPen *g, int cx, int cy, float br) {
+    // a crescent moon and a small star
+    g->fillCircle(cx - 2, cy, 18, IC(COLOR_ACCENT2));
+    g->fillCircle(cx + 7, cy - 6, 15, IC(COLOR_PANEL));
+    g->fillCircle(cx + 14, cy + 10, 3, IC(COLOR_TEXT));
+}
+
+static void icon_draw(IconPen *g, int cx, int cy, float br) {
+    // a hand-drawn "A" stroke with the pen dot at its end
+    static const int8_t P[][2] = {{-16, 16}, {-8, -2}, {0, -16}, {8, -2}, {16, 16}};
+    for (int i = 0; i + 1 < 5; i++)
+        for (int k = 0; k <= 6; k++)
+            g->fillCircle(cx + P[i][0] + (P[i + 1][0] - P[i][0]) * k / 6, cy + P[i][1] + (P[i + 1][1] - P[i][1]) * k / 6, 3,
+                          IC(COLOR_ACCENT2));
+    g->fillCircle(cx + 16, cy + 16, 5, IC(COLOR_TEXT));
+}
+
+static void icon_activity(IconPen *g, int cx, int cy, float br) {
+    // a running figure: head, body, arms and legs as dots
+    uint16_t c = IC(COLOR_ACCENT3);
+    g->fillCircle(cx + 4, cy - 16, 5, c);
+    static const int8_t P[][2] = {{2, -9}, {0, -3}, {-2, 3}, {-8, 10}, {-14, 16}, {4, 8}, {10, 16}, {-8, -6}, {10, -4}};
+    for (auto &p : P) g->fillCircle(cx + p[0], cy + p[1], 3, c);
+}
+
+static void icon_phone(IconPen *g, int cx, int cy, float br) {
     // Smartphone with a link wave
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 11, cy - 20, 22, 40, 5, c);
@@ -295,7 +469,7 @@ static void icon_phone(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx + 21, cy - 10, 3, 20, w);
 }
 
-static void icon_calendar(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_calendar(IconPen *g, int cx, int cy, float br) {
     // Calendar page with a red header and two rings
     g->fillRoundRect(cx - 18, cy - 16, 36, 34, 6, IC(COLOR_TEXT));
     g->fillRoundRect(cx - 18, cy - 16, 36, 12, 5, IC(COLOR_BAD));
@@ -307,7 +481,7 @@ static void icon_calendar(Arduino_GFX *g, int cx, int cy, float br) {
             g->fillRect(cx - 12 + c * 9, cy + 1 + r * 8, 6, 5, IC(COLOR_PANEL));
 }
 
-static void icon_navigation(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_navigation(IconPen *g, int cx, int cy, float br) {
     // Turn arrow on a green sign
     g->fillRoundRect(cx - 20, cy - 20, 40, 40, 10, IC(COLOR_GOOD));
     uint16_t c = IC(COLOR_BG);
@@ -316,14 +490,14 @@ static void icon_navigation(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillTriangle(cx + 15, cy + 1, cx + 5, cy - 9, cx + 5, cy + 11, c);
 }
 
-static void icon_contacts(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_contacts(IconPen *g, int cx, int cy, float br) {
     // Person
     uint16_t c = IC(COLOR_ACCENT);
     g->fillCircle(cx, cy - 8, 9, c);
     g->fillRoundRect(cx - 14, cy + 4, 28, 16, 8, c);
 }
 
-static void icon_files(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_files(IconPen *g, int cx, int cy, float br) {
     // Folder
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 16, cy - 6, 32, 22, 4, c);
@@ -331,7 +505,7 @@ static void icon_files(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 12, cy, 24, 12, 2, IC(COLOR_BG));
 }
 
-static void icon_tests(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_tests(IconPen *g, int cx, int cy, float br) {
     // Wrench
     uint16_t c = IC(COLOR_ACCENT2);
     g->fillRoundRect(cx - 3, cy - 16, 6, 28, 2, c);
@@ -339,7 +513,7 @@ static void icon_tests(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillCircle(cx, cy + 10, 4, IC(COLOR_BG));
 }
 
-static void icon_calibration(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_calibration(IconPen *g, int cx, int cy, float br) {
     // Crosshair/target
     uint16_t c = IC(COLOR_ACCENT2);
     g->drawCircle(cx, cy, 18, c);
@@ -351,7 +525,7 @@ static void icon_calibration(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx + 16, cy - 2, 10, 4, 1, c);
 }
 
-static void icon_sprite_test(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_sprite_test(IconPen *g, int cx, int cy, float br) {
     // A little placeholder figure over a checkerboard - a stand-in for
     // "testing bitmap sprites", not a real game icon
     uint16_t c1 = IC(COLOR_PANEL), c2 = IC(COLOR_TEXT_DIM);
@@ -363,7 +537,7 @@ static void icon_sprite_test(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRoundRect(cx + 3, cy + 2, 10, 10, 3, IC(COLOR_GOOD));
 }
 
-static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
+static void icon_ninjadungeon(IconPen *g, int cx, int cy, float br) {
     // A hooded ninja silhouette over a stone-block dungeon wall
     uint16_t wall = IC(COLOR565(0x55, 0x55, 0x60));
     g->fillRect(cx - 22, cy - 20, 44, 14, wall);
@@ -376,103 +550,424 @@ static void icon_ninjadungeon(Arduino_GFX *g, int cx, int cy, float br) {
     g->fillRect(cx - 3, cy - 6, 6, 3, IC(COLOR_TEXT));
 }
 
+static void icon_timer(IconPen *g, int cx, int cy, float br) {
+    // a stopwatch-style dial with a quarter swept
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx, cy + 3, 19, c);
+    g->fillCircle(cx, cy + 3, 15, IC(COLOR_PANEL));
+    g->fillTriangle(cx, cy + 3, cx, cy - 12, cx + 15, cy + 3, c);
+    g->fillRoundRect(cx - 5, cy - 22, 10, 5, 2, c);
+}
+
+static void icon_stopwatch(IconPen *g, int cx, int cy, float br) {
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx, cy + 3, 19, c);
+    g->fillCircle(cx, cy + 3, 15, IC(COLOR_PANEL));
+    g->drawLine(cx, cy + 3, cx + 8, cy - 7, c);
+    g->drawLine(cx + 1, cy + 3, cx + 9, cy - 7, c);
+    g->fillCircle(cx, cy + 3, 3, c);
+    g->fillRoundRect(cx - 4, cy - 22, 8, 6, 2, c);
+    g->fillRoundRect(cx + 13, cy - 17, 6, 6, 2, c);
+}
+
+static void icon_alarm(IconPen *g, int cx, int cy, float br) {
+    // an alarm clock: two bells on top, legs
+    uint16_t c = IC(COLOR_WARN);
+    g->fillCircle(cx - 14, cy - 15, 7, c);
+    g->fillCircle(cx + 14, cy - 15, 7, c);
+    g->fillCircle(cx, cy + 2, 18, c);
+    g->fillCircle(cx, cy + 2, 14, IC(COLOR_PANEL));
+    g->drawLine(cx, cy + 2, cx, cy - 8, c);
+    g->drawLine(cx, cy + 2, cx + 7, cy + 6, c);
+    g->drawLine(cx - 12, cy + 17, cx - 16, cy + 22, c);
+    g->drawLine(cx + 12, cy + 17, cx + 16, cy + 22, c);
+}
+
+static void icon_worldclock(IconPen *g, int cx, int cy, float br) {
+    // a globe: meridians and the equator
+    uint16_t c = IC(COLOR_ACCENT2);
+    g->fillCircle(cx, cy, 20, c);
+    g->fillCircle(cx, cy, 17, IC(COLOR_PANEL));
+    g->drawFastHLine(cx - 17, cy, 34, c);
+    g->drawFastHLine(cx - 14, cy - 9, 28, c);
+    g->drawFastHLine(cx - 14, cy + 9, 28, c);
+    g->drawFastVLine(cx, cy - 17, 34, c);
+    g->drawEllipse(cx, cy, 8, 17, c);
+}
+
+static void icon_weather(IconPen *g, int cx, int cy, float br) {
+    // the sun behind a cloud
+    g->fillCircle(cx - 6, cy - 7, 11, IC(COLOR_WARN));
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx - 8, cy + 6, 8, c);
+    g->fillCircle(cx + 3, cy + 1, 10, c);
+    g->fillCircle(cx + 12, cy + 7, 7, c);
+    g->fillRoundRect(cx - 15, cy + 6, 33, 9, 4, c);
+    // the disc colour comes from the saturated parts: make it a sky blue
+    g->fillCircle(cx + 17, cy - 15, 2, IC(COLOR_ACCENT2));
+    g->fillCircle(cx - 19, cy + 17, 2, IC(COLOR_ACCENT2));
+}
+
+static void icon_reminders(IconPen *g, int cx, int cy, float br) {
+    // three rows with a dot each
+    uint16_t c = IC(COLOR_ACCENT3);
+    for (int i = 0; i < 3; i++) {
+        int y = cy - 12 + i * 12;
+        g->fillCircle(cx - 12, y, 4, c);
+        g->fillRoundRect(cx - 4, y - 2, 20, 4, 2, IC(COLOR_TEXT));
+    }
+}
+
+static void icon_workout(IconPen *g, int cx, int cy, float br) {
+    // a runner in mid-stride
+    uint16_t c = IC(0x9F45);
+    g->fillCircle(cx + 5, cy - 16, 5, c);
+    g->fillTriangle(cx + 4, cy - 10, cx - 2, cy + 4, cx + 6, cy + 2, c);
+    g->drawLine(cx - 1, cy + 3, cx - 10, cy + 18, c);
+    g->drawLine(cx, cy + 3, cx - 9, cy + 18, c);
+    g->drawLine(cx + 2, cy + 3, cx + 12, cy + 10, c);
+    g->drawLine(cx + 12, cy + 10, cx + 9, cy + 19, c);
+    g->drawLine(cx + 3, cy - 7, cx + 14, cy - 2, c);
+    g->drawLine(cx + 3, cy - 7, cx - 8, cy - 4, c);
+}
+
+static void icon_life(IconPen *g, int cx, int cy, float br) {
+    // a heart with a leaf: living well
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx - 8, cy - 5, 10, c);
+    g->fillCircle(cx + 8, cy - 5, 10, c);
+    g->fillTriangle(cx - 18, cy - 1, cx + 18, cy - 1, cx, cy + 19, c);
+    g->fillCircle(cx + 15, cy - 18, 3, IC(0x2CCA));   // keeps the disc green
+}
+
+static void icon_tips(IconPen *g, int cx, int cy, float br) {
+    // a lit bulb
+    uint16_t c = IC(COLOR_TEXT);
+    g->fillCircle(cx, cy - 5, 14, c);
+    g->fillRoundRect(cx - 7, cy + 6, 14, 10, 3, c);
+    g->fillRoundRect(cx - 5, cy + 17, 10, 4, 2, c);
+    g->fillCircle(cx + 15, cy - 18, 2, IC(COLOR_WARN));   // a yellow disc
+}
+
+static void icon_wallet(IconPen *g, int cx, int cy, float br) {
+    // a pass with a QR code on it
+    uint16_t c = IC(COLOR_TEXT), d = IC(0x2B9F);
+    g->fillRoundRect(cx - 17, cy - 19, 34, 38, 6, c);
+    for (int k = 0; k < 3; k++) {   // the three finder squares
+        int x = k == 1 ? cx + 2 : cx - 13, y = k == 2 ? cy + 2 : cy - 15;
+        g->fillRoundRect(x, y, 11, 11, 2, d);
+        g->fillRect(x + 3, y + 3, 5, 5, c);
+    }
+    g->fillRect(cx + 3, cy + 3, 4, 4, d);
+    g->fillRect(cx + 9, cy + 9, 4, 4, d);
+    g->fillRect(cx + 9, cy + 3, 4, 3, d);
+}
+
+static void icon_camera(IconPen *g, int cx, int cy, float br) {
+    // a camera body, the lens, the shutter on top
+    uint16_t c = IC(COLOR_TEXT), d = IC(0x5AEB);
+    g->fillRoundRect(cx - 20, cy - 11, 40, 28, 7, c);
+    g->fillRoundRect(cx - 8, cy - 17, 16, 8, 3, c);
+    g->fillCircle(cx, cy + 3, 10, d);
+    g->fillCircle(cx, cy + 3, 6, c);
+    g->fillCircle(cx + 13, cy - 5, 2, d);
+}
+
+// In honeycomb order: the first one sits in the middle, the next six
+// around it, and so on - so the apps used most come first, games after.
 static const MenuEntry MENU_ENTRIES[] = {
-    {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
-    {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
-    {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
-    {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
-    {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
-    {"BLE Status",    CAT_TOOLS, icon_ble,           &ble_status_screen},
-    {"Battery",       CAT_TOOLS, icon_battery,       &battery_screen},
-    {"Joystick Link",  CAT_TOOLS, icon_espnow,        &espnow_status_screen},
-    {"3D Printer",     CAT_TOOLS, icon_bambu,         &bambu_printer_screen},
-    {"Gallery",       CAT_TOOLS, icon_gallery,       &gallery_screen},
+    {"Assistant",     CAT_TOOLS, icon_assistant,     &assistant_screen},
     {"Music",         CAT_TOOLS, icon_music,         &music_screen},
-    {"Media",         CAT_TOOLS, icon_media,         &media_screen},
-    {"Contacts",      CAT_TOOLS, icon_contacts,      &contacts_screen},
-    {"Files",         CAT_TOOLS, icon_files,         &files_screen},
+    {"Calendar",      CAT_TOOLS, icon_calendar,      &calendar_screen},
+    {"Activity",      CAT_TOOLS, icon_activity,      &activity_screen},
+    {"Life",          CAT_TOOLS, icon_life,          &life_screen, false, 0x2CCA},
+    {"Workout",       CAT_TOOLS, icon_workout,       &workout_screen},
+    {"Timer",         CAT_TOOLS, icon_timer,         &timer_screen, false, 0xFC60},
+    {"Weather",       CAT_TOOLS, icon_weather,       &weather_screen, false, 0x2A9F},
+    {"Alarms",        CAT_TOOLS, icon_alarm,         &alarms_screen, false, 0xFC60},
+    {"Notifications", CAT_TOOLS, icon_notifications, &notifications_screen},
+    {"Reminders",     CAT_TOOLS, icon_reminders,     &reminders_screen},
+    {"Wallet",        CAT_TOOLS, icon_wallet,        &wallet_screen, false, 0x2B9F},
+    {"Camera",        CAT_TOOLS, icon_camera,        &camera_screen, false, 0x5AEB},
+    {"Games",         CAT_TOOLS, nullptr,            nullptr, false, 0, CAT_GAMES},
     {"Recorder",      CAT_TOOLS, icon_recorder,      &recorder_screen},
-    {"Calibrate",     CAT_TOOLS, icon_calibration,   &calibration_screen},
+    {"Stopwatch",     CAT_TOOLS, icon_stopwatch,     &stopwatch_screen, false, 0xFC60},
+    {"World Clock",   CAT_TOOLS, icon_worldclock,    &worldclock_screen, false, 0x3A7F},
+    {"Settings",      CAT_TOOLS, icon_settings,      &settings_screen},
+    {"Tips",          CAT_TOOLS, icon_tips,          &tips_screen, false, 0xFD20},
+    {"Sleep",         CAT_TOOLS, icon_sleep,         &sleep_screen},
+    {"Phone",         CAT_TOOLS, icon_phone,         &phone_screen},
+    {"Navigation",    CAT_TOOLS, icon_navigation,    &navigation_screen},
+    {"Gallery",       CAT_TOOLS, icon_gallery,       &gallery_screen},
+    {"Files",         CAT_TOOLS, icon_media,         &media_screen},   // plays, shows and opens what's on the card
+    {"Contacts",      CAT_TOOLS, icon_contacts,      &contacts_screen},
+    {"Draw",          CAT_TOOLS, icon_draw,          &draw_screen},
+    {"Battery",       CAT_TOOLS, icon_battery,       &battery_screen},
     {"Pet",           CAT_TOOLS, icon_pet,           &pet_screen},
-    {"Tests",         CAT_TESTS, icon_tests,         &test_menu_screen},
-    {"Sprite Test",   CAT_TESTS, icon_sprite_test,   &sprite_test_screen},
-    {"Snake",         CAT_GAMES, icon_snake,         &snake_screen},
-    {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
-    {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
-    {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
-    {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
-    {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
-    {"Blackjack",     CAT_GAMES, icon_blackjack,     &blackjack_screen},
-    {"Crystal Cavern",CAT_GAMES, icon_cavern,        &cavern_screen},
+    {"3D Printer",    CAT_TOOLS, icon_bambu,         &bambu_printer_screen},
+    {"Developer",     CAT_TOOLS, nullptr,            nullptr, true,  0, CAT_TESTS},
+    {"Piano Tiles",   CAT_GAMES, icon_piano,         &piano_screen},
     {"Flappy",        CAT_GAMES, icon_flappy,        &flappy_screen},
     {"Fruit Slice",   CAT_GAMES, icon_fruitninja,    &fruitninja_screen},
+    {"Snake",         CAT_GAMES, icon_snake,         &snake_screen},
+    {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
     {"Runner",        CAT_GAMES, icon_runner,        &runner_screen},
+    {"Casino",        CAT_GAMES, icon_casino,        &casino_screen},
+    {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
+    {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
+    {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
+    {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
     {"Maze Raider",   CAT_GAMES, icon_maze,          &maze_screen},
     {"Ninja Dungeon", CAT_GAMES, icon_ninjadungeon,  &ninjadungeon_screen},
+    // developer mode
+    {"Tests",         CAT_TESTS, icon_tests,         &test_menu_screen,      true},
+    {"Calibrate",     CAT_TESTS, icon_calibration,   &calibration_screen,    true},
+    {"BLE Status",    CAT_TESTS, icon_ble,           &ble_status_screen,     true},
+    {"Joystick Link", CAT_TESTS, icon_espnow,        &espnow_status_screen,  true},
+    {"SD browser",    CAT_TESTS, icon_files,         &files_screen,          true},
+    {"Sprite Test",   CAT_TESTS, icon_sprite_test,   &sprite_test_screen,    true},
 };
 static const int MENU_COUNT = sizeof(MENU_ENTRIES) / sizeof(MENU_ENTRIES[0]);
 
-// ---- Hex-packed "world" layout, Apple Watch style ------------------------
+// =========================================================================
+//  Icons: drawn once into a small image each, in one style
+// =========================================================================
 //
-// Icons sit at fixed positions in an infinite 2D world; the screen just
-// shows whatever's under a pannable window (s_pan_x/y = world coordinate
-// currently at screen center). Positions are laid out in concentric hex
-// rings around the origin (icon 0 at the center, the next 6 forming a
-// ring around it, the next 12 forming a ring around that, and so on) -
-// the same ring-spiral construction used for hex-grid tile maps, applied
-// here to precisely circle-pack a cluster the way watchOS's app grid
-// does, rather than left to a physics simulation this hardware has no
-// business running for a menu screen.
-#define ICON_RADIUS    62
-#define ICON_SPACING   144 // center-to-center; > 2*ICON_RADIUS leaves a gap
+// Every icon is drawn by its function above, through the pen at full
+// size (twice the image's, then averaged: sharp and anti-aliased), into a
+// 104x104 image in one style: a disc in the icon's own colour (lighter at
+// the top) with the drawing in white on it - the look of watchOS's app
+// icons, whatever colours each drawing used. The gradient is dithered so it
+// doesn't band in 16-bit colour. A half-size copy is kept for small icons, and the disc's round
+// edge is worked out at the size it's drawn, so it's smooth at any size:
+// smaller toward the edge of the honeycomb, growing when an app opens,
+// small in the list.
+static const int SPR = 104, SPR_R = 50;          // the image, and its disc: the honeycomb's full size, pixel for pixel
+static const int MIP = 52, MIP_R = 25;           // the half-size copy: the list's size
+static const float GLYPH = 1.17f;                // how much bigger than written it's drawn on the disc
+static uint16_t *s_spr[MENU_COUNT], *s_mip[MENU_COUNT];
 
-// Each category gets its own hex-spiral cluster centered at a
-// distinct offset, rather than one continuous spiral with categories
-// just consecutive within it - genuinely separate "sections" you pan
-// between, not a single blended field. Order matches the MenuCategory
-// enum (CAT_GAMES, CAT_TOOLS, CAT_TESTS). Tools sits at the shared
-// origin (most-used, and where the very first icon naturally lands);
-// Games and Tests are offset far enough apart that even the largest
-// cluster's footprint (currently Games, up to 2 hex rings) doesn't
-// overlap its neighbors.
-// Each category gets its own hex-spiral cluster centered at a
-// distinct offset, rather than one continuous spiral with categories
-// just consecutive within it - genuinely separate "sections" you pan
-// between, not a single blended field. Computed at runtime in
-// menu_create() from each category's ACTUAL item count (not a guessed
-// constant), so the clusters sit exactly as close as they safely can
-// without overlapping, and stay correct if a category grows. Order
-// matches the MenuCategory enum (CAT_GAMES, CAT_TOOLS, CAT_TESTS).
-static float CAT_OFFSET_X[CAT_COUNT];
-static float CAT_OFFSET_Y[CAT_COUNT];
+static void rgb(uint16_t c, int &r, int &g, int &b) { r = (c >> 11) << 3; g = ((c >> 5) & 0x3F) << 2; b = (c & 0x1F) << 3; }
 
-// How many hex rings are needed to hold `count` items - ring 0 holds
-// 1 (the center), each ring k>0 adds 6k more. Used to size each
-// category's actual footprint instead of assuming a worst case.
-static int rings_needed(int count) {
-    if (count <= 1) return 0;
-    int held = 1, ring = 0;
-    while (held < count) {
-        ring++;
-        held += 6 * ring;
-    }
-    return ring;
+// 4x4 ordered dither, -0.5..0.5 of one 16-bit step
+static const int8_t BAYER[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+static inline uint16_t dither565(float r, float g, float b, int x, int y) {
+    float d = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5f) / 16.0f - 0.5f;
+    int ri = (int)(r / 8.0f + d + 0.5f), gi = (int)(g / 4.0f + d + 0.5f), bi = (int)(b / 8.0f + d + 0.5f);
+    ri = ri < 0 ? 0 : ri > 31 ? 31 : ri;
+    gi = gi < 0 ? 0 : gi > 63 ? 63 : gi;
+    bi = bi < 0 ? 0 : bi > 31 ? 31 : bi;
+    return (uint16_t)((ri << 11) | (gi << 5) | bi);
 }
+
+static void make_sprite(int i) {
+    // the drawing, at twice the sprite's size (each sprite pixel the
+    // average of four: smooth edges), as shapes - sharp, not enlarged
+    static const int BIG = SPR * 2;
+    static uint16_t *big = nullptr;
+    if (!big) big = (uint16_t *)heap_caps_malloc(BIG * BIG * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!big) return;
+    for (int k = 0; k < BIG * BIG; k++) big[k] = COLOR_PANEL;
+    IconPen pen;
+    pen.buf = big;
+    pen.n = BIG;
+    pen.s = GLYPH * 2;
+    pen.o = BIG / 2.0f;
+    if (MENU_ENTRIES[i].icon_fn) MENU_ENTRIES[i].icon_fn(&pen, 0, 0, 1.0f);
+
+    // The drawing's own colour (its most saturated pixels) becomes the disc's.
+    long sr = 0, sg = 0, sb = 0, sw = 0;
+    for (int k = 0; k < BIG * BIG; k += 3) {   // a third of them is plenty
+        uint16_t c = big[k];
+        if (c == COLOR_PANEL) continue;
+        int r, g, b;
+        rgb(c, r, g, b);
+        int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        int sat = mx - mn;
+        if (sat < 40) continue;   // white / grey parts don't say what colour it is
+        sr += r * sat; sg += g * sat; sb += b * sat; sw += sat;
+    }
+    int tr = 0x6E, tg = 0x5C, tb = 0xE6;   // no colour of its own: the accent violet
+    if (sw > 0) { tr = sr / sw; tg = sg / sw; tb = sb / sw; }
+    if (MENU_ENTRIES[i].disc) rgb(MENU_ENTRIES[i].disc, tr, tg, tb);
+    // a bit richer and never too dark, so white reads on it
+    int mx = tr > tg ? (tr > tb ? tr : tb) : (tg > tb ? tg : tb);
+    if (mx < 150 && mx > 0) { tr = tr * 150 / mx; tg = tg * 150 / mx; tb = tb * 150 / mx; }
+
+    uint16_t *out = (uint16_t *)heap_caps_malloc(SPR * SPR * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint16_t *mip = (uint16_t *)heap_caps_malloc(MIP * MIP * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!out || !mip) { free(out); free(mip); return; }
+    // how white a pixel of the drawing is: its darker parts become a shade of the disc
+    auto tone = [](uint16_t c) -> float {
+        if (c == COLOR_PANEL) return 0.0f;
+        int r, g, b;
+        rgb(c, r, g, b);
+        int luma = (r * 3 + g * 6 + b) / 10;
+        return luma > 90 ? 1.0f : 0.25f + 0.75f * luma / 90.0f;
+    };
+    for (int y = 0; y < SPR; y++) {
+        // disc: lighter at the top, deeper at the bottom
+        float k = 1.08f - 0.38f * (y + 0.5f) / SPR;
+        float dr = tr * k, dg = tg * k, db = tb * k;
+        if (dr > 255) dr = 255;
+        if (dg > 255) dg = 255;
+        if (db > 255) db = 255;
+        const uint16_t *r0 = big + (y * 2) * BIG, *r1 = r0 + BIG;
+        for (int x = 0; x < SPR; x++) {
+            float a = (tone(r0[x * 2]) + tone(r0[x * 2 + 1]) + tone(r1[x * 2]) + tone(r1[x * 2 + 1])) * 0.25f;
+            out[y * SPR + x] = dither565(255 * a + dr * (1 - a), 255 * a + dg * (1 - a), 255 * a + db * (1 - a), x, y);
+        }
+    }
+    // the half-size copy: each pixel the average of four
+    for (int y = 0; y < MIP; y++)
+        for (int x = 0; x < MIP; x++) {
+            int r = 0, g = 0, b = 0;
+            for (int q = 0; q < 4; q++) {
+                int cr, cg, cb;
+                rgb(out[(y * 2 + (q >> 1)) * SPR + x * 2 + (q & 1)], cr, cg, cb);
+                r += cr; g += cg; b += cb;
+            }
+            mip[y * MIP + x] = dither565(r / 4.0f, g / 4.0f, b / 4.0f, x, y);
+        }
+    s_spr[i] = out;
+    s_mip[i] = mip;
+}
+
+static inline uint16_t mix565(uint16_t fg, uint16_t bg, int a /*0..256*/) {
+    uint32_t f = ((fg & 0xF81F) | ((uint32_t)(fg & 0x07E0) << 16));
+    uint32_t b = ((bg & 0xF81F) | ((uint32_t)(bg & 0x07E0) << 16));
+    uint32_t k = (uint32_t)(a < 0 ? 0 : a > 256 ? 256 : a) >> 3;   // 0..32
+    uint32_t m = ((f * k + b * (32 - k)) >> 5) & 0x07E0F81F;
+    return (uint16_t)(m | (m >> 16));
+}
+
+// Fills a disc with a smooth (anti-aliased) edge, straight into the frame.
+static void fill_disc_aa(uint16_t *fb, int cx, int cy, int r, uint16_t color) {
+    if (!fb || r < 1) return;
+    int in2 = (2 * r - 1) * (2 * r - 1), out2 = (2 * r + 1) * (2 * r + 1);
+    for (int y = -r - 1; y <= r; y++) {
+        int sy = cy + y;
+        if (sy < 0 || sy >= LCD_HEIGHT) continue;
+        int Y = 2 * y + 1;
+        uint16_t *drow = fb + sy * LCD_WIDTH;
+        for (int x = -r - 1; x <= r; x++) {
+            int sx = cx + x;
+            if (sx < 0 || sx >= LCD_WIDTH) continue;
+            int X = 2 * x + 1, d2 = X * X + Y * Y;
+            if (d2 >= out2) continue;
+            if (d2 <= in2) { drow[sx] = color; continue; }
+            float a = r + 0.5f - sqrtf((float)d2) * 0.5f;
+            drow[sx] = mix565(color, drow[sx], (int)(a * 256));
+        }
+    }
+}
+
+// Draws icon i with its centre at (cx, cy), r pixels across the middle,
+// straight into the frame.
+static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r);
+
+// A folder: a frosted disc with its first four apps, small, in a 2x2 grid.
+static void blit_folder(uint16_t *fb, int i, int cx, int cy, int r) {
+    fill_disc_aa(fb, cx, cy, r, 0x3186);
+    int shown = 0, cat = MENU_ENTRIES[i].folder;
+    int mr = r * 30 / 100, off = r * 36 / 100;
+    for (int k = 0; k < MENU_COUNT && shown < 4; k++) {
+        const MenuEntry &e = MENU_ENTRIES[k];
+        if (e.folder >= 0 || e.category != cat) continue;
+        int mx = cx + (shown % 2 ? off : -off), my = cy + (shown / 2 ? off : -off);
+        blit_icon(fb, k, mx, my, mr);
+        shown++;
+    }
+}
+
+static void blit_icon(uint16_t *fb, int i, int cx, int cy, int r) {
+    if (r < 3) return;
+    if (MENU_ENTRIES[i].folder >= 0) { blit_folder(fb, i, cx, cy, r); return; }
+    if (!s_spr[i]) make_sprite(i);
+    if (!s_spr[i] || !fb) return;
+    // small: the half-size copy (sampling the big one would skip pixels and shimmer)
+    bool small = r <= MIP_R + 4;
+    const uint16_t *sp = small ? s_mip[i] : s_spr[i];
+    int n = small ? MIP : SPR;
+    float step = (float)(small ? MIP_R : SPR_R) / r;
+    bool big = r > SPR_R + 2;
+    int in2 = (2 * r - 1) * (2 * r - 1), out2 = (2 * r + 1) * (2 * r + 1);
+    for (int y = -r - 1; y <= r; y++) {
+        int sy = cy + y;
+        if (sy < 0 || sy >= LCD_HEIGHT) continue;
+        int Y = 2 * y + 1;
+        int v = (int)(n / 2 + (y + 0.5f) * step);
+        v = v < 0 ? 0 : v >= n ? n - 1 : v;
+        const uint16_t *srow = sp + v * n, *srow1 = srow;
+        int wv = 0;
+        if (big) {
+            int fv = (int)((n / 2.0f + (y + 0.5f) * step - 0.5f) * 256);
+            int v0 = fv >> 8;
+            wv = fv & 255;
+            if (fv < 0) { v0 = 0; wv = 0; }
+            if (v0 >= n - 1) { v0 = n - 2; wv = 255; }
+            srow = sp + v0 * n;
+            srow1 = srow + n;
+        }
+        uint16_t *drow = fb + sy * LCD_WIDTH;
+        for (int x = -r - 1; x <= r; x++) {
+            int sx = cx + x;
+            if (sx < 0 || sx >= LCD_WIDTH) continue;
+            int X = 2 * x + 1, d2 = X * X + Y * Y;
+            if (d2 >= out2) continue;
+            uint16_t c;
+            if (big) {
+                // drawn bigger than the image (an app zooming open): blend the
+                // four nearest pixels instead of enlarging them
+                int fu = (int)((n / 2.0f + (x + 0.5f) * step - 0.5f) * 256);
+                int u0 = fu >> 8, wu = fu & 255;
+                if (fu < 0) { u0 = 0; wu = 0; }
+                if (u0 >= n - 1) { u0 = n - 2; wu = 255; }
+                const uint16_t *a0 = srow + u0, *a1 = srow1 + u0;
+                c = mix565(mix565(a1[1], a1[0], wu), mix565(a0[1], a0[0], wu), wv);
+            } else {
+                int u = (int)(n / 2 + (x + 0.5f) * step);
+                u = u < 0 ? 0 : u >= n ? n - 1 : u;
+                c = srow[u];
+            }
+            if (d2 <= in2) { drow[sx] = c; continue; }
+            // the round edge, anti-aliased at the size it's drawn
+            float a = r + 0.5f - sqrtf((float)d2) * 0.5f;
+            drow[sx] = mix565(c, drow[sx], (int)(a * 256));
+        }
+    }
+}
+
+void menu_draw_app_icon(const Screen *screen, int cx, int cy, int r) {
+    for (int i = 0; i < MENU_COUNT; i++)
+        if (MENU_ENTRIES[i].screen == screen) { blit_icon(ui_framebuffer(), i, cx, cy, r); return; }
+}
+
+// =========================================================================
+//  The honeycomb (watchOS style) - and the list
+// =========================================================================
+//
+// One cluster of all the apps (developer ones only in developer mode),
+// packed in hex rings from the middle. Icons are full size near the
+// middle and shrink toward the edge (a fisheye), so a glance shows ~20
+// of them; panning moves the whole field, with momentum and a rubber
+// band at the edge of the cluster. Tapping one zooms it up to fill the
+// screen as the app opens.
+#define ICON_RADIUS    50
+#define ICON_SPACING   112   // centre to centre; > 2*ICON_RADIUS leaves a gap
+static const float FISH_R0 = 105.0f;   // full size inside this
+static const float FISH_FALL = 230.0f; // then this far to shrink to nothing
 
 struct HexCoord { int q, r; };
 
 static void gen_hex_positions(HexCoord *out, int count) {
-    // Standard axial hex neighbor directions, walked in order to trace
-    // each ring (see redblobgames' hex-grid guide for the reference
-    // algorithm this follows).
+    // axial hex directions, walked ring by ring (redblobgames' hex guide)
     static const int dq[6] = { 1, 1, 0, -1, -1, 0 };
     static const int dr[6] = { 0, -1, -1, 0, 1, 1 };
-
     int n = 0;
     if (n < count) { out[n].q = 0; out[n].r = 0; n++; }
-
     for (int radius = 1; n < count; radius++) {
-        int q = -radius, r = radius; // start of this ring: direction[4] * radius
+        int q = -radius, r = radius;
         for (int side = 0; side < 6 && n < count; side++) {
             for (int step = 0; step < radius && n < count; step++) {
                 out[n].q = q;
@@ -485,267 +980,363 @@ static void gen_hex_positions(HexCoord *out, int count) {
     }
 }
 
-static float s_icon_wx[MENU_COUNT];
-static float s_icon_wy[MENU_COUNT];
+static int   s_vis[MENU_COUNT];          // the entries shown, in order
+static int   s_vis_n = 0;
+static float s_icon_wx[MENU_COUNT], s_icon_wy[MENU_COUNT];   // by position in s_vis
+static float s_bound = 0;                // the cluster's radius: the rubber band starts there
 
 static float s_pan_x = 0, s_pan_y = 0;
-static float s_vel_x = 0, s_vel_y = 0; // momentum coast after a flick, decays in menu_tick()
-
+static float s_vel_x = 0, s_vel_y = 0;
 static bool  s_dragging = false;
 static int   s_drag_start_x = 0, s_drag_start_y = 0;
 static float s_drag_start_pan_x = 0, s_drag_start_pan_y = 0;
 static int   s_last_x = 0, s_last_y = 0;
 static bool  s_moved_significantly = false;
-static int   s_nearest_idx = -1; // whichever icon is currently focused - read by controller button-select
-static bool  s_ctrl_btn_prev = false; // edge detection for controller select button, same pattern as touch
+static int   s_nearest_idx = -1;         // position in s_vis
+static bool  s_ctrl_btn_prev = false;
+
+// opening an app: the icon grows from where it was to fill the screen
+static int      s_launch = -1;           // position in s_vis
+static uint32_t s_launch_ms = 0;
+static int      s_launch_x = 0, s_launch_y = 0, s_launch_r = 0;
+static const uint32_t LAUNCH_MS = 200;
+// coming back: the app shrinks into its icon (the launch in reverse)
+static int      s_return = -1;           // position in s_vis
+static uint32_t s_return_ms = 0;
+static int      s_opened = -1;           // the app opened from here, still open
+static const uint32_t RETURN_MS = 220;
+
+// the list (Settings > Display > Apps as a list)
+static int   s_order[MENU_COUNT];        // s_vis positions, A-Z
+static float s_list_y = 0, s_list_vel = 0;
+static const int LIST_ROW = 72, LIST_TOP = 96;
+
+static bool listing() { return g_app_settings.menu_list; }
+
+// Which view the field shows: the top level (-1) or a folder's category.
+static int s_folder = -1, s_next_folder = -1;
+static float s_top_pan_x = 0, s_top_pan_y = 0;   // where the top level was, for coming back
+extern Screen menu_folder_screen;
+
+static bool visible_in_view(const MenuEntry &e) {
+    bool dev_ok = !e.dev || g_app_settings.developer_mode;
+    if (!dev_ok) return false;
+    if (listing()) return e.folder < 0;   // the list: every app, A-Z, no folders
+    if (s_folder < 0) return e.folder >= 0 || (e.category != CAT_GAMES && e.category != CAT_TESTS);
+    return e.folder < 0 && e.category == s_folder;
+}
+
+static void build_field() {
+    s_vis_n = 0;
+    for (int i = 0; i < MENU_COUNT; i++)
+        if (visible_in_view(MENU_ENTRIES[i])) s_vis[s_vis_n++] = i;
+    HexCoord coords[MENU_COUNT];
+    gen_hex_positions(coords, s_vis_n);
+    s_bound = 0;
+    for (int k = 0; k < s_vis_n; k++) {
+        // axial -> pixel, pointy-top hexes
+        s_icon_wx[k] = ICON_SPACING * ((float)coords[k].q + (float)coords[k].r / 2.0f);
+        s_icon_wy[k] = ICON_SPACING * ((float)coords[k].r * 0.8660254f);
+        float d = sqrtf(s_icon_wx[k] * s_icon_wx[k] + s_icon_wy[k] * s_icon_wy[k]);
+        if (d > s_bound) s_bound = d;
+    }
+    s_bound = s_bound > ICON_SPACING ? s_bound - ICON_SPACING * 0.6f : 0;   // the outer ring may reach the middle
+    // A-Z for the list
+    for (int k = 0; k < s_vis_n; k++) s_order[k] = k;
+    for (int a = 1; a < s_vis_n; a++)
+        for (int b = a; b > 0 && strcasecmp(MENU_ENTRIES[s_vis[s_order[b - 1]]].label, MENU_ENTRIES[s_vis[s_order[b]]].label) > 0; b--) {
+            int t = s_order[b]; s_order[b] = s_order[b - 1]; s_order[b - 1] = t;
+        }
+    s_pan_x = s_pan_y = s_vel_x = s_vel_y = 0;
+    s_list_y = s_list_vel = 0;
+    s_dragging = false;
+    s_launch = -1;
+}
 
 static void menu_create() {
-    int cat_count[CAT_COUNT] = { 0, 0, 0 };
-    for (int i = 0; i < MENU_COUNT; i++) cat_count[MENU_ENTRIES[i].category]++;
+    s_folder = -1;
+    s_opened = s_return = -1;
+    ui_zoom_back_to(&menu_screen);
+    ui_zoom_back_to(&menu_folder_screen);
+    build_field();
+}
 
-    float cat_radius[CAT_COUNT];
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        cat_radius[cat] = rings_needed(cat_count[cat]) * ICON_SPACING;
+static int s_top_opened = -1;   // the folder icon, to close into when the folder goes
+
+static void folder_create() {
+    s_top_opened = s_opened;
+    s_opened = s_return = -1;
+    s_top_pan_x = s_pan_x;
+    s_top_pan_y = s_pan_y;
+    s_folder = s_next_folder;
+    build_field();
+}
+
+static void folder_destroy() {
+    // back to the top level, where it was - and the folder closes into its icon
+    s_folder = -1;
+    build_field();
+    s_pan_x = s_top_pan_x;
+    s_pan_y = s_top_pan_y;
+    s_opened = s_top_opened;   // menu_tick zooms the folder shut into its icon
+    s_return = -1;
+}
+
+// Where position k is drawn: fisheye from the middle. False when off screen.
+static bool place(int k, int &sx, int &sy, int &r) {
+    float ox = s_icon_wx[k] - s_pan_x, oy = s_icon_wy[k] - s_pan_y;
+    float d = sqrtf(ox * ox + oy * oy);
+    float scale = 1.0f, dd = d;
+    if (d > FISH_R0) {
+        scale = 1.0f - (d - FISH_R0) / FISH_FALL;
+        dd = FISH_R0 + (d - FISH_R0) * 0.78f;   // pulled in a little, like watchOS
     }
-
-    // Tools anchors the shared origin; Games and Tests sit at two
-    // genuine hex-neighbor directions from it, 120 degrees apart - the
-    // same step geometry gen_hex_positions() uses for icons, just
-    // applied one level up so the GROUPS themselves relate to each
-    // other in a hexagonal pattern too, not just each group's own
-    // internal packing. Each placed exactly as close as its own
-    // footprint plus Tools' footprint safely allows (computed from the
-    // real item counts above, not a guessed distance), with a small
-    // fixed gap on top so the boundary reads as a deliberate seam
-    // rather than icons touching edge-to-edge.
-    const float GAP = ICON_SPACING * 0.15f;
-    CAT_OFFSET_X[CAT_TOOLS] = 0.0f;
-    CAT_OFFSET_Y[CAT_TOOLS] = 0.0f;
-
-    float games_dist = cat_radius[CAT_TOOLS] + cat_radius[CAT_GAMES] + GAP;
-    CAT_OFFSET_X[CAT_GAMES] = games_dist;         // hex direction (1, 0)
-    CAT_OFFSET_Y[CAT_GAMES] = 0.0f;
-
-    float tests_dist = cat_radius[CAT_TOOLS] + cat_radius[CAT_TESTS] + GAP;
-    CAT_OFFSET_X[CAT_TESTS] = tests_dist * -0.5f;       // hex direction (0, -1),
-    CAT_OFFSET_Y[CAT_TESTS] = tests_dist * -0.8660254f; // 120 degrees from Games'
-
-    // Each category gets its own hex-spiral (starting fresh at its own
-    // ring 0), then shifted by that category's offset computed above -
-    // this is what actually makes them separate visual "sections"
-    // rather than just consecutive positions within one shared spiral.
-    HexCoord coords[MENU_COUNT];
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        int cat_indices[MENU_COUNT];
-        int n = 0;
-        for (int i = 0; i < MENU_COUNT; i++) {
-            if (MENU_ENTRIES[i].category == cat) cat_indices[n++] = i;
-        }
-        if (n == 0) continue;
-
-        gen_hex_positions(coords, n);
-        for (int k = 0; k < n; k++) {
-            int entry_i = cat_indices[k];
-            // Standard axial->pixel conversion for a pointy-top hex
-            // layout - moving along q shifts a full ICON_SPACING;
-            // moving along r shifts half that horizontally and
-            // sqrt(3)/2 of it vertically, which is what makes adjacent
-            // circles touch evenly.
-            s_icon_wx[entry_i] = CAT_OFFSET_X[cat] + ICON_SPACING * ((float)coords[k].q + (float)coords[k].r / 2.0f);
-            s_icon_wy[entry_i] = CAT_OFFSET_Y[cat] + ICON_SPACING * ((float)coords[k].r * 0.8660254f);
-        }
-    }
-
-    s_pan_x = 0;
-    s_pan_y = 0;
-    s_vel_x = 0;
-    s_vel_y = 0;
-    s_dragging = false;
+    if (scale < 0.18f) return false;
+    float f = d > 0.5f ? dd / d : 1.0f;
+    sx = LCD_WIDTH / 2 + (int)(ox * f);
+    sy = LCD_HEIGHT / 2 + (int)(oy * f);
+    r = (int)(ICON_RADIUS * scale);
+    int ex = sx - LCD_WIDTH / 2, ey = sy - LCD_HEIGHT / 2;
+    float out = sqrtf((float)ex * ex + (float)ey * ey) - r;
+    return out < LCD_WIDTH / 2;
 }
 
 static int hit_test(int x, int y) {
-    int cx0 = LCD_WIDTH / 2, cy0 = LCD_HEIGHT / 2;
-    for (int i = 0; i < MENU_COUNT; i++) {
-        int sx = cx0 + (int)(s_icon_wx[i] - s_pan_x);
-        int sy = cy0 + (int)(s_icon_wy[i] - s_pan_y);
-        int dx = x - sx, dy = y - sy;
-        if (dx * dx + dy * dy <= ICON_RADIUS * ICON_RADIUS) return i;
+    if (listing()) {
+        int row = (int)((y - LIST_TOP + s_list_y) / LIST_ROW);
+        return row >= 0 && row < s_vis_n ? s_order[row] : -1;
     }
-    return -1;
+    int best = -1, best_d = 1 << 30;
+    for (int k = 0; k < s_vis_n; k++) {
+        int sx, sy, r;
+        if (!place(k, sx, sy, r)) continue;
+        int dx = x - sx, dy = y - sy, d2 = dx * dx + dy * dy;
+        if (d2 <= r * r && d2 < best_d) { best = k; best_d = d2; }
+    }
+    return best;
+}
+
+static void launch(int k, int sx, int sy, int r) {
+    if (k < 0 || (!MENU_ENTRIES[s_vis[k]].screen && MENU_ENTRIES[s_vis[k]].folder < 0)) return;
+    sleep_register_activity();
+    s_launch = k;
+    s_launch_ms = millis();
+    s_launch_x = sx; s_launch_y = sy; s_launch_r = r;
+}
+
+static void draw_list(Arduino_GFX *g, uint16_t *fb) {
+    const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2, R = LCD_WIDTH / 2;
+    for (int n = 0; n < s_vis_n; n++) {
+        int y = LIST_TOP + n * LIST_ROW - (int)s_list_y + LIST_ROW / 2;   // row centre
+        if (y < -LIST_ROW || y > LCD_HEIGHT + LIST_ROW) continue;
+        int dy = y - CY;
+        if (abs(dy) >= R - 20) continue;
+        // follow the round edge, like watchOS's list
+        int half = (int)sqrtf((float)R * R - (float)dy * dy);
+        int ix = CX - half + 58;
+        if (ix < 70) ix = 70;
+        int k = s_order[n];
+        blit_icon(fb, s_vis[k], ix, y, 26);
+        ui_print(ix + 40, y - 9, 2, COLOR_TEXT, MENU_ENTRIES[s_vis[k]].label);
+    }
+}
+
+static void draw_honeycomb(uint16_t *fb) {
+    s_nearest_idx = -1;
+    float nearest = 1e9f;
+    for (int k = 0; k < s_vis_n; k++) {
+        float ox = s_icon_wx[k] - s_pan_x, oy = s_icon_wy[k] - s_pan_y;
+        float d2 = ox * ox + oy * oy;
+        if (d2 < nearest) { nearest = d2; s_nearest_idx = k; }
+        int sx, sy, r;
+        if (!place(k, sx, sy, r)) continue;
+        if (k == s_launch || k == s_return) continue;   // drawn on top, growing or shrinking
+        blit_icon(fb, s_vis[k], sx, sy, r);
+    }
 }
 
 static void menu_draw() {
     Arduino_GFX *g = ui_gfx();
-    if (!g) return;
+    uint16_t *fb = ui_framebuffer();
+    if (!g || !fb) return;
+    g->fillScreen(COLOR_BG);
+    if (listing()) draw_list(g, fb);
+    else draw_honeycomb(fb);
 
-    int cx0 = LCD_WIDTH / 2, cy0 = LCD_HEIGHT / 2;
-
-    // Find whichever icon is nearest screen center first, so its focus
-    // highlight can be drawn correctly in the same pass as everything
-    // else below (Apple Watch subtly magnifies the centered icon as
-    // you pan - this is that, minus the physics). Stored in the
-    // persistent s_nearest_idx (not just a local) so the controller's
-    // button-select in menu_tick() can act on "whichever icon is
-    // currently focused" without recomputing this same search.
-    s_nearest_idx = -1;
-    float nearest_d2 = 1e9f;
-    for (int i = 0; i < MENU_COUNT; i++) {
-        float sx = s_icon_wx[i] - s_pan_x;
-        float sy = s_icon_wy[i] - s_pan_y;
-        float d2 = sx * sx + sy * sy;
-        if (d2 < nearest_d2) { nearest_d2 = d2; s_nearest_idx = i; }
+    if (s_launch >= 0) {
+        // ease out: fast first, settling
+        float t = (millis() - s_launch_ms) / (float)LAUNCH_MS;
+        if (t > 1) t = 1;
+        float e = 1 - (1 - t) * (1 - t);
+        int cx = s_launch_x + (int)((LCD_WIDTH / 2 - s_launch_x) * e);
+        int cy = s_launch_y + (int)((LCD_HEIGHT / 2 - s_launch_y) * e);
+        int r = s_launch_r + (int)((LCD_WIDTH * 0.75f - s_launch_r) * e);
+        blit_icon(fb, s_vis[s_launch], cx, cy, r);
+        return;
     }
-
-    for (int i = 0; i < MENU_COUNT; i++) {
-        int sx = cx0 + (int)(s_icon_wx[i] - s_pan_x);
-        int sy = cy0 + (int)(s_icon_wy[i] - s_pan_y);
-
-        bool focused = (i == s_nearest_idx);
-        int r = focused ? (ICON_RADIUS + 8) : ICON_RADIUS;
-        float br = focused ? 1.0f : 0.4f; // dimmed until it's the focused (centered) icon
-
-        if (sx + r < 0 || sx - r > LCD_WIDTH || sy + r < 0 || sy - r > LCD_HEIGHT) continue;
-
-        g->fillCircle(sx, sy, r, COLOR_PANEL);
-        uint16_t ring_c = blend565(CATEGORY_COLOR[MENU_ENTRIES[i].category], COLOR_PANEL, br);
-        g->drawCircle(sx, sy, r, ring_c);
-        if (focused) g->drawCircle(sx, sy, r - 1, ring_c);
-
-        if (MENU_ENTRIES[i].icon_fn) {
-            MENU_ENTRIES[i].icon_fn(g, sx, sy, br);
+    if (s_return >= 0 && s_return < s_vis_n) {
+        int sx, sy, r;
+        if (place(s_return, sx, sy, r)) {
+            float t = (millis() - s_return_ms) / (float)RETURN_MS;
+            if (t > 1) t = 1;
+            float e = t * t * (3 - 2 * t);   // smoothstep: settles into the slot
+            int cx = LCD_WIDTH / 2 + (int)((sx - LCD_WIDTH / 2) * e);
+            int cy = LCD_HEIGHT / 2 + (int)((sy - LCD_HEIGHT / 2) * e);
+            int rr = (int)(LCD_WIDTH * 0.75f + (r - LCD_WIDTH * 0.75f) * e);
+            blit_icon(fb, s_vis[s_return], cx, cy, rr);
         }
     }
-
-    // No per-icon labels (a clean field of icons is the point) - just a
-    // caption for whichever one is currently centered.
+    if (listing()) return;
+    // which app is in the middle: its name in a pill at the bottom, following the pan
     if (s_nearest_idx >= 0) {
-        ui_draw_centered_text(LCD_HEIGHT - 44, COLOR_TEXT, MENU_ENTRIES[s_nearest_idx].label, 2);
+        const char *name = MENU_ENTRIES[s_vis[s_nearest_idx]].label;
+        int tw = ui_text_width(name, 2);
+        int w = tw + 40, h = 40, x = LCD_WIDTH / 2 - w / 2, y = LCD_HEIGHT - 64;
+        g->fillRoundRect(x - 2, y - 2, w + 4, h + 4, h / 2 + 2, COLOR_BG);
+        g->fillRoundRect(x, y, w, h, h / 2, 0x2945);
+        ui_text_center(LCD_WIDTH / 2, y + h / 2, COLOR_TEXT, name, 2);
     }
+    if (s_folder >= 0) {
+        const char *title = s_folder == CAT_GAMES ? "Games" : "Developer";
+        int tw = ui_text_width(title, 2);
+        g->fillRoundRect(LCD_WIDTH / 2 - tw / 2 - 22, 22, tw + 44, 36, 18, COLOR_BG);
+        ui_text_center(LCD_WIDTH / 2, 40, COLOR_TEXT_DIM, title, 2);
+    }
+}
 
-    // Persistent per-cluster direction indicators - a small arrow at
-    // the display's edge, in that category's own color, for every
-    // OTHER cluster that isn't currently on screen (skipped once
-    // you're close enough to actually see it, so this doesn't clutter
-    // the view with an arrow pointing at something already visible).
-    // Distinct from a single "you're lost, here's the way back"
-    // pointer - this is constant orientation ("games are that way,
-    // tests are that way") regardless of which cluster you're
-    // currently browsing.
-    for (int cat = 0; cat < CAT_COUNT; cat++) {
-        float ddx = s_pan_x - CAT_OFFSET_X[cat], ddy = s_pan_y - CAT_OFFSET_Y[cat];
-        float dist = sqrtf(ddx * ddx + ddy * ddy);
-        if (dist <= 300.0f) continue; // close enough that this cluster is already in view
-
-        float angle = atan2f(CAT_OFFSET_Y[cat] - s_pan_y, CAT_OFFSET_X[cat] - s_pan_x);
-        float ca = cosf(angle), sa = sinf(angle);
-        uint16_t c = CATEGORY_COLOR[cat];
-        int ptr_r = 195; // inset from the true bezel edge
-        int px = cx0 + (int)(ca * ptr_r), py = cy0 + (int)(sa * ptr_r);
-
-        // Small triangle pointing along `angle`.
-        float perp = angle + (float)M_PI / 2.0f;
-        int tip_x = px + (int)(ca * 14), tip_y = py + (int)(sa * 14);
-        int base1_x = px + (int)(cosf(perp) * 8), base1_y = py + (int)(sinf(perp) * 8);
-        int base2_x = px - (int)(cosf(perp) * 8), base2_y = py - (int)(sinf(perp) * 8);
-        g->fillTriangle(tip_x, tip_y, base1_x, base1_y, base2_x, base2_y, c);
-
-        // Label just inside the arrow, toward screen center so it
-        // stays within a safely readable area rather than right at
-        // the edge - verified against the actual circle geometry at
-        // every angle used here, not eyeballed.
-        int label_x = cx0 + (int)(ca * (ptr_r - 40)), label_y = cy0 + (int)(sa * (ptr_r - 40));
-        ui_draw_centered_text_at(label_x, label_y - 4, c, CATEGORY_NAME[cat], 1);
+// Past the edge: the drag moves a third as far (the rubber band).
+static void band(float &px, float &py) {
+    float d = sqrtf(px * px + py * py);
+    if (d > s_bound && d > 0) {
+        float over = d - s_bound;
+        float nd = s_bound + over * 0.35f;
+        px *= nd / d;
+        py *= nd / d;
     }
 }
 
 static void menu_touch(int x, int y, bool pressed) {
+    if (s_launch >= 0) return;
     if (pressed) {
         if (!s_dragging) {
             s_dragging = true;
             s_drag_start_x = x;
             s_drag_start_y = y;
-            s_drag_start_pan_x = s_pan_x;
-            s_drag_start_pan_y = s_pan_y;
+            s_drag_start_pan_x = listing() ? 0 : s_pan_x;
+            s_drag_start_pan_y = listing() ? s_list_y : s_pan_y;
             s_last_x = x;
             s_last_y = y;
-            // If the world was still coasting from a previous flick,
-            // touching down is catching/stopping it, not tapping an
-            // icon - treat it as already "moved significantly" from
-            // the very start so a quick catch-and-release can never
-            // be misread as a tap and launch whatever happens to be
-            // under the finger at that instant. A genuinely stationary
-            // world still starts this false, same as before.
-            s_moved_significantly = (fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f);
-            s_vel_x = 0;
-            s_vel_y = 0;
+            // catching a coasting field is not a tap
+            s_moved_significantly = fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f || fabsf(s_list_vel) > 0.3f;
+            s_vel_x = s_vel_y = s_list_vel = 0;
         } else {
             int dx = x - s_drag_start_x, dy = y - s_drag_start_y;
-            s_pan_x = s_drag_start_pan_x - dx;
-            s_pan_y = s_drag_start_pan_y - dy;
             if (abs(dx) > 8 || abs(dy) > 8) s_moved_significantly = true;
-            // Per-sample screen delta becomes the coast velocity if this
-            // turns out to be the last sample before release.
-            s_vel_x = -(float)(x - s_last_x);
-            s_vel_y = -(float)(y - s_last_y);
+            if (listing()) {
+                float maxy = (float)(s_vis_n * LIST_ROW - (LCD_HEIGHT - LIST_TOP - 60));
+                if (maxy < 0) maxy = 0;
+                float ny = s_drag_start_pan_y - dy;
+                if (ny < 0) ny *= 0.35f;                               // rubber band
+                else if (ny > maxy) ny = maxy + (ny - maxy) * 0.35f;
+                s_list_y = ny;
+                s_list_vel = -(float)(y - s_last_y);
+            } else {
+                float px = s_drag_start_pan_x - dx, py = s_drag_start_pan_y - dy;
+                band(px, py);
+                s_pan_x = px;
+                s_pan_y = py;
+                s_vel_x = -(float)(x - s_last_x);
+                s_vel_y = -(float)(y - s_last_y);
+            }
             s_last_x = x;
             s_last_y = y;
         }
-    } else {
-        if (s_dragging) {
-            s_dragging = false;
-            if (s_moved_significantly) {
-                // Cancel any swipe-to-exit gesture this drag might also
-                // have triggered, same as the old grid's scroll did -
-                // keep s_vel_x/y as-is so menu_tick() coasts it out.
-                touch_cancel_swipes();
+    } else if (s_dragging) {
+        s_dragging = false;
+        if (s_moved_significantly) {
+            touch_cancel_swipes();   // a pan, not a swipe away
+        } else {
+            s_vel_x = s_vel_y = s_list_vel = 0;
+            int k = hit_test(x, y);
+            if (k < 0) return;
+            if (listing()) {
+                sleep_register_activity();
+                ui_push(MENU_ENTRIES[s_vis[k]].screen);
             } else {
-                s_vel_x = 0;
-                s_vel_y = 0;
-                int idx = hit_test(x, y);
-                if (idx >= 0 && MENU_ENTRIES[idx].screen) {
-                    ui_push(MENU_ENTRIES[idx].screen);
-                }
+                int sx, sy, r;
+                if (place(k, sx, sy, r)) launch(k, sx, sy, r);
             }
         }
     }
 }
 
 static void menu_tick() {
+    // back from the app opened here: play it closing into its icon
+    if (s_opened >= 0) {
+        if (!listing() && !ui_last_pop_was_drag()) {   // a drag back already showed the menu
+            s_return = s_opened;
+            s_return_ms = millis();
+        }
+        s_opened = -1;
+    }
+    if (s_return >= 0 && millis() - s_return_ms >= RETURN_MS) s_return = -1;
+    if (s_launch >= 0) {
+        if (millis() - s_launch_ms >= LAUNCH_MS) {
+            const MenuEntry &e = MENU_ENTRIES[s_vis[s_launch]];
+            s_opened = s_launch;
+            s_launch = -1;
+            if (e.folder >= 0) {   // a folder opens as its own honeycomb
+                s_next_folder = e.folder;
+                ui_push_instant(&menu_folder_screen);
+            } else {
+                ui_push_instant(e.screen);   // it zoomed in already: no slide
+            }
+        }
+        return;
+    }
     if (s_dragging) return;
+    if (listing()) {
+        float maxy = (float)(s_vis_n * LIST_ROW - (LCD_HEIGHT - LIST_TOP - 60));
+        if (maxy < 0) maxy = 0;
+        if (fabsf(s_list_vel) > 0.3f) { s_list_y += s_list_vel; s_list_vel *= 0.92f; }
+        else s_list_vel = 0;
+        // spring back from past the ends
+        if (s_list_y < 0) { s_list_y *= 0.7f; s_list_vel *= 0.5f; if (s_list_y > -0.5f) s_list_y = 0; }
+        if (s_list_y > maxy) { s_list_y = maxy + (s_list_y - maxy) * 0.7f; s_list_vel *= 0.5f; if (s_list_y - maxy < 0.5f) s_list_y = maxy; }
+        return;
+    }
     if (fabsf(s_vel_x) > 0.3f || fabsf(s_vel_y) > 0.3f) {
         s_pan_x += s_vel_x;
         s_pan_y += s_vel_y;
-        s_vel_x *= 0.90f; // friction - coasts to a stop over ~20-30 frames
+        s_vel_x *= 0.90f;
         s_vel_y *= 0.90f;
     } else {
-        s_vel_x = 0;
-        s_vel_y = 0;
+        s_vel_x = s_vel_y = 0;
+    }
+    // spring back inside the cluster
+    float d = sqrtf(s_pan_x * s_pan_x + s_pan_y * s_pan_y);
+    if (d > s_bound && d > 0) {
+        float nd = s_bound + (d - s_bound) * 0.72f;
+        if (nd - s_bound < 0.5f) nd = s_bound;
+        s_pan_x *= nd / d;
+        s_pan_y *= nd / d;
+        s_vel_x *= 0.6f;
+        s_vel_y *= 0.6f;
     }
 
-    // Controller d-pad pans the world the same way a drag would;
-    // button A selects whichever icon is currently focused (centered),
-    // the same action a tap on it triggers. Only active once a
-    // controller packet has actually arrived, so a watch with no
-    // controller connected behaves exactly as before.
+    // a game controller pans and picks, as a finger would
     if (controller_connected()) {
         float cdx, cdy;
         controller_get_direction(&cdx, &cdy);
         if (cdx != 0.0f || cdy != 0.0f) {
-            const float CTRL_PAN_SPEED = 6.0f;
-            s_pan_x += cdx * CTRL_PAN_SPEED;
-            s_pan_y += cdy * CTRL_PAN_SPEED;
-            // Real input (not just "a controller happens to be
-            // connected") - counts as activity the same way touch
-            // does, so idle_frame_ms throttling (see ui.cpp) doesn't
-            // kick in and make panning choppy while actively steering
-            // via a physical or phone-app joystick with no touch
-            // involved at all.
+            s_pan_x += cdx * 6.0f;
+            s_pan_y += cdy * 6.0f;
             sleep_register_activity();
         }
         bool btn = controller_button(CTRL_BTN_A);
-        if (btn && !s_ctrl_btn_prev && s_nearest_idx >= 0 && MENU_ENTRIES[s_nearest_idx].screen) {
-            sleep_register_activity();
-            ui_push(MENU_ENTRIES[s_nearest_idx].screen);
+        if (btn && !s_ctrl_btn_prev && s_nearest_idx >= 0) {
+            int sx, sy, r;
+            if (place(s_nearest_idx, sx, sy, r)) launch(s_nearest_idx, sx, sy, r);
         }
         s_ctrl_btn_prev = btn;
     }
@@ -758,8 +1349,7 @@ static void menu_gesture(Gesture g) {
 }
 
 Screen menu_screen = {
-    "", // no header chrome - an edge swipe (GESTURE_MODE_EDGE) still exits,
-        // same as watchOS's app grid has no title bar either
+    "", // no header - watchOS's app grid has none either; an edge swipe still leaves
     GESTURE_MODE_EDGE,
     UI_FRAME_MS_DEFAULT,
     menu_create,
@@ -768,8 +1358,29 @@ Screen menu_screen = {
     menu_tick,
     nullptr,
     menu_gesture,
-    150, // idle_frame_ms - once idle 2s+ (no touch, no active controller
-         // input), drop from 30fps to ~6-7fps; the icon field is static
-         // between pans so nothing looks different, it's just redrawn
-         // (and flushed to the display) far less often
+    150,   // idle: the field is still between pans
+    false, false, false, false,
+    true,  // hide_status: the honeycomb uses the whole round screen
 };
+
+// A folder (Games, Developer): the same honeycomb with just its apps.
+// Swipe or BOOT goes back to the top level, where it was.
+Screen menu_folder_screen = {
+    "",
+    GESTURE_MODE_EDGE,
+    UI_FRAME_MS_DEFAULT,
+    folder_create,
+    menu_draw,
+    menu_touch,
+    menu_tick,
+    folder_destroy,
+    menu_gesture,
+    150,
+    false, false, false, false,
+    true,
+};
+
+void menu_open_folder(int category) {
+    s_next_folder = category;
+    ui_push_instant(&menu_folder_screen);
+}

@@ -5,6 +5,11 @@
  * Direct Arduino_GFX drawing — no LVGL.
  */
 
+#include "app_assistant.h"
+#include "voice_sr.h"
+#include "app_fall.h"
+#include "app_activity.h"
+#include "app_sleep.h"
 #include <Wire.h>
 #include "complications.h"
 #include "dnd.h"
@@ -22,6 +27,24 @@
 #include "hal_sd.h"
 #include "hal_audio.h"
 #include "hal_buttons.h"
+#include "app_face_nav.h"
+#include "app_clock.h"
+#include "haptics.h"
+#include "face_look.h"
+#include "low_power.h"
+#include "app_reminders.h"
+#include "fitness.h"
+#include "app_workout.h"
+#include "app_life.h"
+#include "usage_stats.h"
+#include "home_gestures.h"
+#include "app_wallet.h"
+#include "store.h"
+#include "app_briefing.h"
+#include "battery_mode.h"
+#include "app_torch.h"
+#include "app_weather.h"
+#include "app_tips.h"
 #include "hal_sleep.h"
 #include "hal_nvs.h"
 #include "hal_vibrate.h"
@@ -35,6 +58,7 @@
 #include "ui.h"
 #include "app_watchface.h"
 #include "app_custom_watchface.h"
+#include "app_photo_watchface.h"
 #include "watchface_registry.h"
 #include "app_settings_state.h"
 #include "app_notifications.h"
@@ -87,6 +111,117 @@ static void on_file_confirm(bool accepted) {
 
 static void check_file_transfer() {
     BleFileState st = ble_file_state();
+
+    // A wake word model the app is installing (Settings > Sound > Voice):
+    // three files into /srmodels, no question each time.
+    bool wake_model = !strncmp(ble_file_name(), "wn:", 3);
+    if (st == BLE_FILE_PENDING && wake_model) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && wake_model) {
+        const char *n = ble_file_name() + 3;
+        bool ok = voice_model_file(n, ble_file_data(), ble_file_bytes_received());
+        bool cmds = !strncmp(n, "mn7", 3);
+        if (!ok) ui_show_toast(cmds ? "Couldn't save the voice commands" : "Couldn't save the wake word", 2000);
+        else if (strstr(n, "/_MODEL_INFO_"))   // the app sends it last
+            ui_show_toast(cmds ? "Voice commands installed" : "Wake word installed", 2000);
+        ble_consume_file();
+        return;
+    }
+
+    // The assistant's answer, spoken (the app's text-to-speech): "say:<x>.wav"
+    // into /Recordings/_say.wav (hidden from the list), played while the
+    // assistant is still on screen.
+    bool spoken = !strncmp(ble_file_name(), "say:", 4);
+    if (st == BLE_FILE_PENDING && spoken) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && spoken) {
+#if FEATURE_SD_CARD && FEATURE_AUDIO
+        int len = ble_file_bytes_received();
+        if (sd_is_mounted() && !usb_msc_host_active() && len > 44 && len <= 1024 * 1024 &&
+            ui_screen_on_top(&assistant_screen) && !audio_is_recording()) {
+            SD.mkdir("/Recordings");
+            SD.remove("/Recordings/_say.wav");
+            File f = SD.open("/Recordings/_say.wav", FILE_WRITE);
+            bool ok = false;
+            if (f) {
+                ok = f.write(ble_file_data(), len) == (size_t)len;
+                f.close();
+            }
+            if (ok) {
+                if (audio_is_playing()) audio_stop_playback();
+                audio_play_wav("/Recordings/_say.wav");
+            }
+        }
+#endif
+        ble_consume_file();
+        return;
+    }
+
+    // A photo watch face from the app (photo, subject mask, digits):
+    // "pf:photo.pwf" into /faces/, then it's the watch face.
+    bool photo_face = !strncmp(ble_file_name(), "pf:", 3);
+    if (st == BLE_FILE_PENDING && photo_face) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && photo_face) {
+        // "pf:<name>.pwf" -> /faces/photos/<name>.pwf, then it's the face
+        char name[PHOTO_FACE_NAME_MAX + 1] = "";
+        const char *fn = ble_file_name() + 3;
+        int l = strlen(fn);
+        if (l > 4 && l - 4 <= PHOTO_FACE_NAME_MAX && !strcmp(fn + l - 4, ".pwf")) {
+            memcpy(name, fn, l - 4);
+            name[l - 4] = 0;
+        }
+        bool ok = !usb_msc_host_active() && photo_face_save(name, ble_file_data(), ble_file_bytes_received());
+        bool full = !ok && photo_face_count() >= PHOTO_FACE_MAX;
+        ble_consume_file();
+        if (ok && photo_face_available()) {
+            for (int i = 0; i < watchface_count(); i++)
+                if (watchface_get(i)->screen == &photo_watchface_screen) watchface_set_current(i);
+            ui_go_home();
+            if (!ui_screen_on_top(&photo_watchface_screen)) ui_push(&photo_watchface_screen);
+            ui_show_toast("New photo watch face", 2000);
+        } else {
+            ui_show_toast(full ? "Photo faces full: delete one in the app" : "Couldn't save the photo face", 2500);
+        }
+        phone_link_send_photo_faces();
+        return;
+    }
+
+    // A Piano Tiles song from the app (hummed or from MIDI): "pt:<name>.txt"
+    // into /piano/, where the game finds it next time it opens.
+    bool piano_song = !strncmp(ble_file_name(), "pt:", 3);
+    if (st == BLE_FILE_PENDING && piano_song) {
+        ble_file_approve();
+        return;
+    }
+    if (st == BLE_FILE_COMPLETE && piano_song) {
+        const char *n = ble_file_name() + 3;
+        int l = strlen(n), len = ble_file_bytes_received();
+        bool ok = false;
+#if FEATURE_SD_CARD
+        if (sd_is_mounted() && !usb_msc_host_active() && sd_is_safe_filename(n) && n[0] != '.' && l > 4 &&
+            !strcasecmp(n + l - 4, ".txt") && len > 0 && len <= 16384) {
+            SD.mkdir("/piano");
+            String path = String("/piano/") + n;
+            SD.remove(path);
+            File f = SD.open(path, FILE_WRITE);
+            if (f) {
+                ok = f.write(ble_file_data(), len) == (size_t)len;
+                f.close();
+                if (!ok) SD.remove(path);
+            }
+        }
+#endif
+        ui_show_toast(ok ? "New song in Piano Tiles" : "Couldn't save the song", 2000);
+        ble_consume_file();
+        return;
+    }
 
     // Show modal when a new file transfer is pending
     if (st == BLE_FILE_PENDING && !s_file_modal_shown) {
@@ -502,6 +637,7 @@ void setup() {
 
 #if FEATURE_SD_CARD
     sd_init();
+    store_begin();               // histories, weather, icons: on the SD card, else the watch's flash
 #endif
     // USB Mode from Settings (charging only / firmware / file storage /
     // media remote) - after sd_init(), File storage serves that card.
@@ -511,9 +647,18 @@ void setup() {
     // rails to themselves while they're configured.
     quick_replies_load();                                  // dnd.cpp
     comp_load();                                           // watchface slots
+    clock_init();                                          // alarms, world clock cities
+    reminders_init();                                      // to-dos from the phone
+    fitness_init();                                        // activity rings
+    workout_init();                                        // saved workouts
+    life_init();                                           // Life: plan and today
+    usage_init();                                          // usage stats for Diagnostics
+    wallet_init();                                         // passes on the SD card
+    weather_init();                                        // the last weather, from before a restart
     audio_set_mic_sensitivity(g_app_settings.mic_sens);   // used by the codec init below
     audio_init();
     audio_set_volume(g_app_settings.volume);
+    voice_init();                                          // voice cleanup on the assistant's recordings
 #endif
 #if FEATURE_GPS
     // Probe for the module (only fitted on the -G board) - non-blocking,
@@ -565,6 +710,9 @@ void setup() {
 
     const WatchfaceEntry *wf = watchface_get(watchface_current());
     if (wf && wf->screen) ui_push(wf->screen);
+    // The gesture tips, once: under the power-on animation (or onboarding),
+    // so they're there when it's done.
+    tips_show_if_new();
 
     if (!g_app_settings.onboarding_complete) {
         // First-ever boot (or after an NVS wipe) - the welcome/setup
@@ -621,6 +769,38 @@ void loop() {
     }
     imu_steps_poll();            // hardware pedometer + midnight rollover
     calendar_update();           // event reminders (works without the phone)
+    assistant_timer_update();    // the assistant's timer rings, awake or asleep
+    clock_update();              // alarms ring, awake or asleep
+    haptics_update();            // the cue patterns, on time
+    look_update();               // the app's Faces tab follows changes made here
+    life_update();               // Life: the day's nudges
+    usage_update();              // how the watch is used (Diagnostics)
+    weather_update();            // keeps a new weather push across restarts
+    briefing_update();           // the morning briefing, once a morning
+    charge_update();             // optimized charging: 80% overnight, full by the morning
+    {
+        // dimmer in the bedtime hours (not the flashlight or a Wallet code, which need it bright)
+        static uint32_t s_dim_ms = 0;
+        if (millis() - s_dim_ms > 1000) {
+            s_dim_ms = millis();
+            WatchTime t = rtc_now();
+            bool night = false;
+            if (g_app_settings.night_dim && t.valid) {
+                int m = t.hour * 60 + t.minute, a = g_app_settings.dnd_from_min, b = g_app_settings.dnd_to_min;
+                night = a <= b ? (m >= a && m < b) : (m >= a || m < b);
+            }
+            Screen *top = ui_active_screen();
+            if (top == &torch_screen || top == &wallet_screen) night = false;
+            display_set_brightness_cap(night ? 50 : 255);
+        }
+    }
+    home_update();               // the app's Faces tab follows gesture changes made here
+    low_power_update();          // the 10% offer, off again at 80%
+    fitness_update();            // rings: new day, saving, stand reminder
+    workout_update();            // a running workout: steps, GPS distance
+    voice_update();              // the wake word, awake or asleep
+    motion_update();             // fall detection, activity, reps, flicks - awake or asleep
+    sleeptrack_update();         // sleep tracking and the smart alarm
 #if FEATURE_AUDIO
     power_set_screen_off(asleep && !audio_is_playing());   // MP3 decode needs the clock
 #else
@@ -629,17 +809,32 @@ void loop() {
 #if FEATURE_BLE
     ble_set_low_power(asleep);
 #endif
+    {
+        // a calm screen (a face ticking once a second): the CPU slows between
+        // redraws - not while sound plays or records (decoding needs the clock)
+        bool calm = !asleep && ui_is_calm() && sleep_ms_since_activity() >= 2000;   // a touch: full speed at once
+#if FEATURE_AUDIO
+        calm = calm && !audio_is_playing() && !audio_is_recording();
+#endif
+        power_set_ui_calm(calm);
+    }
     usb_mode_update();           // cable poll (2 Hz) + drive eject handling
     power_update_sleep_policy(); // CPU clock + light sleep for this state (hal_power.cpp)
 
     if (!was_asleep && !asleep) {
         if (boot_evt == BTN_EVENT_SHORT_PRESS) {
-            // BOOT = back: closes the top panel first if it's down.
+            // BOOT = back: closes the top panel first if it's down. On a
+            // face (nothing to go back to) it does what it's set to (home_gestures.h).
             if (ui_top_panel_is_open()) ui_top_panel_close();
+            else if (face_nav_is_face(ui_active_screen())) home_run_slot(HS_BOOT);   // Control Center by default
             else ui_pop_screen();
         } else if (boot_evt == BTN_EVENT_LONG_PRESS) {
             if (ui_top_panel_is_open()) ui_top_panel_close();
             ui_go_home();
+        } else if (boot_evt == BTN_EVENT_DOUBLE_PRESS) {
+            // BOOT twice: ask the assistant
+            if (ui_top_panel_is_open()) ui_top_panel_close();
+            if (!ui_screen_on_top(&assistant_screen)) ui_push(&assistant_screen);
         }
         if (pwr_evt == BTN_EVENT_SHORT_PRESS) {
             // Play the "locking" particle animation first; it calls
@@ -718,14 +913,18 @@ void loop() {
         // (hal_power.cpp) - unless audio, GPS or an update needs the chip.
         bool keep_awake = ota_active() || fwup_busy() || aod_sending();
 #if FEATURE_AUDIO
-        keep_awake = keep_awake || audio_is_playing() || audio_is_recording();
+        keep_awake = keep_awake || audio_is_playing() || audio_is_recording() || voice_wake_keeps_awake() || fall_alert_active() ||
+                     sleep_alarm_ringing();
 #endif
 #if FEATURE_GPS
         keep_awake = keep_awake || gps_is_enabled();
 #endif
         power_set_keep_awake(keep_awake || notes_download_active() || wifi_xfer_active());
+        // 250 ms: the touch controller's interrupt and BOOT wake the chip
+        // at once anyway; this only paces the polling (raise to wake, the
+        // PMU, the phone link) - fewer wake-ups in light sleep.
         if (notes_download_active() || wifi_xfer_active()) delay(4);   // a transfer is running: keep it moving
-        else if (keep_awake || !power_light_sleep(150)) delay(150);
+        else if (keep_awake || !power_light_sleep(250)) delay(keep_awake ? 150 : 250);
         return;
     }
 

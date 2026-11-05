@@ -148,6 +148,7 @@ void ble_consume_watchface();
 
 // --- Weather data (JSON from phone, prefix 0x02 on file characteristic) ---
 bool ble_get_weather(const char **out_data, int *out_len);
+void ble_restore_weather(const char *json, int len);   // the last one, after a restart
 void ble_consume_weather();
 
 // --- Fitness data (JSON from phone, prefix 0x03 on file characteristic) ---

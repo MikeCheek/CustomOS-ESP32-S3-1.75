@@ -25,6 +25,7 @@ void pet_draw_icon(Arduino_GFX *g, int cx, int cy);
 // false means the touch had nothing to do with the pet and the
 // caller's own logic should run as normal.
 bool pet_handle_touch(int x, int y, bool pressed);
+bool pet_hit(int x, int y);   // is (x, y) on the pet
 
 // ---- Species selection (see the "Pet" app / pet_screen below) ----
 #define PET_SPECIES_COUNT 4

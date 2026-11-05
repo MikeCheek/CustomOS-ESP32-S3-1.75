@@ -1,0 +1,6 @@
+# Python packages the pioarduino platform installs into ~/.platformio/penv
+# (builder/penv_setup.py asks for "pioarduino>=6.2.0"). 6.2.0.post1 reports
+# itself as 6.2.0-post.1, which the platform's own ">=6.2.0" check rejects:
+# the hybrid compile's second `pio run` then stops with IncompatiblePlatform.
+# CI passes this file to uv (UV_CONSTRAINT) and pip (PIP_CONSTRAINT).
+pioarduino==6.2.0

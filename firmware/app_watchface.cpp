@@ -1,3 +1,7 @@
+#include "face_look.h"
+#include "app_settings_state.h"
+#include "app_face_nav.h"
+#include "clock_fmt.h"
 #include "app_watchface.h"
 #include "weather_fx.h"
 #include "complications.h"
@@ -102,7 +106,7 @@ static void draw_eyes(Arduino_GFX *g) {
         // Pupil (centered within the eye, offset by gaze)
         int32_t px = eye_x + EYE_W / 2 - PUPIL_D / 2 + s_gaze_dx;
         int32_t py = eye_y + s_eye_h / 2 - PUPIL_D / 2 + s_gaze_dy;
-        g->fillCircle(px + PUPIL_D / 2, py + PUPIL_D / 2, PUPIL_D / 2, COLOR_ACCENT);
+        g->fillCircle(px + PUPIL_D / 2, py + PUPIL_D / 2, PUPIL_D / 2, face_accent());
     }
 }
 
@@ -114,7 +118,7 @@ static void draw_seconds_arc(Arduino_GFX *g, uint8_t second) {
     int r = LCD_WIDTH / 2 - 8;
     int thickness = 4;
 
-    if (second == 0) return;
+    if (second == 0 || !g_app_settings.face_seconds) return;
 
     int end_angle = (int)second * 6; // 360/60 = 6 degrees per second
 
@@ -130,8 +134,8 @@ static void draw_seconds_arc(Arduino_GFX *g, uint8_t second) {
         int y3 = cy + (int)(sinf(rad2) * (r + thickness));
         int x4 = cx + (int)(cosf(rad2) * (r - thickness));
         int y4 = cy + (int)(sinf(rad2) * (r - thickness));
-        g->fillTriangle(x1, y1, x2, y2, x3, y3, COLOR_ACCENT);
-        g->fillTriangle(x1, y1, x3, y3, x4, y4, COLOR_ACCENT);
+        g->fillTriangle(x1, y1, x2, y2, x3, y3, face_accent());
+        g->fillTriangle(x1, y1, x3, y3, x4, y4, face_accent());
     }
 }
 
@@ -141,14 +145,16 @@ static void draw_time(Arduino_GFX *g) {
 
     // Time - large centered text
     char time_buf[8];
-    snprintf(time_buf, sizeof(time_buf), "%02d:%02d", t.hour, t.minute);
+    clock_hm(time_buf, sizeof(time_buf), t.hour, t.minute);
 
     g->setTextSize(6);
     g->setTextColor(COLOR_TEXT);
     int tw = ui_text_width(time_buf, 6);
     ui_print((LCD_WIDTH - tw) / 2, LCD_HEIGHT / 2 - 30, 6, COLOR_TEXT, time_buf);
+    if (!clock_24h()) ui_print((LCD_WIDTH + tw) / 2 + 6, LCD_HEIGHT / 2 - 28, 2, COLOR_TEXT_DIM, clock_ampm(t.hour));
 
     // Date - small centered below time
+    if (!g_app_settings.face_date) { draw_seconds_arc(g, t.second); return; }
     char date_buf[32];
     snprintf(date_buf, sizeof(date_buf), "%s %d %s %d",
              WEEKDAYS[t.weekday % 7], t.day, MONTHS[t.month], t.year);
@@ -159,25 +165,6 @@ static void draw_time(Arduino_GFX *g) {
 
     // Seconds arc
     draw_seconds_arc(g, t.second);
-}
-
-static void draw_battery(Arduino_GFX *g) {
-    int pct = power_get_battery_percent();
-    char buf[32];
-    if (pct >= 0) {
-        snprintf(buf, sizeof(buf), "BAT %d%%", pct);
-    } else {
-        snprintf(buf, sizeof(buf), "BAT --");
-    }
-#if FEATURE_BLE
-    if (ble_is_connected()) {
-        strncat(buf, "  BLE", sizeof(buf) - strlen(buf) - 1);
-    }
-#endif
-    g->setTextSize(2);
-    g->setTextColor(COLOR_TEXT_DIM);
-    int bw = ui_text_width(buf, 2);
-    ui_print((LCD_WIDTH - bw) / 2, LCD_HEIGHT - 55, 2, COLOR_TEXT_DIM, buf);
 }
 
 static void draw_steps(Arduino_GFX *g) {
@@ -205,9 +192,9 @@ static void watchface_draw() {
 
     weather_fx_draw(g);   // behind everything (Settings > Display > Weather effects)
     draw_seconds_arc(g, rtc_now().second);
-    draw_eyes(g);
+    if (g_app_settings.face_eyes) draw_eyes(g);
     draw_time(g);
-    draw_battery(g);
+    // (no "BAT 82%  BLE" line: battery lives in the status readout and the slots)
     bool steps_in_slot = false;
     for (int i = 0; i < COMP_SLOTS; i++) steps_in_slot |= comp_slot(i) == COMP_STEPS;
     if (!steps_in_slot) draw_steps(g);
@@ -280,30 +267,7 @@ static void watchface_destroy() {
 extern Screen menu_screen;
 extern Screen notifications_screen;
 
-static void watchface_gesture(Gesture g) {
-    switch (g) {
-        case GESTURE_SWIPE_RIGHT:
-            ui_push(&notifications_screen);
-            break;
-        case GESTURE_SWIPE_LEFT:
-            ui_push(&menu_screen);
-            break;
-        case GESTURE_SWIPE_UP:
-            // Cycle to next watchface
-            {
-                int next = watchface_current() + 1;
-                if (watchface_get(next)) {
-                    watchface_set_current(next);
-                    ui_go_home();
-                    const WatchfaceEntry *wf = watchface_get(watchface_current());
-                    if (wf && wf->screen) ui_push(wf->screen);
-                }
-            }
-            break;
-        default:
-            break;
-    }
-}
+static void watchface_gesture(Gesture g) { face_nav_gesture(g); }   // home_gestures.h
 
 Screen watchface_screen = {
     nullptr,                // title (root screen, no back button)

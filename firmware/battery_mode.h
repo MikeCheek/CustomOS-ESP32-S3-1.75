@@ -57,3 +57,7 @@ uint32_t    battery_mode_sleep_timeout_ms();     // 0 = never (hal_sleep.cpp)
 // Ultra = leaf inside a ring. `bg` is used for cut-outs.
 struct Arduino_GFX;
 void battery_mode_draw_icon(Arduino_GFX *g, BatteryMode m, int cx, int cy, uint16_t color, uint16_t bg);
+
+// Optimized charging (the charging setting): loop() every 30 s.
+void charge_update();
+const char *charge_mode_name();   // "Full", "Optimized", "Stop at 80%"

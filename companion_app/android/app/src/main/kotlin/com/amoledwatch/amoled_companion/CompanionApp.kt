@@ -31,6 +31,9 @@ class CompanionApp : Application() {
     lateinit var recorder: MemoRecorder
         private set
 
+    lateinit var emuIo: EmuIo
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -40,6 +43,7 @@ class CompanionApp : Application() {
         bridge = PhoneBridge(this, engine.dartExecutor.binaryMessenger)
         player = MemoPlayer(this, engine.dartExecutor.binaryMessenger)
         recorder = MemoRecorder(this, engine.dartExecutor.binaryMessenger)
+        emuIo = EmuIo(this, engine.dartExecutor.binaryMessenger)
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
     }

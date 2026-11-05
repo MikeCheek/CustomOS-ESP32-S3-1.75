@@ -3,6 +3,12 @@
 #include "ui.h"
 #include "ui_font.h"
 #include "app_settings_state.h"
+#include <math.h>
+#include "haptics.h"
+#include "low_power.h"
+#include "app_tips.h"
+#include "app_tiles.h"
+#include "home_gestures.h"
 #include "app_calibration.h"
 #include "app_wifi_setup.h"
 #include "app_usb.h"
@@ -20,6 +26,7 @@
 #include "battery_mode.h"
 #include "complications.h"
 #include "hal_power.h"
+#include "voice_sr.h"
 #include <Arduino_GFX_Library.h>
 #include <string.h>
 
@@ -61,8 +68,8 @@ static float row_fade(int center_y) {
 static void draw_switch(Arduino_GFX *g, int x, int y_center, bool on, float fade) {
     int track_w = 50, track_h = 26;
     int ty = y_center - track_h / 2;
-    uint16_t track_c = fade_color(on ? COLOR_GOOD : COLOR_PANEL, fade);
-    uint16_t border_c = fade_color(on ? COLOR_GOOD : COLOR_TEXT_DIM, fade);
+    uint16_t track_c = fade_color(on ? COLOR_GOOD : 0x39E7, fade);
+    uint16_t border_c = track_c;
     // Border via an inset double-fill (border-color fill at full size,
     // then a 2px-smaller track-color fill on top) rather than
     // drawRoundRect - this project's own notes elsewhere document
@@ -94,6 +101,12 @@ static void tap_dnd_bed() { g_app_settings.dnd_bedtime = !g_app_settings.dnd_bed
 static bool get_wake_touch() { return g_app_settings.wake_on_touch; }
 static void tap_wake_touch() { g_app_settings.wake_on_touch = !g_app_settings.wake_on_touch; nvs_save_settings(g_app_settings); }
 
+static bool get_wrist_down() { return g_app_settings.wrist_down_sleep; }
+static void tap_wrist_down() { g_app_settings.wrist_down_sleep = !g_app_settings.wrist_down_sleep; nvs_save_settings(g_app_settings); }
+static bool get_ndim() { return g_app_settings.night_dim; }
+static void tap_ndim() { g_app_settings.night_dim = !g_app_settings.night_dim; nvs_save_settings(g_app_settings); }
+static bool get_brief() { return g_app_settings.morning_brief; }
+static void tap_brief() { g_app_settings.morning_brief = !g_app_settings.morning_brief; nvs_save_settings(g_app_settings); }
 static bool get_wake_motion() { return g_app_settings.wake_on_motion; }
 static void tap_wake_motion() { g_app_settings.wake_on_motion = !g_app_settings.wake_on_motion; nvs_save_settings(g_app_settings); }
 
@@ -105,6 +118,16 @@ static void tap_pwr_save() { g_app_settings.power_saving = !g_app_settings.power
 static bool pwr_save_available() { return power_auto_sleep_available(); }
 static bool get_aod() { return g_app_settings.aod_on; }
 static void tap_aod() { g_app_settings.aod_on = !g_app_settings.aod_on; nvs_save_settings(g_app_settings); }
+static void tap_charge_mode() {
+    g_app_settings.charge_mode = (g_app_settings.charge_mode + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_charge_mode() {
+    static char b[48];
+    snprintf(b, sizeof(b), "%s - %s", charge_mode_name(),
+             g_app_settings.charge_mode == 1 ? "80% overnight, full by morning" : g_app_settings.charge_mode == 2 ? "less wear" : "to 100%");
+    return b;
+}
 static bool get_awake_charge() { return g_app_settings.stay_awake_charging; }
 static void tap_awake_charge() { g_app_settings.stay_awake_charging = !g_app_settings.stay_awake_charging; nvs_save_settings(g_app_settings); }
 
@@ -182,7 +205,7 @@ extern Screen settings_battery_screen;
 extern Screen diagnostics_screen;
 extern Screen fwup_screen;
 
-enum RowKind { ROW_TOGGLE, ROW_SUBSCREEN };
+enum RowKind { ROW_TOGGLE, ROW_SUBSCREEN, ROW_ACTION };   // ROW_ACTION: on_tap, drawn with a chevron
 struct SettingsRow {
     const char *label;
     const char *desc;
@@ -195,6 +218,7 @@ struct SettingsRow {
     // tap explains instead of toggling). nullptr = always available.
     bool (*available)() = nullptr;
     const char *unavailable_desc = nullptr;
+    const char *(*live_desc)() = nullptr;   // optional: desc read each frame
 };
 
 static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
@@ -212,22 +236,116 @@ static bool gps_row_available() { return gps_presence() != GPS_ABSENT; }
 static bool get_wx_fx() { return g_app_settings.weather_fx; }
 static void tap_wx_fx() { g_app_settings.weather_fx = !g_app_settings.weather_fx; nvs_save_settings(g_app_settings); }
 
+static void tap_photo_rotate() {
+    g_app_settings.photo_rotate = (g_app_settings.photo_rotate + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_photo_rotate() {
+    static const char *const M[] = {"Tap the face for the next photo", "A new photo every hour", "A new photo every day"};
+    return M[g_app_settings.photo_rotate % 3];
+}
+static void tap_text_size() {
+    g_app_settings.text_size = (g_app_settings.text_size + 1) % 3;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_text_size() {
+    static const char *const M[] = {"Default", "Large - bigger body text", "Larger - biggest body text"};
+    return M[g_app_settings.text_size % 3];
+}
+static bool get_clock24() { return g_app_settings.clock_24h; }
+static void tap_clock24() { g_app_settings.clock_24h = !g_app_settings.clock_24h; nvs_save_settings(g_app_settings); }
+
+static bool get_menu_list() { return g_app_settings.menu_list; }
+static void tap_menu_list() { g_app_settings.menu_list = !g_app_settings.menu_list; nvs_save_settings(g_app_settings); }
 static SettingsRow ROWS_DISPLAY[] = {
     { "Brightness", "Screen brightness level", ROW_SUBSCREEN, nullptr, nullptr, &settings_brightness_screen, ICON_BRIGHTNESS },
-    { "Always-on display", "Dim clock while asleep (not below 20%)", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
+    { "Always-on display", "Dim clock asleep: ~1/3 less battery life", ROW_TOGGLE, get_aod, tap_aod, nullptr, ICON_BRIGHTNESS },
     { "Watchface slots", "Steps, events, weather... on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_comp_screen, ICON_BRIGHTNESS },
     { "Weather effects", "Rain, snow, sun... behind the main face", ROW_TOGGLE, get_wx_fx, tap_wx_fx, nullptr, ICON_BRIGHTNESS },
     { "Auto-Rotate", "Rotate display with your wrist", ROW_TOGGLE, get_auto_rotate, tap_auto_rotate, nullptr, ICON_ROTATE },
+    { "Text size", "", ROW_ACTION, nullptr, tap_text_size, nullptr, nullptr, nullptr, nullptr, desc_text_size },
+    { "24-hour clock", "Off: 9:05 PM", ROW_TOGGLE, get_clock24, tap_clock24, nullptr, nullptr },
+    { "Apps as a list", "The app menu A-Z instead of the honeycomb", ROW_TOGGLE, get_menu_list, tap_menu_list, nullptr, nullptr },
+    { "Photo face", "", ROW_ACTION, nullptr, tap_photo_rotate, nullptr, nullptr, nullptr, nullptr, desc_photo_rotate },
     { "Smooth fonts", "Sharper text with accented letters", ROW_TOGGLE, get_smooth_fonts, tap_smooth_fonts, nullptr, nullptr },
     { "Touch Feedback", "Show a dot under your finger", ROW_TOGGLE, get_touch_feedback, tap_touch_feedback, nullptr, ICON_TOUCH },
 };
 
+// ---- Voice (voice_sr.h) ----
+extern Screen settings_voice_screen;
+static bool get_voice_wake() { return g_app_settings.voice_wake; }
+static void tap_voice_wake() {
+    if (!g_app_settings.voice_wake && voice_wake_model_count() == 0) {
+        ui_show_toast("Install a wake word from the companion app first (Assistant)", 3000);
+        return;
+    }
+    g_app_settings.voice_wake = !g_app_settings.voice_wake;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_voice_wake() { return voice_wake_status(); }
+static bool voice_sr_built() { return voice_wake_state() != VW_UNSUPPORTED; }
+static void tap_wake_word() {
+    int n = voice_wake_model_count();
+    if (n == 0) ui_show_toast("No wake words on the SD card yet", 2000);
+    else if (n == 1) ui_show_toast("Only one installed - add more from the app", 2000);
+    else voice_wake_next_model();
+}
+static const char *desc_wake_word() {
+    static char b[48];
+    const char *w = voice_wake_word();
+    int n = voice_wake_model_count();
+    if (!w[0]) return "None installed";
+    if (n > 1) snprintf(b, sizeof(b), "%s - tap for the next (%d)", w, n);
+    else snprintf(b, sizeof(b), "%s", w);
+    return b;
+}
+static bool get_wake_asleep() { return g_app_settings.voice_wake_asleep; }
+static void tap_wake_asleep() { g_app_settings.voice_wake_asleep = !g_app_settings.voice_wake_asleep; nvs_save_settings(g_app_settings); }
+static bool get_voice_cmds() { return g_app_settings.voice_commands; }
+static void tap_voice_cmds() {
+    if (!voice_commands_installed()) {
+        ui_show_toast("Install the commands from the companion app first (Wake word)", 3000);
+        return;
+    }
+    g_app_settings.voice_commands = !g_app_settings.voice_commands;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_voice_cmds() { return voice_commands_status(); }
+static bool get_voice_clean() { return g_app_settings.voice_clean; }
+static void tap_voice_clean() { g_app_settings.voice_clean = !g_app_settings.voice_clean; nvs_save_settings(g_app_settings); }
+
+static bool get_skip_sil() { return g_app_settings.rec_skip_silence; }
+static void tap_skip_sil() { g_app_settings.rec_skip_silence = !g_app_settings.rec_skip_silence; nvs_save_settings(g_app_settings); }
+
+static SettingsRow ROWS_VOICE[] = {
+    { "Wake word", "", ROW_TOGGLE, get_voice_wake, tap_voice_wake, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_voice_wake },
+    { "Word", "", ROW_ACTION, nullptr, tap_wake_word, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_wake_word },
+    { "Screen off too", "Listen while asleep: lasts ~1 day", ROW_TOGGLE, get_wake_asleep, tap_wake_asleep, nullptr, nullptr,
+      voice_sr_built, "Not in this build" },
+    { "Commands", "", ROW_TOGGLE, get_voice_cmds, tap_voice_cmds, nullptr, nullptr,
+      voice_sr_built, "Not in this build", desc_voice_cmds },
+    { "Voice cleanup", "Less noise in assistant questions and replies", ROW_TOGGLE, get_voice_clean, tap_voice_clean, nullptr, nullptr,
+      voice_sr_built, "Not in this build" },
+    { "Skip silences", "The Recorder leaves out long pauses", ROW_TOGGLE, get_skip_sil, tap_skip_sil, nullptr, nullptr },
+};
+
+static bool get_cues() { return g_app_settings.sound_cues; }
+static void tap_cues() {
+    g_app_settings.sound_cues = !g_app_settings.sound_cues;
+    nvs_save_settings(g_app_settings);
+    if (g_app_settings.sound_cues) haptic(HAP_NOTIFY);   // what a message sounds like
+}
+
 static SettingsRow ROWS_SOUND[] = {
     { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
+    { "Voice", "Wake word, commands, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
     { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
-    { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
-    { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
+    { "All sounds", "Messages, apps, games", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
+    { "Game music", "Games' music, from SD /music", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
     { "Haptic on Touch", "Vibrate briefly on every tap", ROW_TOGGLE, get_haptic, tap_haptic, nullptr, ICON_VIBRATION },
+    { "Notification sounds", "A tune per message, goal", ROW_TOGGLE, get_cues, tap_cues, nullptr, ICON_SOUND },
 };
 
 static SettingsRow ROWS_CONNECT[] = {
@@ -239,36 +357,159 @@ static SettingsRow ROWS_CONNECT[] = {
       gps_row_available, "No GPS module on this board" },
 };
 
+static void tap_low_power() { low_power_set(!low_power_on()); }
+
 static SettingsRow ROWS_BATTERY[] = {
+    { "Low Power Mode", "Saver mode, always-on and wake word off", ROW_TOGGLE, low_power_on, tap_low_power, nullptr, ICON_BATTERY },
     { "Battery Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_battery_screen, ICON_BATTERY },
     // desc is filled in live with the selected mode (page_draw)
     { "Deep sleep", "Sleep between Bluetooth events, screen off", ROW_TOGGLE, get_pwr_save, tap_pwr_save, nullptr, ICON_BATTERY,
       pwr_save_available, "Needs the PlatformIO build" },
     { "Awake on Charge", "Skip auto-sleep while charging", ROW_TOGGLE, get_awake_charge, tap_awake_charge, nullptr, ICON_POWER },
+    { "Charging", "", ROW_ACTION, nullptr, tap_charge_mode, nullptr, ICON_BATTERY, nullptr, nullptr, desc_charge_mode },
 };
+
+static bool get_act() { return g_app_settings.activity_track; }
+static void tap_act() { g_app_settings.activity_track = !g_app_settings.activity_track; nvs_save_settings(g_app_settings); }
+static bool get_flick() { return g_app_settings.flick_back; }
+static void tap_flick() { g_app_settings.flick_back = !g_app_settings.flick_back; nvs_save_settings(g_app_settings); }
+static bool get_sleep_trk() { return g_app_settings.sleep_track; }
+static void tap_sleep_trk() { g_app_settings.sleep_track = !g_app_settings.sleep_track; nvs_save_settings(g_app_settings); }
+static bool get_fall() { return g_app_settings.fall_detect; }
+static void tap_fall() {
+    g_app_settings.fall_detect = !g_app_settings.fall_detect;
+    nvs_save_settings(g_app_settings);
+    if (g_app_settings.fall_detect) ui_show_toast("Set an emergency contact in the app (Settings > Safety)", 3000);
+}
 
 static SettingsRow ROWS_WAKE[] = {
     { "Wake on Motion", "Wake when you raise your wrist", ROW_TOGGLE, get_wake_motion, tap_wake_motion, nullptr, ICON_ROTATE },
+    { "Lower wrist to sleep", "The screen goes off when you turn it away", ROW_TOGGLE, get_wrist_down, tap_wrist_down, nullptr, ICON_ROTATE },
+    { "Morning briefing", "The first look each morning: weather, sleep, the day", ROW_TOGGLE, get_brief, tap_brief, nullptr, nullptr },
     { "Wake on Touch", "Wake the display on tap", ROW_TOGGLE, get_wake_touch, tap_wake_touch, nullptr, ICON_TOUCH },
     { "Bedtime DND", "Silent at night (hours set in the app)", ROW_TOGGLE, get_dnd_bed, tap_dnd_bed, nullptr, ICON_SOUND },
+    { "Dim at bedtime", "A darker screen in the bedtime hours", ROW_TOGGLE, get_ndim, tap_ndim, nullptr, ICON_BRIGHTNESS },
+    { "Fall detection", "Asks if you're OK, then alerts your phone", ROW_TOGGLE, get_fall, tap_fall, nullptr, nullptr },
+    { "Sleep tracking", "From wrist movement, 20:00-12:00 (Sleep app)", ROW_TOGGLE, get_sleep_trk, tap_sleep_trk, nullptr, nullptr },
+    { "Flick to go back", "Two quick wrist flicks go back a screen", ROW_TOGGLE, get_flick, tap_flick, nullptr, nullptr },
 };
+
+// ---- Activity (fitness.h) ----
+static void cycle_u16(uint16_t &v, const uint16_t *opts, int n) {
+    int i = 0;
+    while (i < n && opts[i] <= v) i++;
+    v = opts[i % n];
+    nvs_save_settings(g_app_settings);
+}
+static void tap_move_goal() {
+    static const uint16_t O[] = {150, 200, 250, 300, 350, 400, 500, 600, 750, 1000};
+    cycle_u16(g_app_settings.move_goal, O, sizeof(O) / sizeof(O[0]));
+}
+static const char *desc_move_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u active kcal a day", (unsigned)g_app_settings.move_goal);
+    return b;
+}
+static void tap_ex_goal() {
+    static const uint16_t O[] = {10, 15, 20, 30, 45, 60, 90};
+    uint16_t v = g_app_settings.exercise_goal;
+    cycle_u16(v, O, sizeof(O) / sizeof(O[0]));
+    g_app_settings.exercise_goal = (uint8_t)v;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_ex_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u minutes a day", (unsigned)g_app_settings.exercise_goal);
+    return b;
+}
+static void tap_st_goal() {
+    g_app_settings.stand_goal = g_app_settings.stand_goal >= 14 ? 6 : g_app_settings.stand_goal + 1;
+    nvs_save_settings(g_app_settings);
+}
+static const char *desc_st_goal() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u hours a day", (unsigned)g_app_settings.stand_goal);
+    return b;
+}
+static bool get_st_remind() { return g_app_settings.stand_remind; }
+static void tap_st_remind() { g_app_settings.stand_remind = !g_app_settings.stand_remind; nvs_save_settings(g_app_settings); }
+
+extern Screen settings_body_screen;
+static const char *desc_body() {
+    static char b[32];
+    snprintf(b, sizeof(b), "%u kg, %u cm - for calories, distance", (unsigned)g_app_settings.weight_kg, (unsigned)g_app_settings.height_cm);
+    return b;
+}
+
+static SettingsRow ROWS_ACTIVITY[] = {
+    { "Activity tracking", "Rings, walking, running all day", ROW_TOGGLE, get_act, tap_act, nullptr, nullptr },
+    { "Your body", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_body_screen, nullptr, nullptr, nullptr, desc_body },
+    { "Move goal", "", ROW_ACTION, nullptr, tap_move_goal, nullptr, nullptr, nullptr, nullptr, desc_move_goal },
+    { "Exercise goal", "", ROW_ACTION, nullptr, tap_ex_goal, nullptr, nullptr, nullptr, nullptr, desc_ex_goal },
+    { "Stand goal", "", ROW_ACTION, nullptr, tap_st_goal, nullptr, nullptr, nullptr, nullptr, desc_st_goal },
+    { "Stand reminders", "At ten to the hour, if you haven't moved", ROW_TOGGLE, get_st_remind, tap_st_remind, nullptr, nullptr },
+};
+
+static bool get_dev() { return g_app_settings.developer_mode; }
+static void tap_dev() { g_app_settings.developer_mode = !g_app_settings.developer_mode; nvs_save_settings(g_app_settings); }
 
 static SettingsRow ROWS_SYSTEM[] = {
     { "USB Mode", "", ROW_SUBSCREEN, nullptr, nullptr, &usb_mode_screen, ICON_POWER },
     { "Software update", "Check GitHub for new firmware", ROW_SUBSCREEN, nullptr, nullptr, &fwup_screen, nullptr },
     { "Diagnostics", "Version, memory, last crash report", ROW_SUBSCREEN, nullptr, nullptr, &diagnostics_screen, nullptr },
+    { "Gesture tips", "Every swipe and button, shown", ROW_SUBSCREEN, nullptr, nullptr, &tips_screen, nullptr },
+    { "Developer mode", "Tests and diagnostics in the app menu", ROW_TOGGLE, get_dev, tap_dev, nullptr, nullptr },
 };
 
 extern Screen settings_display_screen, settings_sound_screen, settings_connect_screen, settings_power_screen,
-    settings_wake_screen, settings_system_screen;
+    settings_wake_screen, settings_system_screen, settings_activity_screen, settings_home_screen;
+
+// ---- Home gestures (home_gestures.h): what each one on the face does
+static void tap_home_style() {
+    int n = home_style_count(), st = home_style();
+    home_apply_style(st >= n ? 0 : (st + 1) % n);
+}
+static const char *desc_home_style() {
+    static char b[48];
+    int st = home_style();
+    snprintf(b, sizeof(b), "%s - tap to change", home_style_name(st));
+    return b;
+}
+#define HOME_ROW_FNS(slot)                                                                    \
+    static void tap_home_##slot() { home_cycle_action(slot); }                                \
+    static const char *desc_home_##slot() { return home_action_name(home_action(slot)); }
+HOME_ROW_FNS(HS_TAP)
+HOME_ROW_FNS(HS_DOUBLE)
+HOME_ROW_FNS(HS_HOLD)
+HOME_ROW_FNS(HS_UP)
+HOME_ROW_FNS(HS_DOWN)
+HOME_ROW_FNS(HS_LEFT)
+HOME_ROW_FNS(HS_RIGHT)
+HOME_ROW_FNS(HS_BOOT)
+#define HOME_ROW(label, slot) \
+    { label, "", ROW_ACTION, nullptr, tap_home_##slot, nullptr, nullptr, nullptr, nullptr, desc_home_##slot }
+static SettingsRow ROWS_HOME[] = {
+    { "Style", "", ROW_ACTION, nullptr, tap_home_style, nullptr, nullptr, nullptr, nullptr, desc_home_style },
+    HOME_ROW("Tap", HS_TAP),
+    HOME_ROW("Double-tap", HS_DOUBLE),
+    HOME_ROW("Touch and hold", HS_HOLD),
+    HOME_ROW("Swipe up", HS_UP),
+    HOME_ROW("Pull down from the top", HS_DOWN),
+    HOME_ROW("Swipe in from the right", HS_LEFT),
+    HOME_ROW("Swipe in from the left", HS_RIGHT),
+    HOME_ROW("BOOT button", HS_BOOT),
+    { "Tiles", "Which and in what order: the app's Faces tab", ROW_SUBSCREEN, nullptr, nullptr, &tiles_screen, nullptr },
+};
 
 static SettingsRow ROWS_ROOT[] = {
     { "Display", "Brightness, always-on, watchface", ROW_SUBSCREEN, nullptr, nullptr, &settings_display_screen, ICON_BRIGHTNESS },
+    { "Home gestures", "Tap, swipes and BOOT on the face", ROW_SUBSCREEN, nullptr, nullptr, &settings_home_screen, ICON_TOUCH },
     { "Sound & haptics", "Volume, microphone, effects", ROW_SUBSCREEN, nullptr, nullptr, &settings_sound_screen, ICON_VOLUME },
     { "Connections", "Bluetooth, WiFi, GPS", ROW_SUBSCREEN, nullptr, nullptr, &settings_connect_screen, ICON_BLUETOOTH },
     { "Battery", "", ROW_SUBSCREEN, nullptr, nullptr, &settings_power_screen, ICON_BATTERY },
     // desc: the battery mode, live (page_draw)
-    { "Wake & quiet", "Raise to wake, tap to wake, bedtime", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "Wake & quiet", "Raise to wake, lower to sleep, bedtime", ROW_SUBSCREEN, nullptr, nullptr, &settings_wake_screen, ICON_ROTATE },
+    { "Activity", "Rings, goals, stand reminders", ROW_SUBSCREEN, nullptr, nullptr, &settings_activity_screen, nullptr },
     { "System", "USB, updates, diagnostics", ROW_SUBSCREEN, nullptr, nullptr, &settings_system_screen, ICON_POWER },
 };
 
@@ -300,46 +541,61 @@ static void page_create(SettingsPage &p) {
     p.back_armed = false;
 }
 
+// A row's icon: a coloured disc with the row's initial - one colour per
+// row, stable (from its label), like watchOS Settings' icons. Shapes and
+// text only: the 1-bit bitmaps stay out of this screen (see the history of
+// the watchdog crash that removed drawBitmap() here).
+static uint16_t row_color(const char *label) {
+    static const uint16_t P[] = {0x2A9F, 0xFC60, 0x2FC7, 0xF8AA, 0x7B1F, 0x1F5D, 0xFE60, 0x9F45, 0x5E3F};
+    uint32_t h = 2166136261u;
+    for (const char *c = label; *c; c++) h = (h ^ (uint8_t)*c) * 16777619u;
+    return P[h % (sizeof(P) / sizeof(P[0]))];
+}
+
 static void draw_settings_row(Arduino_GFX *g, int y, const SettingsRow &row) {
-    int x = (LCD_WIDTH - S_ROW_W) / 2;
     float fade = row_fade(y + S_ROW_H / 2);
     bool unavailable = row.available && !row.available();
     if (unavailable) fade = fade + (1.0f - fade) * 0.55f;   // greyed out
-    // Same inset-double-fill border technique as draw_switch() above -
-    // border-color fill at full size, panel-color fill 2px smaller on
-    // top, no drawRoundRect (see that function's comment for why).
-    g->fillRoundRect(x, y, S_ROW_W, S_ROW_H, 18, fade_color(COLOR_TEXT_DIM, fade));
-    g->fillRoundRect(x + 2, y + 2, S_ROW_W - 4, S_ROW_H - 4, 16, fade_color(COLOR_PANEL, fade));
+    // As wide as the round screen allows at this height (a list that
+    // follows the edge, like watchOS's), never wider than the full row.
+    int mid = y + S_ROW_H / 2 - LCD_HEIGHT / 2;
+    int far = abs(mid);   // by the row's middle: a gentle curve, as watchOS lists
+    int w = S_ROW_W + 24;
+    if (far < LCD_WIDTH / 2) {
+        int chord = 2 * (int)sqrtf((float)(LCD_WIDTH / 2) * (LCD_WIDTH / 2) - (float)far * far) - 20;
+        if (chord < w) w = chord;
+    }
+    if (w < 260) w = 260;
+    int x = (LCD_WIDTH - w) / 2;
+    g->fillRoundRect(x, y, w, S_ROW_H, 26, fade_color(0x18E3, fade));
 
-    int pad = 18;
-    int text_x = x + pad;
-    // Icon rendering removed here entirely (not just skipped while
-    // dragging) after a device crash traced to a watchdog timeout on
-    // this exact screen, right after a previous fix that specifically
-    // targeted a different crash type also on this screen.
-    // drawBitmap() is the single newest, least-tested code path in
-    // this project - nothing else here used it before this feature -
-    // and rather than keep narrowing around an increasingly specific
-    // guess with real device crashes at stake, this removes the most
-    // concrete remaining suspect outright. See the chat for the full
-    // reasoning and crash dumps this is responding to.
-    g->setTextSize(2);
-    g->setTextColor(fade_color(COLOR_TEXT, fade));
-    ui_print(text_x, y + 14, 2, fade_color(COLOR_TEXT, fade), row.label);
+    // the icon disc
+    uint16_t ic = row_color(row.label);
+    int icx = x + 34, icy = y + S_ROW_H / 2;
+    g->fillCircle(icx, icy, 19, fade_color(ic, fade));
+    char ini[5];
+    ui_first_char(row.label, ini);
+    ui_text_center(icx, icy, fade_color(COLOR_TEXT, fade), ini, 2);
 
-    g->setTextSize(1);
-    g->setTextColor(fade_color(COLOR_TEXT_DIM, fade));
-    ui_print(text_x, y + 44, 1, fade_color(COLOR_TEXT_DIM, fade), unavailable && row.unavailable_desc ? row.unavailable_desc : row.desc);
+    int text_x = x + 64;
+    int right = row.kind == ROW_TOGGLE ? 70 : 34;
+    char label[48], desc[72];
+    strlcpy(label, row.label, sizeof(label));
+    ui_fit(label, 2, w - 64 - right);
+    ui_print(text_x, y + 14, 2, fade_color(COLOR_TEXT, fade), label);
+    strlcpy(desc, unavailable && row.unavailable_desc ? row.unavailable_desc : (row.desc ? row.desc : ""), sizeof(desc));
+    ui_fit(desc, 1, w - 64 - right);
+    ui_print(text_x, y + 44, 1, fade_color(COLOR_TEXT_DIM, fade), desc);
 
     if (row.kind == ROW_TOGGLE) {
         bool on = row.get_value ? row.get_value() : false;
-        draw_switch(g, x + S_ROW_W - pad - 50, y + S_ROW_H / 2, on, fade);
+        draw_switch(g, x + w - 18 - 50, y + S_ROW_H / 2, on, fade);
     } else {
-        // Chevron for "opens a sub-screen" rows - one filled triangle
-        // instead of 4 separate line calls for the same arrow shape.
-        int cx = x + S_ROW_W - pad - 12, cy = y + S_ROW_H / 2;
+        // a chevron: opens a page (or cycles a value)
+        int cx = x + w - 26, cy = y + S_ROW_H / 2;
         uint16_t c = fade_color(COLOR_TEXT_DIM, fade);
-        g->fillTriangle(cx - 4, cy - 9, cx - 4, cy + 9, cx + 8, cy, c);
+        g->fillTriangle(cx - 5, cy - 8, cx - 5, cy + 8, cx + 4, cy, c);
+        g->fillTriangle(cx - 9, cy - 8, cx - 9, cy + 8, cx, cy, fade_color(0x18E3, fade));
     }
 }
 
@@ -356,6 +612,7 @@ static void page_draw(SettingsPage &p) {
         if (row.subscreen == &settings_battery_screen || row.subscreen == &settings_power_screen) {
             row.desc = battery_mode_adjusted() ? "Adjusted by hand" : battery_profile(battery_mode_current()).name;
         }
+        if (row.live_desc) row.desc = row.live_desc();
         if (row.subscreen == &usb_mode_screen) {
             row.desc = usb_mode_restart_pending() ? "Restart pending - tap to finish" : usb_mode_name(usb_mode_saved());
         }
@@ -381,10 +638,10 @@ static void page_touch(SettingsPage &p, int x, int y, bool pressed) {
     int row_x = (LCD_WIDTH - S_ROW_W) / 2;
     for (int i = 0; i < p.count; i++) {
         int ry = S_ROW_TOP + i * S_ROW_PITCH;
-        if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x && x <= row_x + S_ROW_W) {
+        if (cy >= ry && cy <= ry + S_ROW_H && x >= row_x - 20 && x <= row_x + S_ROW_W + 20) {
             const SettingsRow &row = p.rows[i];
             if (row.available && !row.available()) { ui_show_toast(row.unavailable_desc ? row.unavailable_desc : "Not available", 1800); break; }
-            if (row.kind == ROW_TOGGLE && row.on_tap) row.on_tap();
+            if ((row.kind == ROW_TOGGLE || row.kind == ROW_ACTION) && row.on_tap) row.on_tap();
             else if (row.kind == ROW_SUBSCREEN && row.subscreen) ui_push(row.subscreen);
             break;
         }
@@ -411,11 +668,14 @@ static void settings_gesture(Gesture g) {
 
 SETTINGS_PAGE(settings_screen, "Settings", ROWS_ROOT)
 SETTINGS_PAGE(settings_display_screen, "Display", ROWS_DISPLAY)
+SETTINGS_PAGE(settings_activity_screen, "Activity", ROWS_ACTIVITY)
 SETTINGS_PAGE(settings_sound_screen, "Sound", ROWS_SOUND)
 SETTINGS_PAGE(settings_connect_screen, "Connections", ROWS_CONNECT)
 SETTINGS_PAGE(settings_power_screen, "Battery", ROWS_BATTERY)
 SETTINGS_PAGE(settings_wake_screen, "Wake & quiet", ROWS_WAKE)
+SETTINGS_PAGE(settings_home_screen, "Home gestures", ROWS_HOME)
 SETTINGS_PAGE(settings_system_screen, "System", ROWS_SYSTEM)
+SETTINGS_PAGE(settings_voice_screen, "Voice", ROWS_VOICE)
 
 // =========================================================================
 //  Brightness sub-screen
@@ -473,6 +733,81 @@ Screen settings_brightness_screen = {
     "Brightness", GESTURE_MODE_EDGE,
     UI_FRAME_MS_DEFAULT,
     brightness_create, brightness_draw, brightness_touch, brightness_tick, nullptr, brightness_gesture
+};
+
+// =========================================================================
+//  Your body: weight and height (fitness.h - calories and stride)
+// =========================================================================
+static int s_body_press = -1;            // 0/1 weight -/+, 2/3 height -/+
+static uint32_t s_body_down_ms = 0, s_body_rep_ms = 0;
+
+static void body_step(int which) {
+    AppSettings &a = g_app_settings;
+    if (which == 0 && a.weight_kg > 30) a.weight_kg--;
+    else if (which == 1 && a.weight_kg < 250) a.weight_kg++;
+    else if (which == 2 && a.height_cm > 100) a.height_cm--;
+    else if (which == 3 && a.height_cm < 230) a.height_cm++;
+}
+
+static void body_draw() {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    const int CX = LCD_WIDTH / 2;
+    for (int i = 0; i < 2; i++) {
+        int y = 104 + i * 136;
+        g->fillRoundRect(CX - 170, y, 340, 120, 28, 0x18E3);
+        ui_print(CX - 146, y + 14, 1, COLOR_TEXT_DIM, i ? "HEIGHT" : "WEIGHT");
+        char b[16];
+        snprintf(b, sizeof(b), i ? "%u cm" : "%u kg", i ? (unsigned)g_app_settings.height_cm : (unsigned)g_app_settings.weight_kg);
+        ui_text_center(CX, y + 72, COLOR_TEXT, b, 4);
+        for (int k = 0; k < 2; k++) {
+            int x = k ? CX + 120 : CX - 120, id = i * 2 + k;
+            g->fillCircle(x, y + 72, 28, s_body_press == id ? COLOR_ACCENT : (uint16_t)0x31A6);
+            ui_text_center(x, y + 72, COLOR_TEXT, k ? "+" : "-", 3);
+        }
+    }
+    ui_text_center(CX, 390, COLOR_TEXT_DIM, "Calories from your weight,", 1);
+    ui_text_center(CX, 408, COLOR_TEXT_DIM, "distance from steps from your height", 1);
+}
+
+static int body_hit(int x, int y) {
+    const int CX = LCD_WIDTH / 2;
+    for (int i = 0; i < 2; i++)
+        for (int k = 0; k < 2; k++) {
+            int bx = k ? CX + 120 : CX - 120, by = 104 + i * 136 + 72;
+            if ((x - bx) * (x - bx) + (y - by) * (y - by) < 38 * 38) return i * 2 + k;
+        }
+    return -1;
+}
+
+static void body_touch(int x, int y, bool pressed) {
+    int h = body_hit(x, y);
+    if (pressed) {
+        if (s_body_press < 0 && h >= 0) { s_body_press = h; s_body_down_ms = s_body_rep_ms = millis(); body_step(h); }
+        else if (h != s_body_press) s_body_press = -1;   // slid off
+        return;
+    }
+    if (s_body_press >= 0) nvs_save_settings(g_app_settings);
+    s_body_press = -1;
+}
+
+static void body_tick() {
+    // held: faster and faster
+    if (s_body_press < 0) return;
+    uint32_t now = millis();
+    if (now - s_body_down_ms < 450) return;
+    uint32_t every = now - s_body_down_ms > 1800 ? 40 : 110;
+    if (now - s_body_rep_ms >= every) { s_body_rep_ms = now; body_step(s_body_press); }
+}
+
+static void body_gesture(Gesture g) {
+    if (g == GESTURE_SWIPE_LEFT || g == GESTURE_SWIPE_RIGHT) ui_pop_screen();
+}
+
+Screen settings_body_screen = {
+    "Your body", GESTURE_MODE_EDGE,
+    UI_FRAME_MS_DEFAULT,
+    nullptr, body_draw, body_touch, body_tick, nullptr, body_gesture,
 };
 
 // =========================================================================

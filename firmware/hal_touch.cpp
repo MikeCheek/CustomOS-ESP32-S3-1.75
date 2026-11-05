@@ -18,6 +18,11 @@ static uint32_t s_last_release_ms = 0;
 static const uint32_t RELEASE_COOLDOWN_MS = 240;
 static const uint32_t FAST_TAP_COOLDOWN_MS = 40;
 static uint32_t s_release_cooldown_ms = RELEASE_COOLDOWN_MS;
+// Fast taps (games, keypads) also take a press on its first valid frame
+// instead of waiting for a second matching read one loop later - that
+// confirmation guards ordinary screens against a single noisy frame, but
+// costs a whole frame of latency where every tap counts.
+static bool s_fast_taps = false;
 
 // Gesture mode — set by ui.cpp when the active screen changes
 static uint8_t s_gesture_mode = 0; // 0=NONE, 1=EDGE, 2=FREE
@@ -89,6 +94,7 @@ void touch_init() {
 
 void touch_set_fast_taps(bool on) {
     s_release_cooldown_ms = on ? FAST_TAP_COOLDOWN_MS : RELEASE_COOLDOWN_MS;
+    s_fast_taps = on;
 }
 
 void touch_set_gesture_mode(uint8_t mode) {
@@ -178,9 +184,10 @@ TouchPoint touch_read() {
                 return tp;
             }
 
-            if (s_touch_pending && (now - s_pending_ms) < PENDING_TIMEOUT_MS &&
-                abs((int)x - (int)s_pending_x) < 30 && abs((int)y - (int)s_pending_y) < 30 &&
-                (now - s_last_release_ms) >= s_release_cooldown_ms) {
+            bool confirmed = s_fast_taps ||
+                (s_touch_pending && (now - s_pending_ms) < PENDING_TIMEOUT_MS &&
+                 abs((int)x - (int)s_pending_x) < 30 && abs((int)y - (int)s_pending_y) < 30);
+            if (confirmed && (now - s_last_release_ms) >= s_release_cooldown_ms) {
                 s_last_touched = true;
                 s_last_x = x;
                 s_last_y = y;

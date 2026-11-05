@@ -36,3 +36,8 @@ void phone_images_on_frame(const uint8_t *d, int len);
 
 // Main loop: decodes what arrived.
 void phone_images_update();
+
+// The camera remote's live preview (kind 'p' frames): the latest one, and a
+// counter that moves with each new frame. nullptr until one came.
+const uint16_t *phone_preview(int *w, int *h, uint32_t *seq);
+void phone_preview_clear();   // the camera remote closed, or its view stopped

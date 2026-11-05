@@ -25,7 +25,7 @@ class BleService {
   final _otaController = StreamController<List<int>>.broadcast();
   StreamSubscription<BluetoothConnectionState>? _connStateSub;
   final List<StreamSubscription<List<int>>> _valueSubs = [];
-  bool _ready = false;       // connected AND characteristics discovered
+  bool _ready = false; // connected AND characteristics discovered
   /// Reconnect by itself when the watch drops (out of range, reboot).
   bool autoReconnect = true;
   bool _settingUp = false;
@@ -45,8 +45,44 @@ class BleService {
   /// Messages from the watch on the phone link (e.g. {"e":"med","a":"next"}).
   Stream<Map<String, dynamic>> get linkEvents => _linkController.stream;
 
-  bool get isConnected => _ready && (_device?.isConnected ?? false);
-  bool get hasPhoneLink => isConnected && _linkChar != null;
+  bool get _realConnected => _ready && (_device?.isConnected ?? false);
+  bool get isConnected => _realConnected || isVirtual;
+  bool get hasPhoneLink => (_realConnected && _linkChar != null) || isVirtual;
+
+  // ---- the in-app watch emulator (screens/emulator_screen.dart) -------------------
+  // While it's open and no real watch is connected, it is "the watch": the
+  // phone link and weather / fitness go to it, its messages come back on
+  // linkEvents - everything above this service works unchanged.
+  VirtualWatch? _virtual;
+  bool get isVirtual => _virtual != null && !_realConnected;
+
+  /// False when a real watch is connected (that one stays the watch).
+  bool attachVirtual(VirtualWatch v) {
+    if (_realConnected) return false;
+    _virtual = v;
+    _connectionController.add(true);
+    return true;
+  }
+
+  void detachVirtual(VirtualWatch v) {
+    if (_virtual != v) return;
+    final was = isVirtual;
+    _virtual = null;
+    if (was) _connectionController.add(false);
+  }
+
+  /// After a real watch went away while the emulator stayed attached:
+  /// tell the app the (emulated) watch is connected again.
+  void reannounceVirtual() {
+    if (isVirtual) _connectionController.add(true);
+  }
+
+  /// The emulated watch while it's the one the app talks to.
+  VirtualWatch? get virtualWatch => isVirtual ? _virtual : null;
+
+  /// A message from the emulated watch, as if it came over Bluetooth.
+  void virtualIncoming(Map<String, dynamic> msg) => _linkController.add(msg);
+
   /// The watch firmware supports updates over Bluetooth.
   bool get supportsOta => isConnected && _otaChar != null;
 
@@ -93,15 +129,15 @@ class BleService {
     if (d == null || !Platform.isAndroid) return;
     try {
       await d.requestConnectionPriority(
-          connectionPriorityRequest: high ? ConnectionPriority.high : ConnectionPriority.balanced);
+        connectionPriorityRequest: high ? ConnectionPriority.high : ConnectionPriority.balanced,
+      );
     } catch (_) {}
   }
+
   BluetoothDevice? get device => _device;
 
   Future<void> startScan() async {
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 10),
-    );
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
   }
 
   Future<void> stopScan() async {
@@ -196,9 +232,11 @@ class BleService {
           } catch (e) {
             print('[BLE] battery notify: $e');
           }
-          _valueSubs.add(char.onValueReceived.listen((value) {
-            if (value.isNotEmpty) _batteryController.add(value[0]);
-          }));
+          _valueSubs.add(
+            char.onValueReceived.listen((value) {
+              if (value.isNotEmpty) _batteryController.add(value[0]);
+            }),
+          );
           try {
             final v = await char.read();
             if (v.isNotEmpty && v[0] > 0) _batteryController.add(v[0]);
@@ -226,9 +264,11 @@ class BleService {
         } else if (u == BleProtocol.otaUuid) {
           _otaChar = char;
           await _notify(char);
-          _valueSubs.add(char.onValueReceived.listen((v) {
-            if (v.isNotEmpty) _otaController.add(v);
-          }));
+          _valueSubs.add(
+            char.onValueReceived.listen((v) {
+              if (v.isNotEmpty) _otaController.add(v);
+            }),
+          );
         }
       }
       break;
@@ -270,7 +310,7 @@ class BleService {
     }
     final bonded = await device.bondState.first == BluetoothBondState.bonded;
     try {
-      await bat.read();   // works: old firmware (open link) or a good existing bond
+      await bat.read(); // works: old firmware (open link) or a good existing bond
       return;
     } catch (_) {
       // "insufficient authentication/encryption": firmware 3.0, pair now
@@ -393,6 +433,10 @@ class BleService {
   /// Sends one JSON message to the watch. Messages are queued so the
   /// chunks of two messages never interleave.
   Future<void> sendLink(Map<String, dynamic> msg) {
+    if (isVirtual) {
+      _virtual!.deliver(jsonEncode(msg));
+      return Future.value();
+    }
     final next = _linkQueue.then((_) async {
       final c = _linkChar;
       if (c == null || !isConnected) return;
@@ -418,6 +462,10 @@ class BleService {
   /// messages so they never interleave.
   /// 0x03 kind hash(4 LE) total(4 LE) offset(4 LE) data...
   Future<void> sendImage(String kind, int hash, Uint8List jpeg) {
+    if (isVirtual) {
+      _virtual!.deliverImage(kind, hash, jpeg);
+      return Future.value();
+    }
     final next = _linkQueue.then((_) async {
       final c = _linkChar;
       if (c == null || !isConnected) return;
@@ -451,8 +499,12 @@ class BleService {
   /// [onProgress] gets bytes confirmed written on the watch. Throws a
   /// readable message on failure. [cancel] returning true aborts.
   /// [signature]: 64-byte ECDSA signature from a *.signed.bin (fw 3.0+).
-  Future<void> sendFirmware(Uint8List image,
-      {Uint8List? signature, void Function(int written, int total)? onProgress, bool Function()? cancel}) async {
+  Future<void> sendFirmware(
+    Uint8List image, {
+    Uint8List? signature,
+    void Function(int written, int total)? onProgress,
+    bool Function()? cancel,
+  }) async {
     final c = _otaChar;
     if (c == null || !isConnected) throw Exception('This watch firmware can\'t be updated over Bluetooth');
     final total = image.length;
@@ -496,7 +548,9 @@ class BleService {
         case 0:
           break;
         case 2:
-          throw Exception('The file is too big for the watch');
+          throw Exception(
+            'Too big for the watch\'s app slot. A watch on the old 3 MB layout needs one USB flash of firmware 3.5 or later',
+          );
         case 3:
           throw Exception('Watch battery too low - charge it to 20% or plug it in');
         default:
@@ -611,8 +665,14 @@ class BleService {
   /// occasional dropped packet just means state holds until the next
   /// real change, not a stuck/missed input.
   Future<void> sendController({
-    bool up = false, bool down = false, bool left = false, bool right = false,
-    bool a = false, bool b = false, bool x = false, bool y = false,
+    bool up = false,
+    bool down = false,
+    bool left = false,
+    bool right = false,
+    bool a = false,
+    bool b = false,
+    bool x = false,
+    bool y = false,
   }) async {
     if (_controllerChar == null) return;
     await _controllerChar!.write(
@@ -621,11 +681,13 @@ class BleService {
   }
 
   Future<void> sendWeather(WeatherData weather) async {
+    if (isVirtual) return _virtual!.deliverData(2, jsonEncode(weather.toJson()));
     if (_fileChar == null) return;
     await _fileChar!.write(BleProtocol.encodeWeather(weather));
   }
 
   Future<void> sendFitness(FitnessData fitness) async {
+    if (isVirtual) return _virtual!.deliverData(3, jsonEncode(fitness.toJson()));
     if (_fileChar == null) return;
     await _fileChar!.write(BleProtocol.encodeFitness(fitness));
   }
@@ -686,6 +748,7 @@ class BleService {
   int get maxFileSize => wifiFiles ? 4 * 1024 * 1024 : 1024 * 1024;
 
   Future<void> sendFile(String name, Uint8List data) async {
+    if (isVirtual) return _virtual!.receiveFile(name, data);
     if (_fileChar == null) return;
     final chunkSize = (_maxWrite - 8).clamp(12, 400);
     final nameBytes = BleProtocol.utf8Truncate(name, (_maxWrite - 8).clamp(1, 63));
@@ -708,8 +771,12 @@ class BleService {
   }
 
   /// [onProgress] gets the number of bytes sent so far.
-  Future<void> sendFileWithProgress(String name, Uint8List data,
-      {void Function(int)? onProgress}) async {
+  Future<void> sendFileWithProgress(String name, Uint8List data, {void Function(int)? onProgress}) async {
+    if (isVirtual) {
+      await _virtual!.receiveFile(name, data);
+      onProgress?.call(data.length);
+      return;
+    }
     if (_fileChar == null) return;
     if (data.length > maxFileSize) {
       throw Exception('Too big for Bluetooth (max ${maxFileSize ~/ (1024 * 1024)} MB) - needs Wi-Fi');
@@ -749,6 +816,11 @@ class BleService {
   /// Adds an audio file to the watch's recordings over Bluetooth (the watch
   /// asks for confirmation). [name] = plain file name, .wav or .mp3.
   Future<void> sendRecording(String name, Uint8List data, {void Function(int)? onProgress}) async {
+    if (isVirtual) {
+      await _virtual!.receiveFile('rec:$name', data);
+      onProgress?.call(data.length);
+      return;
+    }
     if (_fileChar == null) throw Exception('Watch not connected');
     if (data.length > maxRecordingSize) throw Exception('Too big for Bluetooth (max 4 MB) - use Wi-Fi');
     final chunkSize = (_maxWrite - 8).clamp(12, 500);
@@ -920,4 +992,20 @@ class BleService {
     _otaController.close();
     _pairingController.close();
   }
+}
+
+/// Something that stands in for the watch on the phone link (the in-app
+/// emulator): gets what would go over Bluetooth.
+abstract class VirtualWatch {
+  void deliver(String json); // a phone-link message
+  void deliverData(int kind, String json); // 2 weather, 3 fitness
+  void deliverImage(String kind, int hash, Uint8List jpeg); // phone_images.h: 'i', 'a', 'p'
+
+  /// A file the app sends ("rec:<name>", "pt:<name>", "say:<x>.wav", or a
+  /// plain name for the card's root), saved on its SD card.
+  Future<void> receiveFile(String name, Uint8List data);
+
+  /// /Recordings/<name> from its SD card (what the app would download over
+  /// Bluetooth), once a recording into it has finished.
+  Future<Uint8List> readRecording(String name);
 }

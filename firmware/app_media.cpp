@@ -55,7 +55,7 @@ static void draw_top_title(Arduino_GFX *g, const char *title) {
     g->setTextColor(COLOR_TEXT_DIM);
     int tw = ui_text_width(title, 2);
     int cx = LCD_WIDTH / 2;
-    ui_print(cx - tw / 2, 22, 2, COLOR_TEXT_DIM, title);
+    ui_print(cx - tw / 2, 50, 2, COLOR_TEXT_DIM, title);   // where every app's title sits (the time is above)
 }
 
 // ---- File type classification -----------------------------------------------
@@ -462,7 +462,7 @@ static void browser_gesture(Gesture g) {
 }
 
 Screen media_screen = {
-    "Media", GESTURE_MODE_EDGE,
+    "", GESTURE_MODE_EDGE,   // the title is the folder's name, drawn by the screen
     UI_FRAME_MS_DEFAULT,
     browser_create, browser_draw, browser_touch,
     browser_tick, nullptr, browser_gesture,

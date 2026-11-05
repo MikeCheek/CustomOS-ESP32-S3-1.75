@@ -51,6 +51,14 @@ void audio_beep(uint16_t freq_hz, uint16_t duration_ms);
 // See game_audio.h for the named sounds games actually call.
 void audio_play_sfx(uint16_t freq_hz, uint16_t duration_ms);
 
+// A piano-like note (a few decaying harmonics) on the same queue, for
+// playable instruments: it cuts off whatever note is sounding and is
+// kept only ~50 ms ahead of the speaker, so a tap is heard right away.
+void audio_play_note(uint16_t freq_hz, uint16_t duration_ms);
+// Piano keys by MIDI number (60 = middle C), up to 4 at once (a chord),
+// exactly in tune; they ring together with whatever is still sounding.
+void audio_play_chord(const uint8_t *midi, int n, uint16_t duration_ms);
+
 // WAV file playback from SD card.
 // Starts playing <filename> (root of SD) through the speaker.
 // Non-blocking: call audio_update() from loop() to feed data.
@@ -106,6 +114,25 @@ uint32_t audio_record_duration_s();
 // ES7210's non-TDM SDOUT1 routing (see hal_audio.cpp's ES7210 init).
 // Safe to call at UI refresh rate.
 int audio_get_mic_waveform(int16_t *out_l, int16_t *out_r, int max_points);
+
+// Clean-up for the mono recordings (audio_start_record_mono()): process()
+// gets each block of mic1+mic2 averaged and returns how many samples it
+// put in out (it may hold some back, or release more than it got).
+// voice_sr.cpp installs one; without it the average is written as is.
+struct AudioMonoFilter {
+    bool (*begin)();                                              // false = record unfiltered
+    int  (*process)(const int16_t *in, int n, int16_t *out, int out_cap);
+    void (*end)();
+};
+void audio_set_mono_filter(const AudioMonoFilter *f);
+
+// Background listening (the wake word, voice_sr.cpp). Reads up to
+// max_frames stereo frames (mic1, mic2) with the sensitivity applied;
+// 0 while recording or playing a file, which own the microphone.
+// audio_mic_hold(true) keeps the I2S port from stopping after 4 s of
+// quiet (PlatformIO build) while someone listens.
+int audio_mic_read(int16_t *stereo, int max_frames, uint32_t timeout_ms);
+void audio_mic_hold(bool on);
 
 // ---- Raw PCM playback (for callers with their own decoded/uncoded
 // samples, e.g. app_media.cpp's video player feeding an AVI's PCM

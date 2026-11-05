@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #7c6cff;
+  --color-accent2: #3aa0ff;
+  --color-good: #3ddc84;
+  --color-warn: #ffc24a;
+  --color-ink: #a1a1aa;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+body { overflow-x: hidden; }
+
+/* revealed on scroll (useInView) */
+.reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.9s cubic-bezier(.2,.7,.2,1), transform 0.9s cubic-bezier(.2,.7,.2,1); }
+.reveal.in { opacity: 1; transform: none; }
+
+.text-gradient {
+  background: linear-gradient(120deg, #fff 0%, #c9c2ff 40%, #7c6cff 70%, #3aa0ff 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.glow { filter: drop-shadow(0 0 60px rgba(124, 108, 255, 0.35)); }
+
+@keyframes float { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-14px) } }
+.float { animation: float 6s ease-in-out infinite; }
+@keyframes spin-slow { to { transform: rotate(360deg) } }
+.spin-slow { animation: spin-slow 40s linear infinite; }
+@keyframes blink { 50% { opacity: 0 } }
+.caret::after { content: "▍"; margin-left: 2px; animation: blink 1s steps(1) infinite; color: #7c6cff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .float, .spin-slow { animation: none; }
+}

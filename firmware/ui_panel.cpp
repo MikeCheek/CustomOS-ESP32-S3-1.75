@@ -19,6 +19,7 @@
  * volume are the two edge arcs - drag along them; the value is saved when
  * the finger lifts. Closes with a swipe up, a tap on the handle, or BOOT.
  */
+#include "clock_fmt.h"
 #include "ui.h"
 #include "dnd.h"
 #include "config.h"
@@ -133,6 +134,14 @@ static const Tile TILES[T_COUNT] = {
     {CX - 44, ROW4},  {CX + 44, ROW4},
 };
 
+// What each tile is, shown while it's held (before it acts on release)
+static const char *const TILE_NAME[T_COUNT] = {
+    "Wi-Fi", "Bluetooth", "GPS", "Do not disturb",
+    "All sounds", "Game music", "Auto-rotate", "Keep screen on",
+    "Battery mode", "Torch", "USB mode", "Lock",
+    "Settings", "Power",
+};
+
 static bool tile_on(int t) {
     switch (t) {
     case T_WIFI:   return g_app_settings.wifi_on;
@@ -198,12 +207,12 @@ static void tile_tap(int t) {
     case T_SFX:
         g_app_settings.sfx_enabled = !g_app_settings.sfx_enabled;
         nvs_save_settings(g_app_settings);
-        caption(g_app_settings.sfx_enabled ? "Sound effects on" : "Sound effects off");
+        caption(g_app_settings.sfx_enabled ? "All sounds on" : "Sounds off - alarms still ring");
         break;
     case T_MUSIC:
         g_app_settings.music_enabled = !g_app_settings.music_enabled;
         nvs_save_settings(g_app_settings);
-        caption(g_app_settings.music_enabled ? "Game music on" : "Game music off");
+        caption(g_app_settings.music_enabled ? "Game music on" : "Game music off - sounds stay");
         break;
     case T_ROTATE:
         if (!g_app_settings.auto_rotate && !g_app_settings.tilt_calibrated) {
@@ -302,12 +311,16 @@ static void draw_icon(Arduino_GFX *g, int t, int cx, int cy, uint16_t c, uint16_
         icon_speaker(g, cx - 2, cy, c, bg, on, !on);
         break;
     case T_MUSIC:
-        g->fillCircle(cx - 8, cy + 9, 5, c);
-        g->fillCircle(cx + 8, cy + 6, 5, c);
-        g->fillRect(cx - 5, cy - 11, 3, 20, c);
-        g->fillRect(cx + 11, cy - 14, 3, 20, c);
-        tline(g, cx - 4, cy - 11, cx + 12, cy - 14, 5, c);
-        if (!on) tline(g, cx - 14, cy - 14, cx + 14, cy + 14, 3, c);
+        // a gamepad with a note over it: music in games (the speaker tile is every sound)
+        g->fillRoundRect(cx - 16, cy + 1, 32, 15, 7, c);
+        g->fillRect(cx - 11, cy + 7, 8, 3, bg);           // the d-pad
+        g->fillRect(cx - 8, cy + 4, 3, 9, bg);
+        g->fillCircle(cx + 7, cy + 6, 2, bg);             // two buttons
+        g->fillCircle(cx + 11, cy + 10, 2, bg);
+        g->fillCircle(cx - 3, cy - 7, 4, c);              // the note
+        g->fillRect(cx, cy - 18, 2, 11, c);
+        tline(g, cx + 1, cy - 18, cx + 7, cy - 14, 2, c);
+        if (!on) tline(g, cx - 15, cy - 15, cx + 15, cy + 15, 3, c);
         break;
     case T_ROTATE:
         // phone outline + two curved arrows around it
@@ -501,7 +514,7 @@ void ui_top_panel_draw() {
         static const char *const DAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
         static const char *const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        snprintf(buf, sizeof(buf), "%02d:%02d", s_time.hour, s_time.minute);
+        clock_hm_text(buf, sizeof(buf), s_time.hour, s_time.minute);
         ui_text_center(CX, 80 + oy, COLOR_TEXT, buf, 4);
         int wd = s_time.weekday >= 0 && s_time.weekday < 7 ? s_time.weekday : 0;
         int mo = s_time.month >= 1 && s_time.month <= 12 ? s_time.month - 1 : 0;
@@ -518,6 +531,8 @@ void ui_top_panel_draw() {
     } else if (s_drag_arc == 2) {
         snprintf(buf, sizeof(buf), "Volume %d%%", audio_get_volume());
         cap = buf;
+    } else if (s_press_valid && s_press_tile >= 0 && !s_long_fired) {
+        cap = TILE_NAME[s_press_tile];   // what's under the finger
     } else if (now < s_caption_until) {
         cap = s_caption;
     } else {

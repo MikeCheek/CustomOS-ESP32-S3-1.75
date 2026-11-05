@@ -10,5 +10,6 @@ struct SimState {
     uint32_t steps = 6482;
     uint8_t fwup = 0;      // FwupState shown by the Software update screen
     bool recording = false; // the recorder is recording (fake speech on both mics)
+    bool live = false;     // the phone app's emulator: real clock instead of the fixed scenario time
 };
 extern SimState g_sim;

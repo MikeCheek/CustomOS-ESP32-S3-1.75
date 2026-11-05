@@ -1,8 +1,46 @@
 // The screenshots: each scenario sets up the watch, runs the UI for a
 // moment and saves the frame on screen.
 #include <Arduino.h>
+#include <string>
+#include <stdio.h>
 #include "config.h"
 #include "ui.h"
+#include "app_face_nav.h"
+extern Screen settings_body_screen;
+#define settings_body_screen_ref settings_body_screen
+extern Screen contacts_screen;
+#define contacts_screen_ref contacts_screen
+extern Screen phone_screen;
+#define phone_screen_ref phone_screen
+extern Screen gallery_screen;
+#define gallery_screen_ref gallery_screen
+extern Screen media_screen;
+#define media_screen_ref media_screen
+extern Screen pet_screen;
+#define pet_screen_ref pet_screen
+extern Screen diagnostics_screen;
+#define diagnostics_screen_ref diagnostics_screen
+extern Screen snake_screen;
+#define snake_screen_ref snake_screen
+extern Screen breakout_screen;
+#define breakout_screen_ref breakout_screen
+#include "app_life.h"
+#include "app_tips.h"
+extern Screen life_meal_screen;
+static Screen &life_meal_screen_ref() { return life_meal_screen; }
+#include "app_menu.h"
+#include "app_tiles.h"
+#include "app_wallet.h"
+#include "app_briefing.h"
+#include "app_camera.h"
+#include "app_sos.h"
+#include "app_poweroff.h"
+#include "app_activity.h"
+#include "fitness.h"
+#include "app_workout.h"
+#include "app_reminders.h"
+#include "app_weather.h"
+#include "app_clock.h"
 #include "apps.h"
 #include "watchface_registry.h"
 #include "hal_fwupdate.h"
@@ -18,8 +56,12 @@ void sim_save(const char *name);
 void sim_tap(int x, int y);
 void sim_link(const char *json);
 
+extern Screen settings_home_screen;
 extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar_screen, fwup_screen,
-    flappy_screen, fruitninja_screen, battery_screen, recorder_screen;
+    flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
+    fall_alert_screen, sleep_screen, draw_screen, activity_screen;
+void sleep_load_demo();
+void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
 static uint32_t at(int hh, int mm) { return 20734u * 86400u + hh * 3600u + mm * 60u; }
@@ -39,6 +81,15 @@ static void phone_data() {
     sim_link("{\"t\":\"ntf\",\"id\":11,\"ap\":\"Calendar\",\"ti\":\"Design review in 35 min\",\"tx\":\"Room 4B\",\"rp\":0}");
     sim_link("{\"t\":\"ntf\",\"id\":12,\"ap\":\"Gmail\",\"ti\":\"Your order has shipped\",\"tx\":\"Arriving Friday - track your package\",\"rp\":0}");
     sim_link("{\"t\":\"ntf\",\"id\":13,\"ap\":\"WhatsApp\",\"ti\":\"Sara\",\"tx\":\"Still on for lunch at 1? I booked a table\",\"rp\":1}");
+    sim_link("{\"t\":\"tz\",\"o\":120}");
+    sim_link("{\"t\":\"wxh\",\"pl\":\"Milan\",\"hi\":21,\"lo\":12,\"h\":[[10,19,61],[11,19,61],[12,20,3],[13,21,2],"
+             "[14,21,2],[15,21,1],[16,20,0],[17,19,0],[18,17,0],[19,16,0],[20,15,0],[21,14,0]]}");
+    sim_link("{\"t\":\"todos\",\"r\":1,\"done\":1,\"l\":[{\"k\":\"a1\",\"x\":\"Call Marco about the flat\"},"
+             "{\"k\":\"a2\",\"x\":\"Send the slides to Giulia before Friday's review\"},"
+             "{\"k\":\"a3\",\"x\":\"Buy coffee\"},{\"k\":\"a4\",\"x\":\"Book the dentist\"}]}");
+    // a morning's movement for the rings
+    for (int i = 0; i < 330; i++) fitness_feed(ACT_WALK, 108);
+    for (int i = 0; i < 300; i++) fitness_feed(ACT_MOVING, 0);
     sim_run(4000);
 }
 
@@ -83,6 +134,159 @@ void sim_scenarios() {
     sleep_register_activity();
     g_app_settings.aod_on = false;
     shot(&menu_screen, "menu");
+    menu_open_folder(0);                    // Games
+    sim_run(800);
+    sim_save("menu_folder");
+    home();
+    shot(&menu_screen, "menu");
+    sim_tap(233, 233);                      // the middle app: zooms open
+    sim_run(90);
+    sim_save("menu_launch");
+    sim_run(600);                            // the app is open
+    ui_pop_screen();                         // BOOT: back into its icon
+    sim_run(110);
+    sim_save("menu_return");
+    g_app_settings.menu_list = true;
+    shot(&menu_screen, "menu_list");
+    g_app_settings.menu_list = false;
+    // Tiles (swipe in from the right on the face) and the gesture settings
+    {
+        static const uint8_t ALL[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        uint8_t keep[10];
+        memcpy(keep, g_app_settings.tiles, sizeof(keep));
+        memcpy(g_app_settings.tiles, ALL, sizeof(ALL));
+        static const char *const N[10] = {"tile_activity", "tile_weather", "tile_next", "tile_music", "tile_timer",
+                                          "tile_life", "tile_world", "tile_alarm", "tile_reminders", "tile_battery"};
+        for (int i = 0; i < 10; i++) { tiles_set_page(i); shot(&tiles_screen, N[i]); }
+        tiles_set_page(0);
+        memcpy(g_app_settings.tiles, keep, sizeof(keep));
+    }
+    shot(&settings_home_screen, "settings_home");
+    shot(&briefing_screen, "briefing");
+    {
+        JsonDocument d;
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"tm\":3,\"fl\":\"auto\",\"z\":15}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_remote");
+        // another camera app open, then run from the watch (no view shared yet)
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"ext\":1}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_other_app");
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"nat\":1,\"tm\":3,\"pv\":0}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_native");
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":0}");
+        camera_on_link(d);
+    }
+    // Wallet: three passes made by the app's own encoder (companion_app/test/wallet_codes_test.dart)
+    {
+        std::string path = __FILE__;
+        path = path.substr(0, path.find_last_of('/') + 1) + "wallet_sample.json";
+        FILE *f = fopen(path.c_str(), "r");
+        char line[1024];
+        while (f && fgets(line, sizeof(line), f)) {
+            JsonDocument d;
+            if (!deserializeJson(d, line)) wallet_on_link(d);
+        }
+        if (f) fclose(f);
+        shot(&wallet_screen, "wallet");
+        static const char *const N[3] = {"wallet_aztec", "wallet_qr", "wallet_barcode"};
+        for (int i = 0; i < 3; i++) { wallet_open_next(i); shot(&wallet_screen, N[i]); }
+    }
+    shot(&activity_screen, "activity_rings");
+    shot(&rings_celebrate_screen, "rings_closed", 1600);
+    shot(&weather_screen, "weather");
+    shot(&reminders_screen, "reminders");
+    shot(&worldclock_screen, "world_clock");
+    shot(&alarms_screen, "alarms_empty");
+    sim_tap(233, 96 + 44);                  // + Add alarm
+    sim_run(500);
+    sim_save("alarm_edit");
+    sim_tap(233 + 90, 360 + 28);            // Save (a new one: the middle button)
+    sim_tap(233, 388);
+    sim_run(600);
+    sim_save("alarms");
+    shot(&timer_screen, "timer");
+    sim_tap(233, 146);                      // 3 min
+    sim_run(20000);
+    sim_save("timer_running");
+    shot(&stopwatch_screen, "stopwatch_idle");
+    sim_tap(233 + 80, 346);                 // Start
+    sim_run(12340);
+    sim_tap(233 - 80, 346);                 // Lap
+    sim_run(9870);
+    sim_tap(233 - 80, 346);
+    sim_run(4210);
+    sim_save("stopwatch");
+    shot(&workout_screen, "workout_types");
+    sim_tap(233, 92 + 92 + 46);             // Outdoor Run
+    sim_run(1500);
+    sim_save("workout_countdown");
+    sim_run(2500);
+    sim_run(60000);
+    sim_save("workout_live");
+    // Life: a plan from the app, a few things done
+    sim_link("{\"t\":\"life\",\"w\":{\"on\":1,\"g\":8,\"ev\":90},\"s\":{\"on\":1,\"g\":3},\"tr\":{\"on\":1,\"dy\":127,\"g\":30,\"at\":1080},"
+             "\"m\":{\"on\":1,\"g\":3,\"at\":1260},\"so\":{\"on\":1,\"dy\":127,\"at\":1140,\"who\":\"Mum\"},\"wd\":{\"on\":1,\"at\":1350}}");
+    sim_link("{\"t\":\"meals\",\"b\":\"Greek yogurt, berries and walnuts\",\"l\":\"Chickpea salad with feta and olive oil\","
+             "\"d\":\"Grilled salmon, quinoa and green beans\"}");
+    shot(&life_screen, "life_empty");
+    for (int i = 0; i < 3; i++) sim_tap(233 + 118, 250 + 42);   // three glasses of water
+    sim_run(1600);
+    sim_save("life");
+    shot(&life_meal_screen_ref(), "life_meals");
+    shot(&breathe_screen, "breathe_pick");
+    sim_tap(233, 392);                       // Start
+    sim_run(3000);
+    sim_save("breathe");
+    shot(&stretch_screen, "stretch", 4000);
+    shot(&settings_body_screen_ref, "body");
+    shot(&tips_screen, "tips_swipe", 900);
+    for (int i = 0; i < 4; i++) sim_tap(380, 233);    // on to "Touch and hold"
+    sim_run(1200);
+    sim_save("tips_hold");
+    for (int i = 0; i < 2; i++) sim_tap(380, 233);    // "Side button"
+    sim_run(1000);
+    sim_save("tips_button");
+    shot(&contacts_screen_ref, "review_contacts");
+    shot(&phone_screen_ref, "review_phone");
+    shot(&gallery_screen_ref, "review_gallery");
+    shot(&media_screen_ref, "review_files");
+    shot(&pet_screen_ref, "review_pet");
+    shot(&diagnostics_screen_ref, "review_diagnostics");
+    shot(&snake_screen_ref, "review_snake", 600);
+    shot(&smart_stack_screen, "smart_stack");
+    // more from one app: they stack up
+    sim_link("{\"t\":\"ntf\",\"id\":14,\"ap\":\"WhatsApp\",\"ti\":\"Marco\",\"tx\":\"Are you coming tonight?\",\"rp\":1}");
+    sim_link("{\"t\":\"ntf\",\"id\":15,\"ap\":\"WhatsApp\",\"ti\":\"Family\",\"tx\":\"Mum: dinner on Sunday?\",\"rp\":1}");
+    sim_run(4000);
+    home();
+    sim_save("watchface_unread");
+    shot(&notifications_screen, "notifications_grouped");
+    sim_tap(233, 92 + 28 + 50);             // the WhatsApp stack: fans out
+    sim_run(400);
+    sim_save("notifications_expanded");
+    // a row dragged left, halfway through
+    ui_handle_touch(380, 92 + 28 + 40 + 8 + 50, true);
+    sim_run(40);
+    for (int x = 370; x >= 230; x -= 20) { ui_handle_touch(x, 92 + 28 + 40 + 8 + 50, true); sim_run(30); }
+    sim_save("notifications_swipe");
+    ui_handle_touch(230, 92 + 28 + 40 + 8 + 50, false);
+    sim_run(400);
+    shot(&poweroff_screen, "power_sos");
+    shot(&sos_screen, "sos_countdown", 2300);
+    sim_run(4000);
+    sim_save("sos_sent");
+    g_app_settings.low_power = true;
+    shot(&activity_screen, "low_power_status");
+    g_app_settings.low_power = false;
+    home();
+    ui_handle_touch(233, 300, true);        // touch and hold the face
+    sim_run(900);
+    ui_handle_touch(233, 300, false);
+    sim_run(400);
+    sim_save("face_switcher");
+    home();
     shot(&notifications_screen, "notifications");
     shot(&nowplaying_screen, "music");
     shot(&calendar_screen, "calendar");
@@ -99,16 +303,90 @@ void sim_scenarios() {
     sim_tap(233, 345);                     // Stop
     sim_run(300);
 
+    // Assistant: listening, then an answer that set a timer
+    shot(&assistant_screen, "assistant_listen", 900);
+    sim_tap(233, 233);
+    sim_run(200);
+    assistant_on_result(1, "Set a timer for 10 minutes for the pasta", "Timer set for 10 minutes.", "timer", 600, "");
+    sim_run(1500);
+    sim_save("assistant_answer");
+    g_sim.recording = false;
+
+    // Fall detection asking
+    shot(&fall_alert_screen, "fall_alert", 8000);
+    sleep_load_demo();
+    shot(&sleep_screen, "sleep_app");
+    g_app_settings.alarm_on = false;
+    shot(&draw_screen, "draw_open");
+    shot(&activity_screen, "activity");
+
+    // Piano Tiles: song list, a song's card, a song under way, the result
+    shot(&piano_screen, "piano_menu");
+    sim_tap(233, 156);                     // Ode to Joy
+    sim_run(400);
+    sim_save("piano_pick");
+    sim_tap(233, 352);                     // Play
+    sim_run(300);
+    sim_tap(330, 136);                     // the first tile (top-right)
+    sim_run(500);
+    sim_tap(330, 330);                     // the next one (bottom-right)
+    sim_run(500);
+    sim_save("piano_play");
+    record("anim_piano", 1600, 50);
+    sim_tap(60, 233); sim_run(100);        // two wrong lanes: the result screen
+    sim_tap(60, 233); sim_run(1600);
+    sim_save("piano_result");
+
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");
     shot(&fruitninja_screen, "game_fruitninja");
+    // More games, a moment in (for the README's games section)
+    { extern Screen cavern_screen, blackjack_screen, ninjadungeon_screen, plane_screen, runner_screen;
+      g_app_settings.tilt_calibrated = true;   // the tilt games would ask first
+      shot(&cavern_screen, "game_cavern", 1500);
+      shot(&blackjack_screen, "game_blackjack", 1500);
+      ui_push(&breakout_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_breakout"); ui_pop_screen(); sim_run(400);
+      ui_push(&ninjadungeon_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_ninja"); ui_pop_screen(); sim_run(400);
+      ui_push(&plane_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_plane"); ui_pop_screen(); sim_run(400);
+      ui_push(&fruitninja_screen); sim_run(600); sim_tap(233, 300); sim_run(2500); sim_save("game_fruit_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&flappy_screen); sim_run(600); sim_tap(233, 300); for (int k = 0; k < 8; k++) { sim_run(280); sim_tap(233, 233); } sim_save("game_flappy_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&breakout_screen); sim_run(600); sim_tap(233, 233); sim_run(1200); sim_tap(233, 300); sim_run(1500); sim_save("game_breakout_play"); ui_pop_screen(); sim_run(400);
+      ui_push(&runner_screen); sim_run(800); sim_tap(233, 300); sim_run(1800); sim_save("game_runner"); ui_pop_screen(); sim_run(400); }
+    // The Casino: the floor, then Roulette - a bet on red and on 17, the spin, the result
+    { extern Screen casino_screen, roulette_screen;
+      shot(&casino_screen, "casino", 1500);
+      shot(&roulette_screen, "roulette");
+      sim_tap(121, 223); sim_tap(121, 223);                 // two chips on Red
+      sim_tap(233, 371); sim_run(400);                      // the numbers table
+      sim_tap(233 - 138 + 4 * 46 + 21, 108 + 2 * 46 + 21);  // 17
+      sim_run(300); sim_save("roulette_numbers");
+      sim_tap(233, 414); sim_run(400);                      // Done
+      sim_save("roulette_bets");
+      sim_tap(233 + 55, 415); sim_run(2600); sim_save("roulette_spin");
+      sim_run(3400); sim_save("roulette_result");
+      ui_pop_screen(); sim_run(500); }
+    // Maze Raider: the title, then a few seconds in
+    { extern Screen maze_screen; shot(&maze_screen, "game_maze_title");
+      sim_tap(233, 300); sim_run(6000); sim_save("game_maze"); }
 
     home();
     ui_top_panel_open();
     sim_run(1500);
     sim_save("quick_panel");
+    // holding a tile names it: the game music one (233-40, 262)
+    ui_handle_touch(193, 262, true);
+    sim_run(120);
+    sim_save("quick_panel_held");
+    ui_handle_touch(193, 262, false);
+    sim_run(60);
+    ui_handle_touch(193, 262, true);   // and back, so the setting is as it was
+    sim_run(60);
+    ui_handle_touch(193, 262, false);
+    sim_run(60);
     ui_top_panel_close();
     sim_run(800);
+
+    { extern Screen settings_sound_screen; shot(&settings_sound_screen, "settings_sound"); }
 
     // Turn-by-turn from the phone's navigation app
     sim_link("{\"t\":\"nav\",\"st\":1,\"i\":\"Turn right onto Via Dante\",\"d\":\"250 m\",\"x\":\"12 min - 1.4 km\",\"h\":0}");

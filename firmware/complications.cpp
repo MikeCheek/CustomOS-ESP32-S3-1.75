@@ -1,4 +1,6 @@
 #include "complications.h"
+#include "app_weather.h"
+#include "fitness.h"
 #include "config.h"
 #include "board_pins.h"
 #include "ui.h"
@@ -17,10 +19,10 @@
 #include <string.h>
 
 static const char *const KEYS[COMP_COUNT] = {
-    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds",
+    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings",
 };
 static const char *const LABELS[COMP_COUNT] = {
-    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds",
+    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings",
 };
 
 const char *comp_key(CompId id) { return id < COMP_COUNT ? KEYS[id] : "none"; }
@@ -73,12 +75,14 @@ void comp_set_todos(int count, const char *top) {
 }
 
 static uint32_t s_step_goal = 8000;
+uint32_t comp_step_goal() { return s_step_goal; }
 
 // Weather from the last "weather" push: temperature + a short condition.
-static bool weather_now(int &temp, char *cond, int n) {
+bool comp_weather_now(int &temp, char *cond, int n) {
     const char *wdata = nullptr;
     int wlen = 0;
     if (!ble_get_weather(&wdata, &wlen) || wlen < 3) return false;
+    if (weather_age_min() > 24 * 60) return false;   // kept from before, but a day old: too stale to show
     JsonDocument d;
     if (deserializeJson(d, wdata, wlen)) return false;
     float t = d["tempC"] | -999.0f;
@@ -99,7 +103,24 @@ static void value_label(int cx, int cy, int r, const char *value, const char *la
     int vsize = r >= 44 ? 3 : 2;
     if (ui_text_width(value, vsize) > 2 * r - 14) vsize = vsize > 1 ? vsize - 1 : 1;
     ui_text_center(cx, cy - (label && label[0] ? 6 : 0), vc, value, vsize);
-    if (label && label[0]) ui_text_center(cx, cy + r / 2 - 2, COLOR_TEXT_DIM, label, 1);
+    if (label && label[0]) {
+        // The label sits where the ring is narrower: keep it inside, with "..." if it's long
+        // ("Design review" -> "Design...").
+        char fit[40];
+        strlcpy(fit, label, sizeof(fit));
+        int maxw = (int)(1.6f * r) - 10;
+        if (ui_text_width(fit, 1) > maxw) {
+            int n = strlen(fit);
+            while (n > 1) {
+                fit[--n] = 0;
+                while (n > 0 && (fit[n - 1] & 0xC0) == 0x80) fit[--n] = 0;   // whole UTF-8 letters
+                char t[44];
+                snprintf(t, sizeof(t), "%s...", fit);
+                if (ui_text_width(t, 1) <= maxw) { strlcpy(fit, t, sizeof(fit)); break; }
+            }
+        }
+        ui_text_center(cx, cy + r / 2 - 2, COLOR_TEXT_DIM, fit, 1);
+    }
 }
 
 static void short_time(uint32_t secs_from_now, char *out, int n) {
@@ -158,7 +179,7 @@ void comp_draw(Arduino_GFX *g, CompId id, int cx, int cy, int r, uint16_t accent
         int t;
         char cond[24];
         ring(cx, cy, r, 0, accent);
-        if (weather_now(t, cond, sizeof(cond))) {
+        if (comp_weather_now(t, cond, sizeof(cond))) {
             snprintf(v, sizeof(v), "%dC", t);
             snprintf(l, sizeof(l), "%.9s", cond);
         } else {
@@ -187,6 +208,11 @@ void comp_draw(Arduino_GFX *g, CompId id, int cx, int cy, int r, uint16_t accent
         if (s_todo_n < 0) snprintf(v, sizeof(v), "--");
         else snprintf(v, sizeof(v), "%d", s_todo_n);
         value_label(cx, cy, r, v, s_todo_n > 0 && s_todo_top[0] ? s_todo_top : "to-dos", COLOR_TEXT);
+        break;
+    }
+    case COMP_RINGS: {
+        int th = r / 5 > 4 ? r / 5 : 4;
+        fitness_draw_rings(cx, cy, r + 2, th);
         break;
     }
     case COMP_SECONDS: {
