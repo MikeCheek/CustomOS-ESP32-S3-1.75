@@ -20,10 +20,10 @@ Pod::Spec.new do |s|
   # Every firmware file but the hardware drivers - the same list as the PC
   # simulator and Android (emu_sources.sh), so new files come along.
   s.source_files = ['src/sim/emu_main.cpp', 'src/sim/sim_stubs.cpp', 'src/firmware/*.cpp',
-                    'third_party/JPEGDEC/src/JPEGDEC.cpp'] +
+                    'src/sim/emu_jpegdec.cpp'] +
                    gfx.map { |g| "third_party/Arduino_GFX/src/#{g}.cpp" }
   s.exclude_files = skip.map { |n| "src/firmware/#{n}.cpp" }
-  s.preserve_paths = ['src/**/*.h', 'third_party/**/*.h', 'third_party/**/*.hpp', 'third_party/**/*.inl']
+  s.preserve_paths = ['src/**/*.h', 'third_party/**/*.h', 'third_party/**/*.hpp', 'third_party/**/*.inl', 'third_party/JPEGDEC/src/*.cpp']
   s.public_header_files = []
   s.libraries = 'c++'
 
@@ -37,7 +37,7 @@ Pod::Spec.new do |s|
     'USE_HEADERMAP' => 'NO',
     'ALWAYS_SEARCH_USER_PATHS' => 'NO',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'gnu++17',
-    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) ARDUINOJSON_ENABLE_ARDUINO_STRING=0 ARDUINOJSON_ENABLE_ARDUINO_STREAM=0 ARDUINOJSON_ENABLE_ARDUINO_PRINT=0 EMU_JPEGDEC NO_SIMD',
+    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) ARDUINOJSON_ENABLE_ARDUINO_STRING=0 ARDUINOJSON_ENABLE_ARDUINO_STREAM=0 ARDUINOJSON_ENABLE_ARDUINO_PRINT=0 EMU_JPEGDEC',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -w',
     'GCC_OPTIMIZATION_LEVEL' => '2',
     'GCC_SYMBOLS_PRIVATE_EXTERN' => 'YES',   # only the emu_* functions are exported (visibility("default"))

@@ -13,7 +13,7 @@ CXX="${CXX:-clang++}"
 # the GFX library's folder: a git checkout, or as arduino-cli installs it (CI)
 GFX="$LIBS/Arduino_GFX"; [ -d "$GFX" ] || GFX="$LIBS/GFX_Library_for_Arduino"
 FLAGS=(-std=gnu++17 -O1 -fPIC -w -DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0
-       -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -I"$HERE/shim" -I"$HERE" -I"$ROOT/firmware" -I"$GFX/src" -I"$LIBS/ArduinoJson/src" -I"$LIBS/JPEGDEC/src" -DEMU_JPEGDEC -DNO_SIMD)
+       -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -I"$HERE/shim" -I"$HERE" -I"$ROOT/firmware" -I"$GFX/src" -I"$LIBS/ArduinoJson/src" -I"$LIBS/JPEGDEC/src" -DEMU_JPEGDEC)
 # shellcheck disable=SC1091
 source "$HERE/emu_sources.sh"
 pids=()
@@ -23,7 +23,7 @@ for src in "$ROOT"/firmware/*.cpp; do
     "$CXX" "${FLAGS[@]}" -c "$src" -o "$B/fw_$f.o" & pids+=($!)
 done
 for f in "${EMU_GFX[@]}"; do "$CXX" "${FLAGS[@]}" -c "$GFX/src/$f.cpp" -o "$B/gfx_$(basename "$f").o" & pids+=($!); done
-"$CXX" "${FLAGS[@]}" -c "$LIBS/JPEGDEC/src/JPEGDEC.cpp" -o "$B/jpegdec.o" & pids+=($!)
+"$CXX" "${FLAGS[@]}" -c "$HERE/emu_jpegdec.cpp" -o "$B/jpegdec.o" & pids+=($!)
 for f in sim_stubs emu_main; do "$CXX" "${FLAGS[@]}" -c "$HERE/$f.cpp" -o "$B/$f.o" & pids+=($!); done
 for p in "${pids[@]}"; do wait "$p"; done
 "$CXX" -shared -Wl,--no-undefined "$B"/*.o -o "$B/libwatchemu.so"
