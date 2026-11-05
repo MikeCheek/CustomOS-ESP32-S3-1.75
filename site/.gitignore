@@ -1,0 +1,7 @@
+node_modules
+dist
+# made by scripts/media.mjs from ../docs/screenshots on every build
+public/shots
+public/media
+public/seq
+*.tsbuildinfo
