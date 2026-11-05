@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Loop, Shot, Watch } from './Devices'
 import { asset, reducedMotion, seg, useSectionProgress } from '../lib'
 
-const REPO = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75'
+const REPO = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled'
 
 export function Nav() {
   const links: [string, string][] = [['Watch', '#watch'], ['Health', '#health'], ['AI', '#ai'], ['Games', '#games'], ['Power', '#power'], ['App', '#app']]

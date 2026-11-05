@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Loop, Phone, Shot, Watch } from './Devices'
 import { seg, useCountUp, useInView, useSectionProgress } from '../lib'
 
-const REPO = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75'
+const REPO = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled'
 
 function Reveal({ children, delay = 0, className = '' }: { children: ReactNode; delay?: number; className?: string }) {
   const [ref, seen] = useInView<HTMLDivElement>(0.15)
@@ -328,7 +328,7 @@ export function Footer() {
   return (
     <footer className="border-t border-white/5 py-10 text-center text-xs text-ink">
       <p>AmoledWatch OS for the Waveshare ESP32-S3-Touch-AMOLED-1.75 · every watch screen here is rendered from the firmware's own code.</p>
-      <p className="mt-2"><a className="underline hover:text-white" href={REPO}>github.com/MikeCheek/CustomOS-ESP32-S3-1.75</a></p>
+      <p className="mt-2"><a className="underline hover:text-white" href={REPO}>github.com/MikeCheek/CustomOS-ESP32-S3-Amoled</a></p>
     </footer>
   )
 }
