@@ -2,7 +2,7 @@
 # Gets the watch emulator's sources ready for WatchEmu.podspec (the
 # Podfile runs this on every `pod install`): links to the firmware and
 # the PC simulator (CocoaPods only takes files under the pod's folder),
-# and fetches the two Arduino libraries the screen code uses, at the
+# and fetches the Arduino libraries the screen code uses (and JPEGDEC), at the
 # versions the firmware is built with - the same as the Android build
 # (android/app/src/main/cpp/CMakeLists.txt).
 set -e
@@ -19,3 +19,4 @@ get() {   # name url tag
 }
 get Arduino_GFX https://github.com/moononournation/Arduino_GFX.git v1.6.8
 get ArduinoJson https://github.com/bblanchon/ArduinoJson.git v7.4.3
+get JPEGDEC https://github.com/bitbank2/JPEGDEC.git 1.8.4

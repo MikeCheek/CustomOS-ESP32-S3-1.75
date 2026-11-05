@@ -143,9 +143,14 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   `tools/voice_cmd_phrases.py` (Settings > Sound > Voice > Commands)
 - **Morning briefing** - the first time you raise the watch in the morning: last night's sleep, the weather,
   the first events of the day, reminders and messages waiting, in one screen (Settings > Wake & quiet).
-- **Camera remote** - opens on the watch by itself when the phone's camera app opens (like navigation does),
-  or from the app menu: a live preview from the phone, shutter, photo or video, 3 s / 10 s timer, front/back, flash
-  and zoom. With the app in the background, the watch's Open shows a notification that opens the camera.
+- **Camera remote** - the app's Camera remote comes up on the watch by itself (like navigation does), or open
+  it from the watch's menu: a live preview from the phone, shutter, photo or video, 3 s / 10 s timer, front/back,
+  flash and zoom. With the app in the background, the watch's Open shows a notification that opens the camera.
+  **With the phone's own camera app** (Android): when a camera app opens, the phone asks whether to use the watch
+  as its remote. Say yes and the watch shows what the camera sees (the phone asks to share its screen for that)
+  and presses that app's shutter and flip buttons, pinches to zoom and runs a self-timer. Pressing the buttons
+  needs "AmoledWatch camera remote" turned on once in Accessibility; Camera remote > the settings button has both
+  switches.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for

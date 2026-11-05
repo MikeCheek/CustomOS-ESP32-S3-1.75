@@ -249,6 +249,13 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     _subs.add(_native.calendarChanges.listen((_) => refreshCalendar(), onError: (_) {}));
     _subs.add(_native.widgetActions.listen(_onWidgetAction, onError: (_) {}));
     if (Platform.isAndroid) _subs.add(_native.cameraInUse.listen(_onCameraInUse, onError: (_) {}));
+    if (Platform.isAndroid) _subs.add(_native.camNative.listen(CameraRemote.instance.onNative, onError: (_) {}));
+    CameraRemote.instance.send = (m) async {
+      if (_ble.hasPhoneLink) await _ble.sendLink({'t': 'cam', ...m});
+    };
+    CameraRemote.instance.sendView = (h, j) async {
+      if (_ble.hasPhoneLink) await _ble.sendImage('p', h, j);
+    };
     _subs.add(_native.dndChanges.listen(_onPhoneDnd, onError: (_) {}));
     _ref.listen(knowledgeProvider, (_, __) => _todosChanged());
     _ref.listen(doneActionsProvider, (_, __) => _todosChanged());
@@ -1217,17 +1224,16 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   /// Another app opened the phone's camera (or closed it): the watch offers
   /// its remote, the way it shows directions. The app's own camera screen
   /// tells the watch itself.
+  /// Waits a moment both ways: face unlock opens the camera for a second,
+  /// and a camera app flipping between lenses closes it for a moment.
   Future<void> _onCameraInUse(bool on) async {
-    final cr = CameraRemote.instance;
-    if (cr.screenOpen || !_ble.hasPhoneLink) return;
-    if (on && !cr.externalOpen) {
-      cr.externalOpen = true;
-      await _ble.sendLink({'t': 'cam', 'on': 1, 'ext': 1});
-    } else if (!on && cr.externalOpen) {
-      cr.externalOpen = false;
-      await _ble.sendLink({'t': 'cam', 'on': 0});
-    }
+    _cameraInUse = on;
+    await Future.delayed(Duration(milliseconds: on ? 1500 : 2500));
+    if (_cameraInUse != on || !_ble.hasPhoneLink) return;
+    await CameraRemote.instance.onCameraInUse(on);
   }
+
+  bool _cameraInUse = false;
 
   /// The watch asked for an app icon ('i') or the album cover ('a') it
   /// saw in a notification / now-playing message.

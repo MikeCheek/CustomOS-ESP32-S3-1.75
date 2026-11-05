@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -9,6 +10,7 @@ import 'package:image/image.dart' as img;
 
 import '../providers/ble_provider.dart';
 import '../services/camera_remote.dart';
+import '../services/native_service.dart';
 import '../theme/app_theme.dart';
 
 /// The phone's camera, run from the watch: open this, prop the phone up,
@@ -35,6 +37,9 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
   bool _sending = false;
   int _frame = 1;
   DateTime _lastFrame = DateTime(2000);
+  int _sent = 0, _got = 0; // frames sent to the watch, frames the camera gave
+  String? _viewNote; // why the watch has no live view, when it hasn't
+  ResolutionPreset _preset = ResolutionPreset.high;
 
   @override
   void initState() {
@@ -101,9 +106,10 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
       }
       final c = CameraController(
         cam,
-        ResolutionPreset.high,
+        _preset,
         enableAudio: true,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        // what _toJpeg reads: three YUV planes on Android, BGRA on iOS
+        imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
       );
       await c.initialize();
       _minZoom = await c.getMinZoomLevel();
@@ -126,9 +132,39 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
     if (c == null || c.value.isStreamingImages || _rec) return;
     try {
       await c.startImageStream(_onFrame);
-    } catch (_) {
-      // some devices can't stream and record/shoot at once: the watch just has no live view
+      _viewNote = null;
+    } catch (e) {
+      // Some phones can't stream frames next to the preview at a high
+      // resolution: once, try again at a lower one.
+      if (_preset == ResolutionPreset.high) {
+        _preset = ResolutionPreset.medium;
+        await c.dispose();
+        _c = null;
+        await _start();
+        return;
+      }
+      _viewNote = 'No live view on the watch: this phone didn\'t give the frames ($e)';
     }
+    if (mounted) setState(() {});
+    // nothing came through: say so, rather than an empty circle on the watch
+    final started = _c;
+    Future.delayed(const Duration(seconds: 4), () async {
+      if (!mounted || _sent > 0 || _c == null || _c != started || _rec) return;
+      if (_got == 0 && _preset == ResolutionPreset.high) {
+        // streaming "worked" but nothing came: some phones only stream at a lower resolution
+        _preset = ResolutionPreset.medium;
+        await _stopPreview();
+        await _c?.dispose();
+        _c = null;
+        await _start();
+        return;
+      }
+      setState(
+        () => _viewNote ??= ref.read(bleServiceProvider).hasPhoneLink
+            ? 'No live view yet: the camera gives no frames'
+            : 'No live view: the watch isn\'t connected',
+      );
+    });
   }
 
   Future<void> _stopPreview() async {
@@ -141,6 +177,7 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
   }
 
   void _onFrame(CameraImage f) {
+    _got++;
     if (_sending || DateTime.now().difference(_lastFrame) < const Duration(milliseconds: 450)) return;
     final ble = ref.read(bleServiceProvider);
     if (!ble.hasPhoneLink) return;
@@ -149,10 +186,15 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
     final jpeg = _toJpeg(f, _c?.description.sensorOrientation ?? 90, _front);
     if (jpeg == null) {
       _sending = false;
+      if (_viewNote == null && mounted)
+        setState(() => _viewNote = 'No live view: frames in a format the app can\'t read');
       return;
     }
     _frame = (_frame % 0x7FFFFFF0) + 1;
-    ble.sendImage('p', _frame, jpeg).whenComplete(() => _sending = false);
+    ble.sendImage('p', _frame, jpeg).whenComplete(() {
+      _sending = false;
+      if (_sent++ == 0 && mounted) setState(() => _viewNote = null);
+    });
   }
 
   /// A small square JPEG of the frame, turned upright (the watch draws it in a circle).
@@ -332,9 +374,11 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
         backgroundColor: Colors.black,
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.only(right: 4),
             child: Icon(Icons.watch_rounded, color: connected ? AppColors.success : AppColors.textFaint),
           ),
+          if (Platform.isAndroid)
+            IconButton(tooltip: 'With other camera apps', icon: const Icon(Icons.tune_rounded), onPressed: _otherApps),
         ],
       ),
       body: Column(
@@ -358,6 +402,27 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
                             style: const TextStyle(fontSize: 120, fontWeight: FontWeight.w700, color: Colors.white),
                           ),
                         if (_rec) const Positioned(top: 12, child: Icon(Icons.fiber_manual_record, color: Colors.red)),
+                        Positioned(
+                          bottom: 10,
+                          left: 16,
+                          right: 16,
+                          child: _viewNote != null
+                              ? Text(
+                                  _viewNote!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                )
+                              : _sent > 0
+                              ? const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.watch_rounded, size: 14, color: AppColors.success),
+                                    SizedBox(width: 4),
+                                    Text('Live on the watch', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
                       ],
                     ),
             ),
@@ -412,6 +477,73 @@ class _CameraRemoteScreenState extends ConsumerState<CameraRemoteScreen> with Wi
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Android: the watch as a remote for the phone's own camera app (NativeCamera.kt).
+  Future<void> _otherApps() async {
+    final n = NativeService();
+    var ask = await n.camPromptEnabled();
+    final acc = await n.camAccessOn();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'With the phone\'s camera app',
+                  style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'When another app opens the camera, the phone asks whether the watch should be its remote. '
+                  'Say yes and the watch shows what the camera sees (the phone asks to share the screen for it) '
+                  'and presses the app\'s shutter and flip buttons, zooms with a pinch and runs a self-timer.',
+                  style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.35),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Ask when the camera opens', style: TextStyle(color: AppColors.text)),
+                  subtitle: const Text(
+                    'Only for camera apps once the next setting is on (not video calls)',
+                    style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                  ),
+                  value: ask,
+                  onChanged: (v) async {
+                    await n.camSetPromptEnabled(v);
+                    set(() => ask = v);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Let the watch press the buttons', style: TextStyle(color: AppColors.text)),
+                  subtitle: Text(
+                    acc
+                        ? 'On (Accessibility > AmoledWatch camera remote)'
+                        : 'Off - turn on "AmoledWatch camera remote" in Accessibility',
+                    style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                  ),
+                  trailing: Icon(
+                    acc ? Icons.check_circle_rounded : Icons.open_in_new_rounded,
+                    color: acc ? AppColors.success : AppColors.textDim,
+                  ),
+                  onTap: () async {
+                    await n.camAccessOpen();
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

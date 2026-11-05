@@ -14,6 +14,8 @@ class NativeService {
   static const _dndStream = EventChannel('com.amoledwatch.native/dnd');
   static const _cameraStream = EventChannel('com.amoledwatch.native/camera');
   Stream<bool>? _camera;
+  static const _camNativeStream = EventChannel('com.amoledwatch.native/camnative');
+  Stream<Map<String, dynamic>>? _camNative;
   Stream<bool>? _dnd;
 
   Stream<Map<String, dynamic>>? _notifs;
@@ -51,6 +53,25 @@ class NativeService {
 
   /// Android: a notification to open the camera remote (the app is in the background).
   Future<void> cameraNotify() => _call('cameraNotify');
+
+  // ---- the watch as a remote for another camera app (Android, NativeCamera.kt) ----
+  /// {"k":"state","on","view","acc"} and {"k":"frame","jpeg"}.
+  Stream<Map<String, dynamic>> get camNative => _camNative ??= _camNativeStream
+      .receiveBroadcastStream()
+      .where((e) => e is Map)
+      .map((e) => Map<String, dynamic>.from(e as Map))
+      .asBroadcastStream();
+
+  /// "Camera open - use the watch?" ([force]: even if turned off, for the watch's own ask).
+  Future<void> camPrompt({bool force = false}) => _call('camPrompt', {'force': force});
+  Future<void> camPromptCancel() => _call('camPromptCancel');
+  Future<bool> camPromptEnabled() async => (await _call<bool>('camPromptEnabled')) ?? true;
+  Future<void> camSetPromptEnabled(bool on) => _call('camSetPromptEnabled', {'on': on});
+  Future<void> camNativeStart() => _call('camNativeStart');
+  Future<void> camNativeStop() => _call('camNativeStop');
+  Future<bool> camNativeAction(String a) async => (await _call<bool>('camNativeAction', {'a': a})) ?? false;
+  Future<bool> camAccessOn() async => (await _call<bool>('camAccessOn')) ?? false;
+  Future<void> camAccessOpen() => _call('camAccessOpen');
 
   Future<bool> overlayCan() async => (await _call<bool>('overlayCan')) ?? false;
   Future<void> overlayAsk() => _call('overlayAsk');

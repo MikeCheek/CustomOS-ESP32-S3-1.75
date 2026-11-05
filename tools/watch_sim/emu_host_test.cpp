@@ -22,6 +22,8 @@ void emu_touch(int, int, int);
 void emu_button(int, int);
 void emu_set_connected(int);
 int emu_selftest();
+void emu_image(int kind, unsigned hash, const unsigned char *jpeg, int len);
+int emu_preview_width();
 void emu_link_push(const char *);
 int emu_link_pop(char *, int);
 void emu_set_data(int, const char *);
@@ -90,6 +92,18 @@ int main(int argc, char **argv) {
         int fails = emu_selftest();
         printf("self-tests: %d failed\n", fails);
         if (fails) { printf("FAIL: self-tests\n"); return 1; }
+    }
+    // the camera remote's live view: a JPEG as the app sends it, decoded for the screen
+    if (const char *pj = getenv("EMU_TEST_JPEG")) {
+        FILE *f = fopen(pj, "rb");
+        static unsigned char jb[65536];
+        int n = f ? (int)fread(jb, 1, sizeof(jb), f) : 0;
+        if (f) fclose(f);
+        emu_image('p', 77, jb, n);
+        for (int i = 0; i < 3; i++) emu_step();
+        int w = emu_preview_width();
+        printf("live view: %d px wide\n", w);
+        if (w != 144) { printf("FAIL: live view\n"); return 1; }
     }
 
     // phase 3: a fall on the phone's accelerometer (62.5 Hz), then the alert's beeps

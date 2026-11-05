@@ -462,6 +462,10 @@ class BleService {
   /// messages so they never interleave.
   /// 0x03 kind hash(4 LE) total(4 LE) offset(4 LE) data...
   Future<void> sendImage(String kind, int hash, Uint8List jpeg) {
+    if (isVirtual) {
+      _virtual!.deliverImage(kind, hash, jpeg);
+      return Future.value();
+    }
     final next = _linkQueue.then((_) async {
       final c = _linkChar;
       if (c == null || !isConnected) return;
@@ -995,6 +999,7 @@ class BleService {
 abstract class VirtualWatch {
   void deliver(String json); // a phone-link message
   void deliverData(int kind, String json); // 2 weather, 3 fitness
+  void deliverImage(String kind, int hash, Uint8List jpeg); // phone_images.h: 'i', 'a', 'p'
 
   /// A file the app sends ("rec:<name>", "pt:<name>", "say:<x>.wav", or a
   /// plain name for the card's root), saved on its SD card.

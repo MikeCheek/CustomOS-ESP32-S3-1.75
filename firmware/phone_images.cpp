@@ -113,6 +113,8 @@ const uint16_t *phone_preview(int *w, int *h, uint32_t *seq) {
     return s_preview.px;
 }
 
+void phone_preview_clear() { img_free(&s_preview); }
+
 void phone_images_update() {
     if (!s_ready_full) return;
     if (s_ready_kind == 'p') {

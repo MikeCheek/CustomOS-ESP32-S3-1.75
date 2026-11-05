@@ -204,6 +204,19 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     }
                     // ---- the watch asked for the camera remote while the app was in the background ----
                     "cameraNotify" -> { cameraNotification(); result.success(true) }
+                    // ---- the watch as a remote for another camera app (NativeCamera) ----
+                    "camPrompt" -> { NativeCamera.prompt(app, call.argument<Boolean>("force") ?: false); result.success(true) }
+                    "camPromptCancel" -> { NativeCamera.cancelPrompt(app); result.success(true) }
+                    "camPromptEnabled" -> result.success(NativeCamera.promptEnabled(app))
+                    "camSetPromptEnabled" -> {
+                        NativeCamera.setPromptEnabled(app, call.argument<Boolean>("on") ?: true)
+                        result.success(true)
+                    }
+                    "camNativeStart" -> { NativeCamera.start(app, false); result.success(true) }
+                    "camNativeStop" -> { NativeCamera.stop(app); result.success(true) }
+                    "camNativeAction" -> result.success(NativeCamera.action(call.argument<String>("a") ?: ""))
+                    "camAccessOn" -> result.success(NativeCamera.accessOn(app))
+                    "camAccessOpen" -> { NativeCamera.openAccessSettings(app); result.success(true) }
                     // ---- the emulated watch floating over other apps (EmuOverlay) ----
                     "overlayCan" -> result.success(EmuOverlay.canDraw(app))
                     "overlayAsk" -> { EmuOverlay.askPermission(app); result.success(null) }
@@ -358,6 +371,16 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                     }
                     cameraCallback = null
                 }
+            })
+
+        // The watch running another camera app: its state and the live view (NativeCamera)
+        EventChannel(messenger, "com.amoledwatch.native/camnative").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    NativeCamera.sink = events
+                    NativeCamera.emit(app)
+                }
+                override fun onCancel(arguments: Any?) { NativeCamera.sink = null }
             })
 
         EventChannel(messenger, "com.amoledwatch.native/battery").setStreamHandler(

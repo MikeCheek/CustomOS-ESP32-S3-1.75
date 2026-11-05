@@ -386,8 +386,65 @@ bool usb_remote_tap(uint16_t) { return false; }
 bool media_is_image(const char *) { return false; }
 bool media_is_video(const char *) { return false; }
 bool img_decode_file(const char *, int, int, bool, DecodedImage *, char *, size_t) { return false; }
-void img_free(DecodedImage *) {}
+void img_free(DecodedImage *img) {
+    if (img && img->px) { free(img->px); img->px = nullptr; }
+    if (img) img->w = img->h = 0;
+}
+#ifdef EMU_JPEGDEC
+// The emulator builds JPEGDEC too (EMU_JPEGDEC): app icons, album covers and
+// the camera remote's live view decode as on the watch - decoded whole,
+// then sampled down into the box (cover: cropped to its shape, centred).
+#include <JPEGDEC.h>
+struct SimJpg { uint16_t *buf; int w, h; };
+static int sim_jpg_draw(JPEGDRAW *d) {
+    SimJpg *c = (SimJpg *)d->pUser;
+    for (int r = 0; r < d->iHeight; r++) {
+        int y = d->y + r, n = d->iWidth;
+        if (y >= c->h) break;
+        if (d->x + n > c->w) n = c->w - d->x;
+        if (n > 0) memcpy(c->buf + (size_t)y * c->w + d->x, d->pPixels + (size_t)r * d->iWidth, (size_t)n * 2);
+    }
+    return 1;
+}
+bool img_decode_jpeg_mem(const uint8_t *data, size_t len, int max_w, int max_h, bool cover, DecodedImage *out) {
+    if (!data || !out || max_w <= 0 || max_h <= 0) return false;
+    out->px = nullptr; out->w = out->h = 0;
+    static JPEGDEC j;
+    if (!j.openRAM((uint8_t *)data, (int)len, sim_jpg_draw)) return false;
+    SimJpg c = { nullptr, j.getWidth(), j.getHeight() };
+    if (c.w <= 0 || c.h <= 0 || (size_t)c.w * c.h > 4096u * 4096u) { j.close(); return false; }
+    c.buf = (uint16_t *)calloc((size_t)c.w * c.h, 2);
+    if (!c.buf) { j.close(); return false; }
+    j.setUserPointer(&c);
+    j.setPixelType(RGB565_LITTLE_ENDIAN);
+    int rc = j.decode(0, 0, 0);
+    j.close();
+    if (!rc) { free(c.buf); return false; }
+    int cx = 0, cy = 0, cw = c.w, ch = c.h, dw, dh;
+    if (cover) {
+        if ((int64_t)c.w * max_h > (int64_t)c.h * max_w) cw = (int)((int64_t)c.h * max_w / max_h);
+        else ch = (int)((int64_t)c.w * max_h / max_w);
+        if (cw < 1) cw = 1;
+        if (ch < 1) ch = 1;
+        cx = (c.w - cw) / 2; cy = (c.h - ch) / 2;
+        dw = max_w < cw ? max_w : cw; dh = max_h < ch ? max_h : ch;
+    } else if (c.w <= max_w && c.h <= max_h) { dw = c.w; dh = c.h; }
+    else if ((int64_t)c.w * max_h > (int64_t)c.h * max_w) { dw = max_w; dh = (int)((int64_t)c.h * max_w / c.w); }
+    else { dh = max_h; dw = (int)((int64_t)c.w * max_h / c.h); }
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    uint16_t *px = (uint16_t *)malloc((size_t)dw * dh * 2);
+    if (!px) { free(c.buf); return false; }
+    for (int y = 0; y < dh; y++)
+        for (int x = 0; x < dw; x++)
+            px[(size_t)y * dw + x] = c.buf[(size_t)(cy + y * ch / dh) * c.w + cx + x * cw / dw];
+    free(c.buf);
+    out->px = px; out->w = dw; out->h = dh; out->src_w = c.w; out->src_h = c.h;
+    return true;
+}
+#else
 bool img_decode_jpeg_mem(const uint8_t *, size_t, int, int, bool, DecodedImage *) { return false; }
+#endif
 void video_open(const char *) {}
 bool video_poster(const char *, int, int, bool, DecodedImage *) { return false; }
 uint32_t recordings_revision() { return 1; }

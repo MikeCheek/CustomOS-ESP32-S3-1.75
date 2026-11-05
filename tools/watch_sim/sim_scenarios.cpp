@@ -168,6 +168,13 @@ void sim_scenarios() {
         deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"tm\":3,\"fl\":\"auto\",\"z\":15}");
         camera_on_link(d);
         shot(&camera_screen, "camera_remote");
+        // another camera app open, then run from the watch (no view shared yet)
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"ext\":1}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_other_app");
+        deserializeJson(d, "{\"t\":\"cam\",\"on\":1,\"nat\":1,\"tm\":3,\"pv\":0}");
+        camera_on_link(d);
+        shot(&camera_screen, "camera_native");
         deserializeJson(d, "{\"t\":\"cam\",\"on\":0}");
         camera_on_link(d);
     }

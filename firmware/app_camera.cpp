@@ -18,6 +18,10 @@ static const int PV_Y = 200, PV_R = 140;   // the preview disc
 // what the phone says
 static bool s_on = false;        // the app's camera is open
 static bool s_ext = false;       // another app's camera is open
+static bool s_nat = false;       // ...and the watch runs it (NativeCamera on the phone)
+static bool s_pv = false;        // ...with its view on the watch
+static char s_msg[48] = "";      // a word from the phone ("Couldn't press the shutter")
+static uint32_t s_msg_ms = 0;
 static int  s_timer = 0;         // 0, 3, 10 s
 static char s_flash[8] = "off";  // off / auto / on
 static bool s_front = false, s_video = false, s_rec = false;
@@ -37,14 +41,20 @@ void camera_on_link(JsonDocument &doc) {
     if (doc["on"].is<int>()) {
         bool on = (doc["on"] | 0) != 0;
         bool ext = (doc["ext"] | 0) != 0;
-        bool was = s_on || s_ext;
+        bool nat = (doc["nat"] | 0) != 0;
+        bool was = s_on;
+        // another app's camera alone doesn't bring the remote up (the phone asks first);
+        // the app's camera, or saying yes on the phone, does
         s_on = on && !ext;
-        s_ext = on && ext;
-        if ((s_on || s_ext) && !was) {
+        s_ext = on && (ext || nat);
+        s_nat = on && nat;
+        s_pv = s_nat && (doc["pv"] | 0) != 0;
+        if (!s_on || (s_nat && !s_pv)) phone_preview_clear();
+        if (s_on && !was) {
             // like directions: the remote comes up by itself
             sleep_register_activity();
             if (!ui_screen_on_top(&camera_screen)) ui_push(&camera_screen);
-        } else if (!s_on && !s_ext && ui_screen_on_top(&camera_screen)) {
+        } else if (!on && ui_screen_on_top(&camera_screen)) {
             ui_pop_screen();
         }
     }
@@ -60,6 +70,11 @@ void camera_on_link(JsonDocument &doc) {
         s_rec = r;
     }
     if (doc["cd"].is<int>()) { s_count = doc["cd"] | 0; s_count_ms = millis(); }
+    if (doc["msg"].is<const char *>()) {
+        strlcpy(s_msg, doc["msg"] | "", sizeof(s_msg));
+        s_msg_ms = millis();
+        haptic(HAP_FAILURE);
+    }
     if ((doc["ok"] | 0) != 0) {   // a photo was taken
         s_flash_ms = millis();
         s_count = 0;
@@ -77,8 +92,9 @@ static const Btn BTN[8] = {
 
 static int hit(int x, int y) {
     for (int i = 0; i < 8; i++) {
-        if (i == 7 && !s_ext) continue;
+        if (i == 7 && (!s_ext || s_on)) continue;
         if (i < 7 && !s_on) continue;
+        if (s_nat && (i == 2 || (i == 4 && s_pv))) continue;   // the camera app's own: mode, flash
         int dx = x - BTN[i].x, dy = y - BTN[i].y, r = BTN[i].r + 8;
         if (dx * dx + dy * dy <= r * r) return i;
     }
@@ -110,14 +126,15 @@ static void cam_draw() {
             ui_text_center(CX, 200, COLOR_TEXT_DIM, "Connect the phone", 2);
         } else if (s_ext) {
             ui_text_center(CX, 170, COLOR_TEXT_DIM, "The phone's camera is open", 1);
-            ui_text_center(CX, 192, COLOR_TEXT_DIM, "The remote works with the app's camera", 1);
+            ui_text_center(CX, 192, COLOR_TEXT_DIM, "Run it from the watch?", 1);
             g->fillCircle(BTN[7].x, BTN[7].y, BTN[7].r, s_press == 7 ? COLOR_ACCENT : 0x31A6);
-            ui_text_center(BTN[7].x, BTN[7].y - 8, COLOR_TEXT, "Open it", 2);
-            ui_text_center(BTN[7].x, BTN[7].y + 16, COLOR_TEXT_DIM, "on the phone", 1);
+            ui_text_center(BTN[7].x, BTN[7].y - 8, COLOR_TEXT, "Use it", 2);
+            ui_text_center(BTN[7].x, BTN[7].y + 16, COLOR_TEXT_DIM, "from here", 1);
         } else {
             ui_text_center(CX, 200, COLOR_TEXT_DIM,
                            now - s_open_asked < 15000 ? "Opening on the phone..." : "Open Camera remote in the app", 1);
         }
+        if (s_msg[0] && now - s_msg_ms < 4000) ui_text_center(CX, 395, COLOR_TEXT, s_msg, 1);
         return;
     }
 
@@ -127,7 +144,12 @@ static void cam_draw() {
     if (pv) phone_image_draw_round(g, pv, w, h, CX, PV_Y, PV_R, 255);
     else {
         g->fillCircle(CX, PV_Y, PV_R, 0x18E3);
-        ui_text_center(CX, PV_Y, COLOR_TEXT_DIM, "Live view...", 1);
+        if (s_nat && !s_pv) {
+            ui_text_center(CX, PV_Y - 12, COLOR_TEXT_DIM, "No view: tap View,", 1);
+            ui_text_center(CX, PV_Y + 10, COLOR_TEXT_DIM, "then allow it on the phone", 1);
+        } else {
+            ui_text_center(CX, PV_Y, COLOR_TEXT_DIM, "Live view...", 1);
+        }
     }
     g->drawCircle(CX, PV_Y, PV_R, 0x4208);
     // a photo was just taken: a white flash over the view
@@ -152,15 +174,18 @@ static void cam_draw() {
     char t[8];
     snprintf(t, sizeof(t), s_timer ? "%ds" : "Timer", s_timer);
     chip(3, t, s_timer > 0);
-    chip(4, strcmp(s_flash, "off") ? (strcmp(s_flash, "auto") ? "Flash" : "Auto") : "No fl.", strcmp(s_flash, "off") != 0);
+    if (!s_nat) chip(4, strcmp(s_flash, "off") ? (strcmp(s_flash, "auto") ? "Flash" : "Auto") : "No fl.", strcmp(s_flash, "off") != 0);
+    else if (!s_pv) chip(4, "View", false);   // ask the phone again to share its screen
     // zoom, at the sides of the view
     chip(5, "-", false);
     chip(6, "+", false);
-    snprintf(t, sizeof(t), "%d.%dx", s_zoom10 / 10, s_zoom10 % 10);
-    ui_text_center(CX, PV_Y - PV_R + 22, COLOR_TEXT, t, 1);
-    // the bottom: flip, the shutter, photo/video
-    chip(1, s_front ? "Front" : "Back", false);
-    chip(2, s_video ? "Video" : "Photo", false);
+    if (!s_nat) {
+        snprintf(t, sizeof(t), "%d.%dx", s_zoom10 / 10, s_zoom10 % 10);
+        ui_text_center(CX, PV_Y - PV_R + 22, COLOR_TEXT, t, 1);
+    }
+    // the bottom: flip, the shutter, photo/video (the camera app's own mode when it's that)
+    chip(1, s_nat ? "Flip" : s_front ? "Front" : "Back", false);
+    if (!s_nat) chip(2, s_video ? "Video" : "Photo", false);
     const Btn &sh = BTN[0];
     g->fillCircle(sh.x, sh.y, sh.r, COLOR_TEXT);
     g->fillCircle(sh.x, sh.y, sh.r - 6, COLOR_BG);
@@ -168,6 +193,10 @@ static void cam_draw() {
     if (s_press == 0) inner = ui_dim(inner, 0.6f);
     if (s_video && s_rec) g->fillRoundRect(sh.x - 15, sh.y - 15, 30, 30, 6, inner);   // stop
     else g->fillCircle(sh.x, sh.y, sh.r - 11, inner);
+    if (s_msg[0] && now - s_msg_ms < 2500) {
+        g->fillRoundRect(40, PV_Y - 18, LCD_WIDTH - 80, 36, 18, 0x0000);
+        ui_text_center(CX, PV_Y, COLOR_TEXT, s_msg, 1);
+    }
 }
 
 static void cam_touch(int x, int y, bool pressed) {
@@ -182,8 +211,8 @@ static void cam_touch(int x, int y, bool pressed) {
     armed = -1;
     sleep_register_activity();
     touch_cancel_swipes();
-    static const char *const A[8] = {"shot", "flip", "mode", "timer", "flash", "zoom-", "zoom+", "open"};
-    send(A[h]);
+    static const char *const A[8] = {"shot", "flip", "mode", "timer", "flash", "zoom-", "zoom+", "native"};
+    send(h == 4 && s_nat ? "view" : A[h]);
     if (h == 7) s_open_asked = millis();
 }
 

@@ -137,6 +137,29 @@ class WatchEmulator implements VirtualWatch {
     malloc.free(p);
   }
 
+  /// An app icon ('i'), album cover ('a') or the camera remote's live view
+  /// ('p'): the JPEG the Bluetooth frames would carry.
+  late final void Function(int, int, Pointer<Uint8>, int)? _image = () {
+    try {
+      return _lib.lookupFunction<
+        Void Function(Int32, Uint32, Pointer<Uint8>, Int32),
+        void Function(int, int, Pointer<Uint8>, int)
+      >('emu_image');
+    } catch (_) {
+      return null;
+    }
+  }();
+
+  @override
+  void deliverImage(String kind, int hash, Uint8List jpeg) {
+    final f = _image;
+    if (f == null || jpeg.isEmpty || kind.isEmpty) return;
+    final p = malloc<Uint8>(jpeg.length);
+    p.asTypedList(jpeg.length).setAll(0, jpeg);
+    f(kind.codeUnitAt(0), hash & 0xFFFFFFFF, p, jpeg.length);
+    malloc.free(p);
+  }
+
   @override
   void deliverData(int kind, String json) {
     final p = json.toNativeUtf8();

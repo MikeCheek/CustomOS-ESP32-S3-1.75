@@ -14,6 +14,7 @@
 // Not here (yet): the phone link (phase 2), sensors and sound (phase 3),
 // ESP-SR (chip-only libraries).
 #include "store.h"
+#include "phone_images.h"
 #include <ArduinoJson.h>
 #include "home_gestures.h"
 #include "app_weather.h"
@@ -55,6 +56,7 @@
 #include "dnd.h"
 #include "complications.h"
 #include <string>
+#include <vector>
 #include <sys/stat.h>
 #include <time.h>
 #include <string.h>
@@ -182,6 +184,7 @@ __attribute__((visibility("default"))) void emu_step() {
     if (!s_t0) return;
     overlay_drain();
     phone_link_update();
+    phone_images_update();       // icons, covers, the camera view the app sent
     notifications_update();
     assistant_timer_update();
     clock_update();
@@ -264,6 +267,28 @@ __attribute__((visibility("default"))) void emu_button(int which, int event) {
 __attribute__((visibility("default"))) void emu_set_connected(int on) { g_sim.phone = on != 0; }
 
 __attribute__((visibility("default"))) void emu_link_push(const char *json) { if (json) sim_link(json); }
+
+// An image for the watch (phone_images.h): 'i' app icon, 'a' album cover,
+// 'p' the camera remote's live view - one JPEG, as the Bluetooth frames
+// would carry it.
+__attribute__((visibility("default"))) void emu_image(int kind, uint32_t hash, const uint8_t *jpeg, int len) {
+    if (!jpeg || len <= 0) return;
+    std::vector<uint8_t> f(14 + (size_t)len);
+    f[0] = 0x03; f[1] = (uint8_t)kind;
+    for (int i = 0; i < 4; i++) {
+        f[2 + i] = (uint8_t)(hash >> (8 * i));
+        f[6 + i] = (uint8_t)((uint32_t)len >> (8 * i));
+        f[10 + i] = 0;
+    }
+    memcpy(f.data() + 14, jpeg, (size_t)len);
+    phone_images_on_frame(f.data(), (int)f.size());
+}
+
+// The live view's size once decoded (0 when there's none) - for emu_host_test.
+__attribute__((visibility("default"))) int emu_preview_width() {
+    int w = 0, h = 0;
+    return phone_preview(&w, &h, nullptr) ? w : 0;
+}
 
 // The next message from the watch into buf (NUL-terminated); its length,
 // 0 when there's none, or -needed when buf is too small (it stays queued).
