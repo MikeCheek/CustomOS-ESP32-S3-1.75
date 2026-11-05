@@ -14,6 +14,8 @@
 // Not here (yet): the phone link (phase 2), sensors and sound (phase 3),
 // ESP-SR (chip-only libraries).
 #include "store.h"
+#include <SD.h>
+#include "game_audio.h"
 #include "phone_images.h"
 #include <ArduinoJson.h>
 #include "home_gestures.h"
@@ -44,6 +46,7 @@
 #include "app_face_nav.h"
 #include "app_clock.h"
 #include "haptics.h"
+#include "hal_audio.h"
 #include "face_look.h"
 #include "low_power.h"
 #include "app_reminders.h"
@@ -387,6 +390,8 @@ __attribute__((visibility("default"))) int emu_ask_recorded(int ms) {
 // store, Wallet's link protocol, the home gestures' styles and link.
 // Returns the number of failures; each is printed.
 static int s_fail = 0;
+extern "C" int emu_take_sounds(int32_t *out, int max);
+extern "C" int emu_take_event(char *buf, int cap);
 static void check(bool ok, const char *what) {
     if (!ok) { printf("SELFTEST FAIL: %s\n", what); s_fail++; }
 }
@@ -459,6 +464,54 @@ __attribute__((visibility("default"))) int emu_selftest() {
         memcpy(g_app_settings.home_act, keep, sizeof(keep));
         tiles_defaults(g_app_settings.tiles);
         pop_all(m, sizeof(m), "\"e\":\"home\"");
+    }
+    // ---- the sound switches: All sounds, Notification sounds, Game music
+    {
+        AppSettings keep = g_app_settings;
+        int32_t t[192];
+        auto tones = [&]() {   // what the speaker played since the last call
+            for (int i = 0; i < 20; i++) { haptics_update(); delay(40); }
+            return emu_take_sounds(t, 64);
+        };
+        auto played = [&]() {  // a file started (music, game WAVs) since the last call
+            int n = 0;
+            while (emu_take_event(m, sizeof(m)) > 0) if (strstr(m, "\"ev\":\"play\"")) n++;
+            return n;
+        };
+        tones(); played();
+        g_app_settings.sfx_enabled = true; g_app_settings.sound_cues = true;
+        haptic(HAP_NOTIFY);
+        check(tones() > 0, "sound: a message plays its tune");
+        g_app_settings.sound_cues = false;
+        haptic(HAP_NOTIFY);
+        check(tones() == 0, "sound: Notification sounds off - no tune");
+        g_app_settings.sound_cues = true; g_app_settings.sfx_enabled = false;
+        haptic(HAP_NOTIFY);
+        check(tones() == 0, "sound: All sounds off - no message tune");
+        game_sfx_score();
+        check(tones() == 0, "sound: All sounds off - no game effects");
+        g_app_settings.sfx_enabled = true;
+        game_sfx_score();
+        check(tones() > 0, "sound: game effects with All sounds on");
+        // Game music: nothing while it's off, it starts when turned on, stops when off again
+        SD.mkdir("/music");
+        { File f = SD.open("/music/test.mp3", FILE_WRITE); if (f) { f.write((const uint8_t *)"ID3", 3); f.close(); } }
+        g_app_settings.music_enabled = false;
+        game_music_start("/music/test.mp3");
+        game_music_poll();
+        check(played() == 0, "sound: Game music off - no music");
+        g_app_settings.music_enabled = true;
+        delay(600);
+        game_music_poll();
+        check(played() == 1, "sound: Game music on - the music starts");
+        g_app_settings.music_enabled = false;
+        game_music_poll();
+        check(!audio_is_playing(), "sound: Game music off mid-game - it stops");
+        game_music_stop();
+        SD.remove("/music/test.mp3");
+        SD.rmdir("/music");
+        g_app_settings = keep;
+        tones(); played();
     }
     return s_fail;
 }

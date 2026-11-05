@@ -19,6 +19,7 @@
 #include <Preferences.h>
 #include <math.h>
 #include <string.h>
+#include "app_settings_state.h"
 
 static const int CX = LCD_WIDTH / 2, CY = LCD_HEIGHT / 2;
 
@@ -367,7 +368,7 @@ static void list_touch(int, int y, bool pressed) {
     if (i < 0 || i >= TYPE_N) return;
     s_countdown_type = i;
     s_countdown_ms = millis();
-    audio_play_sfx(988, 60);
+    if (g_app_settings.sfx_enabled) audio_play_sfx(988, 60);
 }
 
 static void list_gesture(Gesture g) {

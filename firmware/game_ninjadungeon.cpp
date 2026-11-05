@@ -54,6 +54,7 @@
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 #include <string.h>
+#include "app_settings_state.h"
 
 #define VIEW_X 0
 #define VIEW_Y 0
@@ -545,7 +546,7 @@ static void do_attack() {
     s_attacking = true;
     s_attack_until_ms = now + 220;
     actor_anim_start(&s_player_anim, &sh_ninja_attack[s_char_idx], s_facing * 4, 4, 55, false);
-    audio_play_wav("/game/audio/attack.wav");
+    if (g_app_settings.sfx_enabled) audio_play_wav("/game/audio/attack.wav");
 
     float fdx = 0, fdy = 0;
     switch (s_facing) {
@@ -567,7 +568,7 @@ static void do_attack() {
         if (dx * dx + dy * dy > ATTACK_RANGE_PX * ATTACK_RANGE_PX) continue;
         s_enemies[i].hp -= (s_damage * w.dmg_pct) / 100;
         bool elite_or_boss = (s_enemies[i].type == ENEMY_ELITE || s_enemies[i].type == ENEMY_BOSS);
-        audio_play_wav(elite_or_boss ? "/game/audio/boss_hit.wav" : "/game/audio/hit.wav");
+        if (g_app_settings.sfx_enabled) audio_play_wav(elite_or_boss ? "/game/audio/boss_hit.wav" : "/game/audio/hit.wav");
         if (s_enemies[i].hp <= 0) kill_enemy(i, elite_or_boss);
     }
 }
@@ -646,7 +647,7 @@ static void physics_step() {
             if (dx * dx + dy * dy > 18 * 18) continue;
             s_enemies[e].hp -= pr.damage;
             bool elite_or_boss = (s_enemies[e].type == ENEMY_ELITE || s_enemies[e].type == ENEMY_BOSS);
-            audio_play_wav(elite_or_boss ? "/game/audio/boss_hit.wav" : "/game/audio/hit.wav");
+            if (g_app_settings.sfx_enabled) audio_play_wav(elite_or_boss ? "/game/audio/boss_hit.wav" : "/game/audio/hit.wav");
             if (s_enemies[e].hp <= 0) kill_enemy(e, elite_or_boss);
             if (!pr.piercing) { pr.active = false; break; }
         }

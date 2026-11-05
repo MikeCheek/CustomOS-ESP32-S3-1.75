@@ -51,7 +51,7 @@ void motion_update() {
             fitness_feed(s_act.current(), s_act.cadence());   // the rings
             workout_feed(s_act.current(), s_act.cadence());   // detection, "still working out?"
         }
-        if (s_counting && s_reps.feed(x, y, z)) audio_play_sfx(1568, 40);
+        if (s_counting && s_reps.feed(x, y, z) && g_app_settings.sfx_enabled) audio_play_sfx(1568, 40);
         if (g_app_settings.flick_back && awake && !s_counting && s_flick.feed(x, y, z)) {
             DEBUG_PRINTF("[motion] flick: back\n");
             ui_pop_screen();

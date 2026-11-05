@@ -434,7 +434,7 @@ static void advance_tilt_step() {
     // Non-blocking (audio_play_sfx, not audio_beep) so this doesn't
     // stall the progress-ring animation or the next step's draw calls -
     // a short confirmation chirp per completed step.
-    audio_play_sfx(1200, 80);
+    if (g_app_settings.sfx_enabled) audio_play_sfx(1200, 80);
 
     float avg_ax = s_sample_count > 0 ? s_sum_a / s_sample_count : 0;
     float avg_ay = s_sample_count > 0 ? s_sum_b / s_sample_count : 0;

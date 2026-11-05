@@ -10,6 +10,7 @@
 #include "hal_audio.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#include "app_settings_state.h"
 
 extern Screen assistant_screen, calendar_screen, music_screen, notifications_screen, phone_screen, settings_screen,
     recorder_screen, sleep_screen;
@@ -71,7 +72,7 @@ static void draw_touch(int x, int y, bool pressed) {
     DEBUG_PRINTF("[draw] %d points -> %c (%.2f)\n", s_n, c ? c : '-', score);
     for (const Target &t : TARGETS) {
         if (t.c != c) continue;
-        audio_play_sfx(1319, 50);
+        if (g_app_settings.sfx_enabled) audio_play_sfx(1319, 50);
         ui_pop_screen();
         ui_push(t.s);
         return;
