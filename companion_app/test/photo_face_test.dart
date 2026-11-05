@@ -70,6 +70,20 @@ void main() {
     });
   });
 
+  test('how much of the time the subject hides', () {
+    final g = PhotoFaceGlyphs(
+      10,
+      List.filled(11, 10),
+      List.generate(11, (_) => Uint8List(100)..fillRange(0, 100, 255)),
+    );
+    final none = Uint8List(466 * 466);
+    final all = Uint8List(466 * 466)..fillRange(0, 466 * 466, 255);
+    const st = PhotoFaceStyle(timeY: 100);
+    expect(PhotoFace.timeCovered(none, g, st), 0);
+    expect(PhotoFace.timeCovered(all, g, st), 1);
+    expect(PhotoFace.timeCovered(all, g, st.copyWith(depth: false)), 0);
+  });
+
   test('PWF1 by default, PWF2 for the time off centre or no date', () {
     final rgba = Uint8List(466 * 466 * 4);
     final g = PhotoFaceGlyphs(2, List.filled(11, 1), List.generate(11, (_) => Uint8List(2)));

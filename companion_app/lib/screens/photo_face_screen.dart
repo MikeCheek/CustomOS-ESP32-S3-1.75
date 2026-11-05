@@ -516,6 +516,14 @@ class _PhotoFaceEditorState extends ConsumerState<PhotoFaceEditor> {
               value: _style.depth && subject,
               onChanged: !subject || _working ? null : (v) => _setStyle(_style.copyWith(depth: v)),
             ),
+            if (PhotoFace.timeCovered(_img!.mask, _glyphs!, _style) > 0.55)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'The subject hides most of the time: move the time (Move time), make the photo smaller, or turn Depth off.',
+                  style: TextStyle(color: AppColors.warning, fontSize: 12),
+                ),
+              ),
             if (_style.needsV2)
               const Padding(
                 padding: EdgeInsets.only(bottom: 8),

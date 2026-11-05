@@ -18,6 +18,7 @@ class PhotoFaceStyle {
   final double fontSize;
   final FontWeight weight;
   final bool showDate;
+  final String? fontFamily; // null: the phone's own font
 
   const PhotoFaceStyle({
     this.timeX = 233,
@@ -28,6 +29,7 @@ class PhotoFaceStyle {
     this.fontSize = 124,
     this.weight = FontWeight.w300,
     this.showDate = true,
+    this.fontFamily,
   });
 
   /// Needs the PWF2 format (firmware 3.5+): the time off centre, or no date.
@@ -42,6 +44,7 @@ class PhotoFaceStyle {
     double? fontSize,
     FontWeight? weight,
     bool? showDate,
+    String? fontFamily,
   }) => PhotoFaceStyle(
     timeX: timeX ?? this.timeX,
     timeY: timeY ?? this.timeY,
@@ -51,6 +54,7 @@ class PhotoFaceStyle {
     fontSize: fontSize ?? this.fontSize,
     weight: weight ?? this.weight,
     showDate: showDate ?? this.showDate,
+    fontFamily: fontFamily ?? this.fontFamily,
   );
 }
 
@@ -312,6 +316,34 @@ class PhotoFace {
     return PhotoFaceImage(rgba, mask);
   }
 
+  /// How much of the time (as "10:09") the subject hides with depth on: 0..1.
+  static double timeCovered(Uint8List? mask, PhotoFaceGlyphs g, PhotoFaceStyle s, {String time = '10:09'}) {
+    if (mask == null || !s.depth) return 0;
+    var total = 0;
+    for (final ch in time.split('')) {
+      final i = chars.indexOf(ch);
+      if (i >= 0) total += g.widths[i];
+    }
+    var x0 = s.timeX - total ~/ 2, ink = 0, hidden = 0;
+    final y0 = s.timeY - g.height ~/ 2;
+    for (final ch in time.split('')) {
+      final gi = chars.indexOf(ch);
+      if (gi < 0) continue;
+      final w = g.widths[gi];
+      for (var y = 0; y < g.height; y += 2) {
+        final sy = y0 + y;
+        for (var x = 0; x < w; x += 2) {
+          if (g.alpha[gi][y * w + x] < 128) continue;
+          final sx = x0 + x;
+          ink++;
+          if (sy < 0 || sy >= size || sx < 0 || sx >= size || mask[sy * size + sx] > 128) hidden++;
+        }
+      }
+      x0 += w;
+    }
+    return ink == 0 ? 0 : hidden / ink;
+  }
+
   /// A colour for the time from the photo: its most colourful bright tone, lifted.
   static Color suggestColor(Uint8List rgba) {
     var best = 0.0;
@@ -403,6 +435,7 @@ class PhotoFace {
           style: TextStyle(
             fontSize: s.fontSize,
             fontWeight: s.weight,
+            fontFamily: s.fontFamily,
             color: const Color(0xFFFFFFFF),
             height: 1.0,
             fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -582,7 +615,7 @@ class PhotoFace {
     final tp = TextPainter(
       text: TextSpan(
         text: date,
-        style: TextStyle(color: s.dateColor, fontSize: 21, fontWeight: FontWeight.w600),
+        style: TextStyle(color: s.dateColor, fontSize: 21, fontWeight: FontWeight.w600, fontFamily: s.fontFamily),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
