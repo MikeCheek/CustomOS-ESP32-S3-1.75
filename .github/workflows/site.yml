@@ -1,6 +1,6 @@
 # The landing page (site/: Vite + React + TypeScript + Tailwind) on GitHub
-# Pages. Runs only when site/ (or this file) changes - the screenshots it
-# copies in from docs/screenshots are picked up on its next build:
+# Pages. Runs only when the site or its pictures change: site/, the
+# screenshots and GIFs it copies in from docs/screenshots, or this file:
 #  - a pull request touching them: builds it (a check, nothing published)
 #  - a push to main touching them, or Actions > site > Run workflow: builds
 #    and publishes to https://mikecheek.github.io/CustomOS-ESP32-S3-Amoled/
@@ -10,9 +10,9 @@ name: site
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/site.yml"]
+    paths: ["site/**", "docs/screenshots/**", ".github/workflows/site.yml"]
   pull_request:
-    paths: ["site/**", ".github/workflows/site.yml"]
+    paths: ["site/**", "docs/screenshots/**", ".github/workflows/site.yml"]
   workflow_dispatch:
 
 permissions:
