@@ -14,6 +14,8 @@
 // Not here (yet): the phone link (phase 2), sensors and sound (phase 3),
 // ESP-SR (chip-only libraries).
 #include "store.h"
+#include <ArduinoJson.h>
+#include "home_gestures.h"
 #include "app_weather.h"
 #include "app_wallet.h"
 #include <Arduino.h>
@@ -356,14 +358,84 @@ __attribute__((visibility("default"))) int emu_ask_recorded(int ms) {
     return assistant_ask_recorded(pcm, n, 16000) ? 1 : 0;
 }
 
-// The store (store.h) writes and reads back a file - for emu_host_test.
-__attribute__((visibility("default"))) int emu_store_selftest() {
-    const char msg[] = "kept across a restart";
-    char back[64] = {0};
-    bool ok = store_ok() && store_write("test/roundtrip", msg, sizeof(msg)) &&
-              store_read("test/roundtrip", back, sizeof(back)) == (int)sizeof(msg) && !strcmp(back, msg);
-    store_remove("test/roundtrip");
-    return ok ? 1 : 0;
+// Checks of the firmware's own logic, for emu_host_test (and so CI): the
+// store, Wallet's link protocol, the home gestures' styles and link.
+// Returns the number of failures; each is printed.
+static int s_fail = 0;
+static void check(bool ok, const char *what) {
+    if (!ok) { printf("SELFTEST FAIL: %s\n", what); s_fail++; }
+}
+static int pop_all(char *last, int n, const char *want) {   // drains the link; the last message with `want`
+    char m[1024];
+    int found = 0;
+    last[0] = 0;
+    while (emu_link_pop(m, sizeof(m)) > 0)
+        if (strstr(m, want)) { strlcpy(last, m, n); found++; }
+    return found;
+}
+static void feed(const char *json) {
+    JsonDocument d;
+    if (deserializeJson(d, json)) { check(false, "bad test JSON"); return; }
+    const char *t = d["t"] | "";
+    if (!strcmp(t, "wal")) wallet_on_link(d);
+    else if (!strcmp(t, "home")) home_on_link(d);
+}
+
+__attribute__((visibility("default"))) int emu_selftest() {
+    s_fail = 0;
+    char m[1024];
+    // ---- the store: write, read back, replace, folders, remove
+    {
+        const char a[] = "kept across a restart", b2[] = "replaced";
+        char back[64] = {0};
+        check(store_ok(), "store: somewhere to keep files");
+        check(store_write("test/roundtrip", a, sizeof(a)), "store: write");
+        check(store_read("test/roundtrip", back, sizeof(back)) == (int)sizeof(a) && !strcmp(back, a), "store: read back");
+        check(store_write("test/roundtrip", b2, sizeof(b2)) && store_size("test/roundtrip") == (int)sizeof(b2), "store: replace");
+        check(store_remove("test/roundtrip") && !store_exists("test/roundtrip"), "store: remove");
+        check(store_read("test/none", back, sizeof(back)) == -1, "store: a missing file reads -1");
+    }
+    // ---- Wallet: a 3x3 code in two parts, listed with its crc, then deleted
+    {
+        pop_all(m, sizeof(m), "\"e\":\"wal\"");
+        // 9 modules: 101 010 101 -> 0xAA 0x80, in two parts of one byte (base64 "qg==" / "gA==")
+        feed("{\"t\":\"wal\",\"op\":\"put\",\"i\":5,\"n\":\"Test pass\",\"s\":\"x\",\"k\":\"qr\",\"w\":3,\"h\":3,\"r\":10,"
+             "\"crc\":4242,\"tot\":2,\"o\":0,\"b\":\"qg==\"}");
+        check(pop_all(m, sizeof(m), "\"e\":\"wal\"") == 0, "wallet: no list before the last part");
+        feed("{\"t\":\"wal\",\"op\":\"put\",\"i\":5,\"tot\":2,\"o\":1,\"b\":\"gA==\"}");
+        check(pop_all(m, sizeof(m), "\"e\":\"wal\"") == 1 && strstr(m, "[\"Test pass\",4242]"), "wallet: put in parts, listed");
+        check(store_exists("wallet/5"), "wallet: kept in the store");
+        feed("{\"t\":\"wal\",\"op\":\"put\",\"i\":6,\"n\":\"Bad\",\"k\":\"qr\",\"w\":99,\"h\":99,\"tot\":2,\"o\":0,\"b\":\"qg==\"}");
+        pop_all(m, sizeof(m), "\"e\":\"wal\"");
+        check(!strstr(m, "Bad"), "wallet: more modules than bytes is refused");
+        feed("{\"t\":\"wal\",\"op\":\"del\",\"i\":5}");
+        check(pop_all(m, sizeof(m), "\"e\":\"wal\"") == 1 && !strstr(m, "Test pass") && !store_exists("wallet/5"), "wallet: deleted");
+    }
+    // ---- home gestures: styles, custom, the face's own only for a tap, the link
+    {
+        uint8_t keep[HS_COUNT];
+        memcpy(keep, g_app_settings.home_act, sizeof(keep));
+        home_apply_style(1);
+        check(home_style() == 1 && home_action(HS_DOWN) == HA_NOTIFS, "home: Apple-like style");
+        home_set_action(HS_TAP, HA_TORCH);
+        check(home_style() == home_style_count() && home_action(HS_TAP) == HA_TORCH, "home: one change makes it Custom");
+        check(!home_slot_allows(HS_UP, HA_FACE_OWN) && home_slot_allows(HS_TAP, HA_FACE_OWN), "home: the face's own is tap only");
+        check(!home_slot_allows(HS_HOLD, HA_NONE), "home: hold is never nothing");
+        pop_all(m, sizeof(m), "\"e\":\"home\"");
+        feed("{\"t\":\"home\",\"style\":\"galaxy\"}");
+        check(home_action(HS_UP) == HA_APPS && pop_all(m, sizeof(m), "\"e\":\"home\"") == 1 && strstr(m, "\"style\":\"galaxy\""),
+              "home: a style from the app, and the answer");
+        feed("{\"t\":\"home\",\"a\":{\"up\":\"face\",\"left\":\"wallet\"},\"tiles\":[\"timer\",\"bogus\",\"timer\",\"music\"]}");
+        uint8_t tl[TILES_MAX];
+        int n = tiles_list(tl);
+        check(home_action(HS_UP) == HA_APPS, "home: a refused action leaves the old one");
+        check(home_action(HS_LEFT) == HA_WALLET, "home: an action from the app");
+        check(n == 2 && tl[0] == TL_TIMER && tl[1] == TL_MUSIC, "home: tiles from the app, unknown and repeated ones dropped");
+        memcpy(g_app_settings.home_act, keep, sizeof(keep));
+        tiles_defaults(g_app_settings.tiles);
+        pop_all(m, sizeof(m), "\"e\":\"home\"");
+    }
+    return s_fail;
 }
 
 #ifdef __ANDROID__

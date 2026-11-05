@@ -1,5 +1,7 @@
 package com.amoledwatch.amoled_companion
 
+import android.content.Intent
+import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import java.lang.ref.WeakReference
@@ -13,6 +15,7 @@ import java.lang.ref.WeakReference
 // screen is opened through registerForActivityResult (the health plugin).
 class MainActivity : FlutterFragmentActivity() {
     companion object {
+        const val EXTRA_ACTION = "amoled_action"
         private var current: WeakReference<MainActivity>? = null
 
         /** Keeps the screen on while true (MemoRecorder: Android silences
@@ -33,5 +36,24 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         current = WeakReference(this)
+    }
+
+    // Opened from one of the app's notifications with something to do
+    // ("camera": the watch asked for the camera remote) - handed to Dart
+    // the way the home-screen widget's taps are.
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        takeAction(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeAction(intent)
+    }
+
+    private fun takeAction(i: Intent?) {
+        val a = i?.getStringExtra(EXTRA_ACTION) ?: return
+        i.removeExtra(EXTRA_ACTION)
+        CompanionApp.instance.bridge.onWidgetAction(a)
     }
 }

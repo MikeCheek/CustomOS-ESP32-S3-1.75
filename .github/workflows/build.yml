@@ -206,6 +206,12 @@ jobs:
           fw=$(grep -oP '#define FW_VERSION "\K[^"]+' firmware/diag.h)
           cp build/firmware.ino.bin "AmoledSmartWatchOS-$fw-arduino.bin"
 
+      - name: Emulator on the PC, with self-tests (store, Wallet, home gestures)
+        run: |
+          pip install pillow
+          CXX=g++ bash tools/watch_sim/emu_host_test.sh "$RUNNER_TEMP/emu" | tee emu.log
+          grep -q "self-tests: 0 failed" emu.log
+
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-arduino

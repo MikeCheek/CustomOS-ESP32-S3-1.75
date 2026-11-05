@@ -58,7 +58,7 @@ Every gesture on the face can be changed - on the watch (Settings > Home gesture
 | ![](docs/screenshots/tile_activity.png) | ![](docs/screenshots/tile_music.png) | ![](docs/screenshots/tile_timer.png) | ![](docs/screenshots/settings_home.png) |
 | Tiles: Activity | Tiles: Music | Tiles: Timer | Settings > Home gestures |
 
-**What the watch keeps:** histories (90 days of activity and Life, 100 workouts, last night's sleep), the last weather (with how old it is), the last 50 notifications, app icons, Wallet passes and the usage stats live in files - on the SD card when one is in at start-up, else on a 3.9 MB part of the watch's own flash - so a restart loses nothing and the small settings store stays free.
+**What the watch keeps:** histories (90 days of activity and Life, 100 workouts, 30 nights of sleep), the last weather (with how old it is), the last 50 notifications, app icons, Wallet passes and the usage stats live in files - on the SD card when one is in at start-up, else on a 3.9 MB part of the watch's own flash - so a restart loses nothing and the small settings store stays free.
 
 **Wallet:** boarding passes, tickets and loyalty cards on the watch. In the app (Wallet), pick a screenshot or a photo of the code, or type it in; the watch shows it full screen at full brightness until you tap it. QR, Aztec, PDF417, Data Matrix, Code 128, EAN, UPC, Code 39.
 
@@ -103,10 +103,13 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   swipe and tap it like the watch, BOOT and PWR buttons below (Android; `tools/watch_sim/emu_main.cpp`).
   With no real watch connected it's linked to the app like one: notifications, music, weather, assistant
   answers, smart replies and Catch me up reach it; its settings are kept between runs. The phone's
-  accelerometer is the watch's (tilt games, fall detection, sleep) and its beeps, effects and piano play here.
+  accelerometer is the watch's (tilt games, fall detection, sleep) and its beeps, effects and piano play here,
+  with the same piano voice as the watch (strings, hammer and decay, chords).
   Its SD card is a folder in the app; it records with the phone's microphone (recorder, assistant, voice replies).
   "Keep it as my watch" keeps it running and linked in the background and after a restart, until a real
   watch connects.
+- **Floating watch** (Android) - the emulator can also float over other apps as a round watch: drag the rim to
+  move it, pinch to resize, push it past a side to tuck it away, drop it on the cross to close it. Turn it on from the emulator's card (Float).
 - **Look** - a photo, and the on-phone vision model (FastVLM or Gemma 3n) says what it is, reads its text or
   translates it; the answer also shows on the watch and can be read aloud.
 - **Sound alerts** - the phone listens and the watch shows what it heard: doorbell or knocking, smoke alarm,
@@ -138,11 +141,18 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   "open the recorder", "go home"... Anything else is a question: what you said goes to the phone's assistant
   as it is (any language Whisper knows), so you don't say it twice. The phrases and their phonemes are in
   `tools/voice_cmd_phrases.py` (Settings > Sound > Voice > Commands)
+- **Morning briefing** - the first time you raise the watch in the morning: last night's sleep, the weather,
+  the first events of the day, reminders and messages waiting, in one screen (Settings > Wake & quiet).
+- **Camera remote** - opens on the watch by itself when the phone's camera app opens (like navigation does),
+  or from the app menu: a live preview from the phone, shutter, photo or video, 3 s / 10 s timer, front/back, flash
+  and zoom. With the app in the background, the watch's Open shows a notification that opens the camera.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games** - Piano Tiles (42 public-domain songs in four genres, timing judged against a ring for
   accuracy-based stars, combos and hold bonuses, Easy / Normal / Hard on any song, more from the SD card or
-  your own: hum a tune or pick a MIDI file in the app's Piano Tiles songs, or `tools/midi_to_piano.py`), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
+  your own: hum a tune or pick a MIDI file in the app's Piano Tiles songs, or `tools/midi_to_piano.py`; SD
+  songs can be deleted on the watch). The piano is a real synth: six voices, inharmonic partials, two strings,
+  hammer and damper, chords as written. **Listen** plays a song by itself, to hear how it goes, with no score), Flappy, Fruit Slice, Breakout, Snake, Runner, Crystal Cavern, Maze Raider, Ninja Dungeon, Blackjack,
   Simon, Dodger, Plane, Reaction - played by touch, tilt, the phone as a gamepad, or an ESP-NOW joystick.
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board); fall detection (free fall, impact, lying still: "Did you fall?" for 30 s, then the phone rings
   and texts your emergency contact with the location).
@@ -152,9 +162,12 @@ Settings > System > Gesture tips (also shown once after an update) walks through
   rep counter for exercises, and "flick to go back" (two quick wrist flicks; Settings > Wake & quiet).
 - **Sleep** - tracked from wrist movement at night (the arm-angle method of van Hees et al.): time asleep, how
   much of it was still, minutes awake, the night as a chart; a smart alarm rings up to 30 minutes early when
-  you stir, at the set time at the latest.
+  you stir, at the set time at the latest. The last 30 nights are kept and go to the app (Activity > Sleep) and
+  Health Connect / Apple Health; at bedtime the screen dims itself.
 - **Power** - light sleep with the phone still connected, an always-on display, battery modes
-  (Balanced / Saver / Ultra), wake on wrist raise or tap, auto-dim.
+  (Balanced / Saver / Ultra), wake on wrist raise or tap, sleep on wrist down, auto-dim, slower Bluetooth
+  when idle. **Charging modes** (Settings > Battery): Full, Optimized (holds at 80% overnight and finishes
+  before you get up) or Stop at 80%, to keep the battery healthy.
 - **System** - encrypted pairing, crash reports, signed firmware updates over Bluetooth or Wi-Fi with automatic
   rollback, USB modes, guided first-boot setup.
 

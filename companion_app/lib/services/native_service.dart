@@ -49,6 +49,9 @@ class NativeService {
     return _overlayClosed.stream;
   }
 
+  /// Android: a notification to open the camera remote (the app is in the background).
+  Future<void> cameraNotify() => _call('cameraNotify');
+
   Future<bool> overlayCan() async => (await _call<bool>('overlayCan')) ?? false;
   Future<void> overlayAsk() => _call('overlayAsk');
   Future<bool> overlayShow() async => (await _call<bool>('overlayShow')) ?? false;

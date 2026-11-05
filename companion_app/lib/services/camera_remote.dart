@@ -1,3 +1,9 @@
+import 'dart:io';
+
+import 'package:flutter/widgets.dart';
+
+import 'native_service.dart';
+
 /// Between the watch's camera remote (firmware/app_camera.h) and the app's
 /// camera screen: the watch's buttons ({"e":"cam","a":...}) reach the screen
 /// while it's open; "open" from the watch opens it.
@@ -20,7 +26,12 @@ class CameraRemote {
   void onWatch(Map<String, dynamic> e) {
     final a = e['a'] as String? ?? '';
     if (a == 'open') {
-      if (!screenOpen) openScreen?.call();
+      if (screenOpen) return;
+      // in the background, Android won't let the app come forward by itself:
+      // a notification to tap does it
+      final front = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+      if (!front && Platform.isAndroid) NativeService().cameraNotify();
+      openScreen?.call(); // there when the app comes up
       return;
     }
     onAction?.call(a);

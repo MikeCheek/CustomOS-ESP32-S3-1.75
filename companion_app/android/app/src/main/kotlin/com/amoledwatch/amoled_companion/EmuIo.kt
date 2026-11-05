@@ -14,6 +14,10 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ln
+import kotlin.math.sqrt
+import kotlin.math.tanh
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
@@ -23,14 +27,16 @@ import kotlin.math.sin
  *  - "com.amoledwatch.emu_accel" streams the phone's accelerometer in g,
  *    [x, y, z] about 62.5 times a second (the watch's QMI8658 rate);
  *  - "com.amoledwatch.emu_sound" "tones" plays the watch's beeps, game
- *    effects and piano notes: [freq Hz, ms, kind | volume << 8, ...], one
- *    after another like the watch's sound queue; a new piano note cuts the
- *    one playing, as on the watch.
+ *    effects and piano notes: [freq Hz, ms, kind | volume << 8, ...]. Beeps
+ *    play one after another like the watch's sound queue; piano notes use
+ *    the watch's piano voice (hal_audio.cpp): up to 6 ringing together, the
+ *    same partials, decays, hammer and damper, so the emulator sounds like
+ *    the watch.
  */
 class EmuIo(context: Context, messenger: BinaryMessenger) {
     private class Tone(val freq: Int, val ms: Int, val piano: Boolean, val volume: Int)
 
-    private val queue = LinkedBlockingQueue<Tone>()
+    private val queue = java.util.concurrent.LinkedBlockingDeque<Tone>()
     private var thread: Thread? = null
     private val rate = 22050
 
@@ -83,6 +89,72 @@ class EmuIo(context: Context, messenger: BinaryMessenger) {
         thread = Thread({ play() }, "emu-sound").apply { isDaemon = true; start() }
     }
 
+    // ---- the watch's piano voice (firmware/hal_audio.cpp, pn_start / pn_render) ----
+    private class Voice(f: Double, val midi: Int, ms: Int, vel: Double, rate: Int) {
+        var on = true
+        var released = false
+        var age = 0
+        val len = rate * maxOf(ms, 200) / 1000
+        var damp = 1.0
+        val np: Int
+        val inc = DoubleArray(7); val ph = DoubleArray(7)
+        val inc2 = DoubleArray(2); val ph2 = DoubleArray(2)
+        val e1 = DoubleArray(7); val e2 = DoubleArray(7); val d1 = DoubleArray(7); val d2 = DoubleArray(7)
+        val noise: Double
+        var nlp = 0.0
+        var seed = (0x9E3779B9L xor (midi * 2654435761L)) and 0xFFFFFFFFL
+        val hammerN = rate / 160
+        val attackN = (rate * 0.0015).toInt().coerceAtLeast(1)
+        val dampStep = exp(-1.0 / (0.139 * rate))
+
+        init {
+            val b = 0.00025 + 0.0005 * (f / 1000.0)
+            val tau = (3.2 * Math.pow(261.6 / f, 0.65)).coerceIn(0.35, 4.0)
+            val w = doubleArrayOf(1.0, 0.62, 0.36, 0.24, 0.14, 0.09, 0.05)
+            val bass = if (f < 400) 0.45 + 0.55 * (f / 400.0) else 1.0
+            val bright = if (f < 1000) 1.0 else 1000.0 / f
+            var n = 0
+            for (i in 0 until 7) {
+                val k = (i + 1).toDouble()
+                val fn = k * f * sqrt(1.0 + b * k * k)
+                if (fn > 7200) break   // what the watch's 16 kHz carries
+                val wt = w[i] * (if (i == 0) bass else 1.0) * (if (i >= 2) bright else 1.0) * vel
+                inc[i] = 2 * PI * fn / rate
+                ph[i] = i * 0.37
+                val t2 = tau / Math.pow(k, 0.75); val t1 = t2 * 0.16
+                e1[i] = wt * 0.55; e2[i] = wt * 0.45
+                d1[i] = exp(-1.0 / (t1 * rate)); d2[i] = exp(-1.0 / (t2 * rate))
+                n++
+            }
+            np = n
+            for (i in 0 until minOf(2, np)) inc2[i] = inc[i] * 1.0012
+            noise = 0.18 * vel * (0.6 + 0.4 * minOf(f / 800.0, 1.0))
+        }
+
+        fun next(): Double {
+            var s = 0.0
+            for (p in 0 until np) {
+                var x = sin(ph[p])
+                if (p < 2) { x = 0.5 * (x + sin(ph2[p])); ph2[p] += inc2[p] }
+                s += x * (e1[p] + e2[p])
+                ph[p] += inc[p]
+                e1[p] *= d1[p]; e2[p] *= d2[p]
+            }
+            if (age < hammerN) {
+                seed = (seed * 1664525L + 1013904223L) and 0xFFFFFFFFL
+                val r = seed.toInt() / 2147483648.0
+                nlp += 0.35 * (r - nlp)
+                s += nlp * noise * (1.0 - age.toDouble() / hammerN)
+            }
+            val a = if (age < attackN) age.toDouble() / attackN else 1.0
+            if (age >= len) released = true
+            if (released) damp *= dampStep
+            age++
+            if (damp < 0.002 || (age > len / 4 && age > 4000 && e1[0] + e2[0] < 0.0015)) on = false
+            return s * a * damp
+        }
+    }
+
     private fun play() {
         val minBuf = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
@@ -95,33 +167,54 @@ class EmuIo(context: Context, messenger: BinaryMessenger) {
             .build()
         track.play()
         val chunk = ShortArray(rate / 100)   // 10 ms
+        val voices = ArrayList<Voice>()
+        val beeps = ArrayDeque<Tone>()
+        var beep: Tone? = null
+        var beepPos = 0
+        var beepN = 0
+        var volume = 70
         try {
             while (true) {
                 // idle for 3 s: stop the thread (and the track) until the next tone
-                val t = queue.poll(3, TimeUnit.SECONDS) ?: break
-                val n = (t.ms.toLong() * rate / 1000).toInt()
-                val amp = 9000.0 * t.volume / 100.0
-                var i = 0
-                while (i < n) {
-                    // a new piano note cuts this one (the watch's piano voice does)
-                    if (t.piano && queue.peek()?.piano == true) break
-                    val m = min(chunk.size, n - i)
-                    for (k in 0 until m) {
-                        val s = i + k
-                        val tt = s.toDouble() / rate
-                        val v = if (t.freq <= 0) 0.0 else if (t.piano) {
-                            val w = 2 * PI * t.freq * tt
-                            (sin(w) + 0.45 * sin(2 * w) + 0.2 * sin(3 * w) + 0.1 * sin(4 * w)) / 1.75 * exp(-3.2 * tt)
-                        } else {
-                            sin(2 * PI * t.freq * tt)
-                        }
-                        // 3 ms fade in / out, no clicks
-                        val edge = min(1.0, min(s, n - s) / (0.003 * rate))
-                        chunk[k] = (v * amp * edge).toInt().coerceIn(-32767, 32767).toShort()
-                    }
-                    track.write(chunk, 0, m)
-                    i += m
+                if (voices.isEmpty() && beep == null && beeps.isEmpty()) {
+                    val t = queue.poll(3, TimeUnit.SECONDS) ?: break
+                    queue.offerFirst(t)
                 }
+                while (true) {
+                    val t = queue.poll() ?: break
+                    volume = t.volume
+                    if (!t.piano) { beeps.addLast(t); continue }
+                    if (t.freq <= 0) continue
+                    val midi = Math.round(69 + 12 * ln(t.freq / 440.0) / ln(2.0)).toInt()
+                    for (v in voices) if (v.midi == midi) v.released = true   // the same key again
+                    if (voices.size >= 6) voices.removeAt(voices.indices.minByOrNull { voices[it].damp * (voices[it].e1[0] + voices[it].e2[0]) } ?: 0)
+                    voices.add(Voice(t.freq.toDouble(), midi, t.ms, 0.9, rate))
+                }
+                for (k in chunk.indices) {
+                    if (beep == null && beeps.isNotEmpty()) {
+                        val nb = beeps.removeFirst()
+                        beep = nb; beepPos = 0; beepN = (nb.ms.toLong() * rate / 1000).toInt()
+                    }
+                    var b = 0.0
+                    val bt = beep
+                    if (bt != null) {
+                        if (bt.freq > 0) {
+                            val edge = min(1.0, min(beepPos, beepN - beepPos) / (0.003 * rate))   // no clicks
+                            b = sin(2 * PI * bt.freq * beepPos / rate) * 0.27 * edge
+                        }
+                        beepPos++
+                        if (beepPos >= beepN) beep = null
+                    }
+                    var mix = 0.0
+                    for (v in voices) if (v.on) mix += v.next()
+                    // the watch's level, then the same limiter (only near full scale)
+                    var y = mix * 0.24
+                    val ay = abs(y)
+                    if (ay > 0.6) { val o = 0.6 + 0.38 * tanh((ay - 0.6) / 0.38); y = if (y < 0) -o else o }
+                    chunk[k] = (((y + b) * volume / 100.0) * 32767).toInt().coerceIn(-32767, 32767).toShort()
+                }
+                voices.removeAll { !it.on }
+                track.write(chunk, 0, chunk.size)
             }
         } catch (_: InterruptedException) {
         } finally {

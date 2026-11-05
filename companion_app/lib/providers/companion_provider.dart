@@ -780,6 +780,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   Future<void> _onWidgetAction(String action) async {
     if (action == 'find' && _ble.isConnected) await findWatch();
+    if (action == 'camera' && !CameraRemote.instance.screenOpen) CameraRemote.instance.openScreen?.call();
   }
 
   /// Pushes the numbers the home-screen widget shows (only when they changed).

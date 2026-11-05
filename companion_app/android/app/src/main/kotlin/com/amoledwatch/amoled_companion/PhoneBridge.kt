@@ -202,6 +202,8 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
                             result.success(false)   // no browser
                         }
                     }
+                    // ---- the watch asked for the camera remote while the app was in the background ----
+                    "cameraNotify" -> { cameraNotification(); result.success(true) }
                     // ---- the emulated watch floating over other apps (EmuOverlay) ----
                     "overlayCan" -> result.success(EmuOverlay.canDraw(app))
                     "overlayAsk" -> { EmuOverlay.askPermission(app); result.success(null) }
@@ -376,6 +378,31 @@ class PhoneBridge(private val app: Context, messenger: BinaryMessenger) {
 
     private val notificationManager: NotificationManager
         get() = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    // A heads-up notification: tap it and the app opens on its camera remote
+    // (Android doesn't let an app bring itself to the front from the background).
+    private fun cameraNotification() {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val ch = "camera_remote"
+        if (android.os.Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ch) == null) {
+            nm.createNotificationChannel(android.app.NotificationChannel(ch, "Camera remote", NotificationManager.IMPORTANCE_HIGH))
+        }
+        val open = Intent(app, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_ACTION, "camera")
+        val pi = android.app.PendingIntent.getActivity(app, 7, open,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        val b = if (android.os.Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(app, ch)
+                else @Suppress("DEPRECATION") android.app.Notification.Builder(app)
+        val n = b.setSmallIcon(app.applicationInfo.icon)
+            .setContentTitle("Camera remote")
+            .setContentText("The watch wants the camera - tap to open it")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setTimeoutAfter(60000)
+            .build()
+        try { nm.notify(4107, n) } catch (_: SecurityException) {}
+    }
 
     private fun dndOn(): Boolean =
         notificationManager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL &&
