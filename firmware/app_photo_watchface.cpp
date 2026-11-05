@@ -22,7 +22,9 @@
 
 static const char *DIR_PATH = "/faces/photos";
 static const char *LEGACY_PATH = "/faces/photo.pwf";   // the one photo before there could be several
-static const int HEADER = 40;
+static const int HEADER = 40;       // PWF1
+static const int HEADER2 = 44;      // PWF2: + u16 time_x, u16 options
+static bool is_pwf(const uint8_t *b) { return !memcmp(b, "PWF1", 4) || !memcmp(b, "PWF2", 4); }
 static const int GLYPHS = 11;   // "0123456789:"
 
 static uint8_t *s_file = nullptr;
@@ -89,7 +91,8 @@ static int cur_index() {
 }
 
 struct PhotoFace {
-    int w, h, time_y, glyph_h;
+    int w, h, time_x, time_y, glyph_h;
+    bool show_date;
     uint16_t time_color, date_color;
     bool depth;
     int glyph_w[GLYPHS];
@@ -114,7 +117,9 @@ static void unload() {
 static bool parse() {
     const uint8_t *b = s_file;
     size_t n = s_file_len;
-    if (n < (size_t)HEADER || memcmp(b, "PWF1", 4)) return false;
+    if (n < (size_t)HEADER || !is_pwf(b)) return false;
+    bool v2 = b[3] == '2';
+    if (v2 && n < (size_t)HEADER2) return false;
     PhotoFace &f = s_face;
     f.w = rd16(b + 4);
     f.h = rd16(b + 6);
@@ -124,7 +129,11 @@ static bool parse() {
     f.depth = rd16(b + 14) & 1;
     f.glyph_h = rd16(b + 16);
     if (f.w != LCD_WIDTH || f.h != LCD_HEIGHT || f.glyph_h <= 0 || f.glyph_h > LCD_HEIGHT) return false;
-    size_t off = HEADER;
+    // PWF2: the time anywhere across, the date optional
+    f.time_x = v2 ? rd16(b + 40) : f.w / 2;
+    f.show_date = v2 ? !(rd16(b + 42) & 1) : true;
+    if (f.time_x >= f.w || f.time_y >= f.h) return false;
+    size_t off = v2 ? HEADER2 : HEADER;
     size_t photo_bytes = (size_t)f.w * f.h * 2;
     if (off + photo_bytes > n) return false;
     f.photo = (const uint16_t *)(b + off);   // offset 40: 2-byte aligned
@@ -245,7 +254,7 @@ bool photo_face_delete(const char *name) {
 
 bool photo_face_save(const char *name, const uint8_t *data, int len) {
 #if FEATURE_SD_CARD
-    if (!photo_face_name_ok(name) || !sd_is_mounted() || len <= HEADER || memcmp(data, "PWF1", 4)) return false;
+    if (!photo_face_name_ok(name) || !sd_is_mounted() || len <= HEADER || !is_pwf(data)) return false;
     if (!s_scanned) scan();
     bool exists = false;
     for (int i = 0; i < s_count; i++) exists |= !strcmp(s_names[i], name);
@@ -292,7 +301,7 @@ static int draw_time(uint16_t *fb, const char *text) {
         int gi = glyph_index(*p);
         if (gi >= 0) total += f.glyph_w[gi];
     }
-    int x0 = (f.w - total) / 2;
+    int x0 = f.time_x - total / 2;
     int y0 = f.time_y - f.glyph_h / 2;
     for (const char *p = text; *p; p++) {
         int gi = glyph_index(*p);
@@ -363,7 +372,7 @@ static void photo_draw() {
         ui_font_draw(right + 6, f.time_y - f.glyph_h / 2 + ui_font_cap_height(FONT_M_B), FONT_M_B, f.time_color,
                      clock_ampm(t.hour));
 
-    if (t.valid) {
+    if (t.valid && f.show_date) {
         static const char *const DAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
         static const char *const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -372,7 +381,7 @@ static void photo_draw() {
                  MONTHS[(t.month >= 1 && t.month <= 12) ? t.month - 1 : 0]);
         // Under the time, or over it when the time is low on the screen.
         int dy = f.time_y > f.h / 2 ? f.time_y - f.glyph_h / 2 - 20 : f.time_y + f.glyph_h / 2 + 24;
-        ui_font_center(LCD_WIDTH / 2, dy, FONT_M_B, f.date_color, date);
+        ui_font_center(f.time_x, dy, FONT_M_B, f.date_color, date);
     }
     // Which photo, for a moment after it changed.
     int n = photo_face_count();

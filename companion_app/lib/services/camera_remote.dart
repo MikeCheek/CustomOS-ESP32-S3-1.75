@@ -106,13 +106,17 @@ class CameraRemote {
   }
 
   Future<void> _startNative() async {
-    if (await _native.camAccessOn()) {
-      await _native.camNativeStart();
-      await _native.camPrompt(force: true); // tap it for the view on the watch
-    } else {
-      await send?.call({'msg': 'Tap the notification on the phone'});
-      await _native.camPrompt(force: true); // it leads to the accessibility setting
-    }
+    // the buttons need the Camera Helper; the view needs a tap on the phone (the notification)
+    await _native.camNativeStart();
+    if (!await _native.camAccessOn()) await send?.call({'msg': 'Tap the notification on the phone'});
+    await _native.camPrompt(force: true);
+  }
+
+  /// Why a button didn't work: the helper isn't there / isn't on, or [otherwise].
+  Future<String> _why(String otherwise) async {
+    if (!await _native.camHelperInstalled()) return 'Needs the Camera Helper app';
+    if (!await _native.camAccessOn()) return 'Turn the Camera Helper on';
+    return otherwise;
   }
 
   Future<void> _nativeAction(String a) async {
@@ -126,7 +130,7 @@ class CameraRemote {
             await Future.delayed(const Duration(seconds: 1));
           }
           final ok = await _native.camNativeAction('shot');
-          await send?.call(ok ? {'ok': 1} : {'cd': 0, 'msg': 'Couldn\'t press the shutter'});
+          await send?.call(ok ? {'ok': 1} : {'cd': 0, 'msg': await _why('Couldn\'t press the shutter')});
         } finally {
           _busy = false;
         }
@@ -135,7 +139,7 @@ class CameraRemote {
         await _state();
       case 'flip' || 'zoom+' || 'zoom-':
         if (!await _native.camNativeAction(a)) {
-          await send?.call({'msg': a == 'flip' ? 'No flip button found' : 'Couldn\'t zoom'});
+          await send?.call({'msg': await _why(a == 'flip' ? 'No flip button found' : 'Couldn\'t zoom')});
         }
       case 'view':
         await _native.camPrompt(force: true);

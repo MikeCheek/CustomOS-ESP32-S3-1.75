@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Only AmoledWatch (same signing key) may ask: the permission is the main app's own. -->
+    <uses-permission android:name="com.amoledwatch.permission.CAMERA_HELPER" />
+
+    <application
+        android:label="AmoledWatch Camera Helper"
+        android:icon="@android:drawable/ic_menu_camera"
+        android:allowBackup="false">
+
+        <!-- Opened from the launcher: straight to the Accessibility setting -->
+        <activity
+            android:name=".SetupActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".HelperAccess"
+            android:exported="false"
+            android:label="AmoledWatch camera remote"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/camera_access" />
+        </service>
+
+        <!-- The main app's requests: shot / flip / zoom+ / zoom- / front -->
+        <receiver
+            android:name=".ActionReceiver"
+            android:exported="true"
+            android:permission="com.amoledwatch.permission.CAMERA_HELPER">
+            <intent-filter>
+                <action android:name="com.amoledwatch.camerahelper.ACT" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

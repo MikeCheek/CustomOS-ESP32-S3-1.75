@@ -6,7 +6,7 @@ A full smartwatch OS for the **Waveshare ESP32-S3-Touch-AMOLED-1.75** (466×466 
 Watch faces, notifications, calls, music, maps, calendar, voice memos with on-device AI, games, and over-the-air updates.
 Built on Arduino + Arduino_GFX, no LVGL.
 
-[![build](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml/badge.svg)](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml)
+[![build](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/actions/workflows/build.yml)
 
 ![AmoledSmartWatchOS screens](docs/screenshots/hero.png)
 
@@ -151,8 +151,15 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
   weather, battery, phone battery, messages, next turn, memo to-dos and seconds. A little pet lives on the face.
 - **Photo face with depth** - pick a photo in the app (Photo face): the phone finds its subject (Google ML
   Kit subject segmentation, on the phone) and the watch draws the time behind it, so a person, pet or building
-  stands in front of the clock. Framing, time position, size, weight and colour in the app; the photo, the
-  subject mask and the digits go to the SD card as one file (`firmware/app_photo_watchface.h`). Up to 20
+  stands in front of the clock. In the app's editor:
+  - **Placing the photo:** drag and pinch it, from 35% (the whole photo, with room round it) to 400%.
+  - **The time:** drag it anywhere, with its size, weight (Thin to Bold) and colour, including one picked from
+    the photo. The date can be turned off.
+  - **Behind the subject:** the photo as it is, black, dimmed, blurred, or black and white.
+  - **Extras:** a look (Vivid, Warm, Cool, B&W), a glow round the subject in the time's colour, and a soft shade
+    behind the time.
+
+  The photo, the subject mask and the digits go to the SD card as one file (`firmware/app_photo_watchface.h`). Up to 20
   photos: tap the face for the next one, or let it change every hour or every day; the app lists, shows and
   deletes them
 - **Smooth UI** - slide transitions, edge-swipe back, kinetic lists, a pull-down quick panel (brightness,
@@ -214,10 +221,10 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
   it from the watch's menu: a live preview from the phone, shutter, photo or video, 3 s / 10 s timer, front/back,
   flash and zoom. With the app in the background, the watch's Open shows a notification that opens the camera.
   **With the phone's own camera app** (Android): when a camera app opens, the phone asks whether to use the watch
-  as its remote. Say yes and the watch shows what the camera sees (the phone asks to share its screen for that)
-  and presses that app's shutter and flip buttons, pinches to zoom and runs a self-timer. Pressing the buttons
-  needs "AmoledWatch camera remote" turned on once in Accessibility; Camera remote > the settings button has both
-  switches.
+  as its remote. Say yes and the watch shows what the camera sees (the phone asks to share its screen for that).
+  With the optional **Camera Helper** app installed and "AmoledWatch camera remote" turned on in Accessibility, the
+  watch also presses that app's shutter and flip buttons, pinches to zoom and runs a self-timer. Camera remote >
+  the settings button has both switches.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
 - **Games**: Piano Tiles, the Casino (Crystal Cavern, Blackjack, Roulette), Maze Raider, Breakout, Flappy and more.
@@ -259,18 +266,21 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
 1. **Flash the watch once over USB** - build and upload from the Arduino IDE (see [Building](#building)).
    From then on, updates arrive over the air.
 2. **Install the app** - `AmoledWatch-x.y.z.apk` from the
-   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest) (a release build for
+   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/releases/latest) (a release build for
    64-bit ARM phones).
 
-   **"App blocked to protect your device"**: Play Protect's fraud protection blocks apps opened from a browser,
-   a chat or a file manager when they ask for notification access or accessibility. The app needs notification
-   access to send your notifications to the watch, and accessibility (optional) for the camera remote with the
-   phone's camera app. It isn't a problem with the file. Any of these installs it:
-   - **USB:** `adb install AmoledWatch-x.y.z.apk` from a computer. Play Protect doesn't block this.
+   The app installs from a file manager like any APK.
+
+   **Camera Helper (optional):** `AmoledWatch-CameraHelper-x.y.z.apk`, in the same release, lets the watch press
+   the phone camera app's buttons. It's a separate app because it uses accessibility, which Play Protect's fraud
+   protection blocks for apps opened from a browser, a chat or a file manager ("App blocked to protect your
+   device"). The main app used to include it and got blocked the same way. Install the helper with either:
+   - **USB:** `adb install <file>.apk` from a computer. Play Protect doesn't block this.
    - **Play Protect off for a minute:** Play Store > your profile > Play Protect > ⚙ > turn off "Scan apps with
      Play Protect", install the APK, then turn scanning back on. Android won't let you turn it off during a phone
      or video call.
-   - **Updates:** once the app is installed, it updates itself (Settings > Updates).
+   Then turn on "AmoledWatch camera remote" in Accessibility. The app updates itself from then on (Settings >
+   Updates). The helper is updated by hand, which it rarely needs.
 3. **Pair** - open the app, connect, and type the 6-digit code the watch shows.
 
 ## Updates
@@ -285,7 +295,12 @@ One release (tag `vX.Y.Z`) carries both the firmware and the app.
 <details>
 <summary>Publishing and signing</summary>
 
-- Bump `FW_VERSION` in `firmware/diag.h`, tag `vX.Y.Z` and push - CI builds and publishes the release.
+- Bump `FW_VERSION` in `firmware/diag.h` (the app's version is the same number), tag `vX.Y.Z` and push - CI checks
+  the tag matches `FW_VERSION`, builds everything and publishes the release:
+  - the firmware `.bin` (and `.signed.bin` with a key)
+  - `AmoledWatch-X.Y.Z.apk`: the app (the in-app updater installs this one)
+  - `AmoledWatch-CameraHelper-X.Y.Z.apk`: the optional helper (the updater leaves it alone)
+  - an unsigned iPhone `.ipa`
 - **Signed firmware:** `python scripts/ota_keygen.py` once, flash that build over USB, and put `keys/ota_private.pem`
   in the `OTA_PRIVATE_KEY` repository secret. CI then also publishes a `.signed.bin`, the only kind the watch accepts.
 - **App signing:** Android only installs an update signed with the same key. Set `ANDROID_KEYSTORE_BASE64`,

@@ -24,7 +24,7 @@ class ReleaseInfo {
 
 /// Checks this project's GitHub releases and downloads their files.
 class UpdateService {
-  static const repo = 'MikeCheek/CustomOS-ESP32-S3-1.75';
+  static const repo = 'MikeCheek/CustomOS-ESP32-S3-Amoled';
   static const firmwarePrefix = 'AmoledSmartWatchOS-';
 
   /// Null when the repository has no published release yet.
@@ -51,7 +51,8 @@ class UpdateService {
         final url = a['browser_download_url'] as String?;
         final size = (a['size'] as num?)?.toInt() ?? 0;
         if (url == null) continue;
-        if (name.endsWith('.apk')) {
+        if (name.endsWith('.apk') && !name.contains('CameraHelper')) {
+          // not the optional add-on
           apk = url;
           apkSize = size;
         } else if (name.startsWith(firmwarePrefix) && name.endsWith('.signed.bin')) {

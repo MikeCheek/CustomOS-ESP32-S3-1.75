@@ -73,6 +73,9 @@ class NativeService {
   Future<bool> camAccessOn() async => (await _call<bool>('camAccessOn')) ?? false;
   Future<void> camAccessOpen() => _call('camAccessOpen');
 
+  /// The AmoledWatch Camera Helper (a separate app: the buttons) is installed.
+  Future<bool> camHelperInstalled() async => (await _call<bool>('camHelperInstalled')) ?? false;
+
   Future<bool> overlayCan() async => (await _call<bool>('overlayCan')) ?? false;
   Future<void> overlayAsk() => _call('overlayAsk');
   Future<bool> overlayShow() async => (await _call<bool>('overlayShow')) ?? false;

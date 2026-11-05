@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="camera_access_desc">Lets the AmoledWatch watch work as a remote for the phone\'s camera app: when you press the shutter, flip or zoom on the watch, this presses the same button in the camera app. It only acts when you press a button on the watch, and reads or keeps nothing else.</string>
+</resources>

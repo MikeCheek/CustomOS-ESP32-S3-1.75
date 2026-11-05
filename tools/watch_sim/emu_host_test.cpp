@@ -195,6 +195,29 @@ int main(int argc, char **argv) {
         snprintf(p, sizeof(p), "%s/emu_photo_next.ppm", out); save(p);
         if (!next) { printf("FAIL: tap didn't change the photo\n"); return 1; }
     }
+    // PWF2: the time placed left of centre, no date
+    emu_photo_face("test3");
+    run(1200);
+    snprintf(p, sizeof(p), "%s/emu_photo_v2.ppm", out); save(p);
+    {
+        int w = emu_width();
+        static uint8_t f[466 * 466 * 4];
+        emu_frame_rgba(f);
+        int left = 0, right = 0, date = 0;
+        for (int y = 150; y < 250; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *q = f + (y * w + x) * 4;
+                if (q[0] > 245 && q[1] > 245 && q[2] > 245) (x < 200 ? left : right)++;
+            }
+        for (int y = 262; y < 300; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *q = f + (y * w + x) * 4;
+                if (q[0] > 245 && q[1] > 245 && q[2] > 245) date++;
+            }
+        printf("photo face v2: time left %d / right %d, date pixels %d\n", left, right, date);
+        if (left < 300 || left < right * 2 || date > 20) { printf("FAIL: photo face v2\n"); return 1; }
+    }
+    emu_photo_face("test");
     // 12-hour clock: "9:05" and AM/PM beside it
     emu_set_option("clock24", 0);
     run(1200);
