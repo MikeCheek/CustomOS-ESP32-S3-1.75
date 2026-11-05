@@ -351,9 +351,13 @@ jobs:
           else
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret - the APK can't update a previous build in place"
           fi
-          flutter build apk --debug --android-skip-build-dependency-validation \
+          # The release build (AOT-compiled, not debuggable), for arm64 phones - every phone of
+          # the last years; a debug build is several times bigger (JIT, every ABI) and is
+          # what Play Protect and users shouldn't get. One APK: the in-app updater takes it.
+          flutter build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation \
             --build-name="$fw" --build-number="${{ github.run_number }}"
-          cp build/app/outputs/flutter-apk/app-debug.apk "AmoledWatch-$fw.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "AmoledWatch-$fw.apk"
+          ls -l "AmoledWatch-$fw.apk" | awk '{printf "APK: %.0f MB\n", $5/1048576}' >> "$GITHUB_STEP_SUMMARY"
           rm -f "$RUNNER_TEMP/release.jks"
 
       - uses: actions/upload-artifact@v4

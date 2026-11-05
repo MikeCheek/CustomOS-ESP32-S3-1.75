@@ -71,6 +71,11 @@ android {
         }
         release {
             signingConfig = signing
+            // No R8: the watch emulator's JNI bridge (EmuOverlay's native methods, looked
+            // up by name) and plugins that reach classes by reflection must keep their
+            // names. The size is in the native libraries anyway, not the Java code.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
