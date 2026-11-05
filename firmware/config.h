@@ -35,7 +35,7 @@
 // ---- Firmware updates over Wi-Fi (hal_fwupdate.h) ---------------------------
 // GitHub repo whose latest release is checked, and the start of the asset
 // name CI gives the firmware (.github/workflows/build.yml).
-#define FW_UPDATE_REPO          "MikeCheek/CustomOS-ESP32-S3-1.75"
+#define FW_UPDATE_REPO          "MikeCheek/CustomOS-ESP32-S3-Amoled"
 #define FW_UPDATE_ASSET_PREFIX  "AmoledSmartWatchOS-"
 #define FW_UPDATE_CHECK_HOURS   24   // automatic check at most this often
 

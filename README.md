@@ -6,7 +6,7 @@ A full smartwatch OS for the **Waveshare ESP32-S3-Touch-AMOLED-1.75** (466×466 
 Watch faces, notifications, calls, music, maps, calendar, voice memos with on-device AI, games, and over-the-air updates.
 Built on Arduino + Arduino_GFX, no LVGL.
 
-[![build](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml/badge.svg)](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/actions/workflows/build.yml)
+[![build](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/actions/workflows/build.yml)
 
 ![AmoledSmartWatchOS screens](docs/screenshots/hero.png)
 
@@ -266,19 +266,21 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
 1. **Flash the watch once over USB** - build and upload from the Arduino IDE (see [Building](#building)).
    From then on, updates arrive over the air.
 2. **Install the app** - `AmoledWatch-x.y.z.apk` from the
-   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest) (a release build for
+   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled/releases/latest) (a release build for
    64-bit ARM phones).
 
-   **"App blocked to protect your device"**: Play Protect's fraud protection blocks apps installed from a
-   browser, a chat or a file manager when they use accessibility. In some countries notification access counts
-   too, and the app needs that to send your notifications to the watch. So the accessibility part (the watch
-   pressing the phone camera app's buttons) is a separate, optional app:
-   `AmoledWatch-CameraHelper-x.y.z.apk`, in the same release. If anything is blocked:
+   The app installs from a file manager like any APK.
+
+   **Camera Helper (optional):** `AmoledWatch-CameraHelper-x.y.z.apk`, in the same release, lets the watch press
+   the phone camera app's buttons. It's a separate app because it uses accessibility, which Play Protect's fraud
+   protection blocks for apps opened from a browser, a chat or a file manager ("App blocked to protect your
+   device"). The main app used to include it and got blocked the same way. Install the helper with either:
    - **USB:** `adb install <file>.apk` from a computer. Play Protect doesn't block this.
    - **Play Protect off for a minute:** Play Store > your profile > Play Protect > ⚙ > turn off "Scan apps with
      Play Protect", install the APK, then turn scanning back on. Android won't let you turn it off during a phone
      or video call.
-   - **Updates:** once the app is installed, it updates itself (Settings > Updates).
+   Then turn on "AmoledWatch camera remote" in Accessibility. The app updates itself from then on (Settings >
+   Updates). The helper is updated by hand, which it rarely needs.
 3. **Pair** - open the app, connect, and type the 6-digit code the watch shows.
 
 ## Updates
@@ -293,7 +295,12 @@ One release (tag `vX.Y.Z`) carries both the firmware and the app.
 <details>
 <summary>Publishing and signing</summary>
 
-- Bump `FW_VERSION` in `firmware/diag.h`, tag `vX.Y.Z` and push - CI builds and publishes the release.
+- Bump `FW_VERSION` in `firmware/diag.h` (the app's version is the same number), tag `vX.Y.Z` and push - CI checks
+  the tag matches `FW_VERSION`, builds everything and publishes the release:
+  - the firmware `.bin` (and `.signed.bin` with a key)
+  - `AmoledWatch-X.Y.Z.apk`: the app (the in-app updater installs this one)
+  - `AmoledWatch-CameraHelper-X.Y.Z.apk`: the optional helper (the updater leaves it alone)
+  - an unsigned iPhone `.ipa`
 - **Signed firmware:** `python scripts/ota_keygen.py` once, flash that build over USB, and put `keys/ota_private.pem`
   in the `OTA_PRIVATE_KEY` repository secret. CI then also publishes a `.signed.bin`, the only kind the watch accepts.
 - **App signing:** Android only installs an update signed with the same key. Set `ANDROID_KEYSTORE_BASE64`,

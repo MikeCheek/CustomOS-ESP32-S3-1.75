@@ -3,7 +3,8 @@
 # build). A tag like v2.9.0 also makes a GitHub release with both files.
 # The iPhone build runs only for tags and manual runs (see app-ios).
 #
-# On a pull request only what it touches is built (the `changes` job):
+# On a pull request, or a merge into main, only what it touches is built (the
+# `changes` job):
 #  - the firmware jobs: firmware/ and what builds or tests it - tools/ (the
 #    PC tests, the simulator, the emulator self-tests), pio/, boards/,
 #    scripts/, platformio.ini, this file;
@@ -16,6 +17,9 @@ name: build
 on:
   push:
     tags: ["v*"]
+    # merges into main too, building only what they changed (the `changes` job), so
+    # main's status - the README badge - is real
+    branches: [main]
   pull_request:
     # the landing page (site/) has its own workflow (site.yml)
     paths-ignore: ["site/**", ".github/workflows/site.yml"]
@@ -47,13 +51,20 @@ jobs:
       - id: paths
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          REF: ${{ github.ref }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ "$EVENT" != "pull_request" ]; then
-            fw=true; app=true          # tags and manual runs: everything
+          # tags and manual runs: everything (a release needs all the files); a branch
+          # push with no previous commit to compare with (a new branch): everything too
+          if [ "$EVENT" = "workflow_dispatch" ] || [[ "$REF" == refs/tags/* ]] || [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            fw=true; app=true
           else
-            files=$(git diff --name-only "$BASE...$HEAD")
+            if [ "$EVENT" = "pull_request" ]; then
+              files=$(git diff --name-only "$BASE...$HEAD")
+            else
+              files=$(git diff --name-only "$BASE" "$HEAD")   # a push to main: what it added
+            fi
             fw=false; app=false
             # here-strings, not echo | grep -q: with pipefail an early-exiting grep can fail the pipe
             grep -qE '^(firmware/|tools/|pio/|boards/|scripts/|platformio\.ini$|\.github/workflows/build\.yml$)' <<< "$files" && fw=true
@@ -379,7 +390,7 @@ jobs:
   # macOS time costs 10x the Linux minutes, and PRs already build the same
   # Dart code for Android.
   app-ios:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: macos-15
     permissions:
       contents: write   # the .ipa onto a tag's release

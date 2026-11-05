@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   s.name         = 'AmoledNative'
   s.version      = '1.0.0'
   s.summary      = 'AmoledWatch companion: recorder, player, phone bridge, emulator I/O, subject masks'
-  s.homepage     = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75'
+  s.homepage     = 'https://github.com/MikeCheek/CustomOS-ESP32-S3-Amoled'
   s.license      = { :type => 'Project' }
   s.author       = 'AmoledWatch'
   s.source       = { :path => '.' }

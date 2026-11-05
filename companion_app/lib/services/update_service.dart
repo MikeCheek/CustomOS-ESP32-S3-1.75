@@ -24,7 +24,7 @@ class ReleaseInfo {
 
 /// Checks this project's GitHub releases and downloads their files.
 class UpdateService {
-  static const repo = 'MikeCheek/CustomOS-ESP32-S3-1.75';
+  static const repo = 'MikeCheek/CustomOS-ESP32-S3-Amoled';
   static const firmwarePrefix = 'AmoledSmartWatchOS-';
 
   /// Null when the repository has no published release yet.
