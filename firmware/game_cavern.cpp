@@ -41,7 +41,7 @@
 #include "config.h"
 #include "board_pins.h"
 #include "hal_controller.h"
-#include "hal_save.h"
+#include "casino_wallet.h"
 #include "game_audio.h"
 #include "ui.h"
 #include <Arduino_GFX_Library.h>
@@ -104,17 +104,8 @@ static bool s_prev_pressed;
 #define CAVERN_SAVE_MAGIC 0x43415633u // "CAV3" - bumped from the 5x5 grid's save format
 struct CavernSave { uint32_t magic; int32_t money; };
 
-static void load_money() {
-    CavernSave s;
-    if (game_load_blob("cavern_money", &s, sizeof(s)) && s.magic == CAVERN_SAVE_MAGIC) s_money = s.money;
-    else s_money = START_MONEY;
-}
-static void save_money() {
-    CavernSave s;
-    s.magic = CAVERN_SAVE_MAGIC;
-    s.money = s_money;
-    game_save_blob("cavern_money", &s, sizeof(s));
-}
+static void load_money() { s_money = casino_credit(); }   // the Casino's shared wallet
+static void save_money() { casino_set(s_money); }
 
 // ---- Symbol data --------------------------------------------------------
 static const uint16_t SYMBOL_COLOR[NUM_REGULAR] = {
@@ -572,8 +563,8 @@ static void cavern_draw() {
     if (s_state == SL_GAMEOVER) {
         ui_edge_ring(0, 360, ui_dim(COLOR_BAD, 0.5f), 8, 4, false);
         ui_text_center(LCD_WIDTH / 2, 170, COLOR_BAD, "OUT OF CHIPS", 3);
-        ui_text_center(LCD_WIDTH / 2, 220, COLOR_TEXT_DIM, "Tap to restart with", 1);
-        snprintf(buf, sizeof(buf), "$%d", START_MONEY);
+        ui_text_center(LCD_WIDTH / 2, 220, COLOR_TEXT_DIM, "Tap: the cashier tops you up to", 1);
+        snprintf(buf, sizeof(buf), "$%d", CASINO_TOP_UP);
         ui_text_center(LCD_WIDTH / 2, 262, GOLD, buf, 4);
         return;
     }
@@ -664,8 +655,7 @@ static void cavern_touch(int x, int y, bool pressed) {
     if (!tap_edge) return;
 
     if (s_state == SL_GAMEOVER) {
-        s_money = START_MONEY;
-        save_money();
+        s_money = casino_top_up();   // the cashier
         s_free_spins_active = false;
         s_state = SL_IDLE;
         return;

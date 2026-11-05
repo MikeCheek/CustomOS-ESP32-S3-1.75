@@ -66,8 +66,7 @@ extern Screen runner_screen;
 extern Screen maze_screen;
 extern Screen sprite_test_screen;
 extern Screen ninjadungeon_screen;
-extern Screen blackjack_screen;
-extern Screen cavern_screen;
+extern Screen casino_screen;   // Crystal Cavern, Blackjack and Roulette, one wallet (casino.h)
 extern Screen bambu_printer_screen;
 extern Screen phone_screen;
 extern Screen calendar_screen;
@@ -275,21 +274,18 @@ static void icon_breakout(IconPen *g, int cx, int cy, float br) {
     g->fillRoundRect(cx - 16, cy + 16, 32, 7, 3, IC(COLOR_ACCENT));
 }
 
-static void icon_blackjack(IconPen *g, int cx, int cy, float br) {
-    // Two overlapping playing cards, a small red diamond pip on each
-    uint16_t card_c = IC(COLOR565(0xF0, 0xF0, 0xE8));
-    uint16_t pip_c = IC(COLOR565(0xE0, 0x30, 0x30));
-    g->fillRoundRect(cx - 16, cy - 14, 20, 28, 3, IC(COLOR_TEXT_DIM));
-    g->fillRoundRect(cx - 4, cy - 10, 20, 28, 3, card_c);
-    g->fillTriangle(cx + 6, cy - 2, cx + 2, cy + 4, cx + 10, cy + 4, pip_c);
-    g->fillTriangle(cx + 6, cy + 10, cx + 2, cy + 4, cx + 10, cy + 4, pip_c);
-}
-
-static void icon_cavern(IconPen *g, int cx, int cy, float br) {
-    // A small cluster of colored crystals - a circle, a square and a triangle
-    g->fillCircle(cx - 12, cy + 6, 9, IC(COLOR565(0x50, 0x90, 0xFF)));
-    g->fillRect(cx + 2, cy - 2, 16, 16, IC(COLOR565(0xFF, 0xD8, 0x30)));
-    g->fillTriangle(cx - 2, cy - 16, cx - 12, cy - 2, cx + 8, cy - 2, IC(COLOR565(0xB0, 0x60, 0xF0)));
+static void icon_casino(IconPen *g, int cx, int cy, float br) {
+    // A roulette wheel (red / black / a green pocket) and a gold chip
+    g->fillCircle(cx - 3, cy - 2, 18, IC(COLOR565(0x70, 0x40, 0x1E)));
+    for (int i = 0; i < 8; i++) {
+        float a0 = i * 0.7854f, a1 = a0 + 0.7854f;
+        uint16_t c = i == 0 ? COLOR565(0x10, 0x90, 0x48) : i % 2 ? COLOR565(0xC8, 0x20, 0x2C) : COLOR565(0x20, 0x20, 0x24);
+        g->fillTriangle(cx - 3, cy - 2, cx - 3 + (int)(cosf(a0) * 15), cy - 2 + (int)(sinf(a0) * 15),
+                        cx - 3 + (int)(cosf(a1) * 15), cy - 2 + (int)(sinf(a1) * 15), IC(c));
+    }
+    g->fillCircle(cx - 3, cy - 2, 6, IC(COLOR565(0xE8, 0xC0, 0x50)));
+    g->fillCircle(cx + 14, cy + 14, 9, IC(COLOR565(0xE8, 0xC0, 0x50)));
+    g->fillCircle(cx + 14, cy + 14, 5, IC(COLOR565(0xB0, 0x80, 0x20)));
 }
 
 static void icon_pet(IconPen *g, int cx, int cy, float br) {
@@ -716,12 +712,11 @@ static const MenuEntry MENU_ENTRIES[] = {
     {"Snake",         CAT_GAMES, icon_snake,         &snake_screen},
     {"Breakout",      CAT_GAMES, icon_breakout,      &breakout_screen},
     {"Runner",        CAT_GAMES, icon_runner,        &runner_screen},
-    {"Blackjack",     CAT_GAMES, icon_blackjack,     &blackjack_screen},
+    {"Casino",        CAT_GAMES, icon_casino,        &casino_screen},
     {"Simon",         CAT_GAMES, icon_simon,         &simon_screen},
     {"Reaction",      CAT_GAMES, icon_reaction,      &reaction_screen},
     {"Dodger",        CAT_GAMES, icon_dodger,        &dodger_screen},
     {"Plane",         CAT_GAMES, icon_plane,         &plane_screen},
-    {"Crystal Cavern",CAT_GAMES, icon_cavern,        &cavern_screen},
     {"Maze Raider",   CAT_GAMES, icon_maze,          &maze_screen},
     {"Ninja Dungeon", CAT_GAMES, icon_ninjadungeon,  &ninjadungeon_screen},
     // developer mode

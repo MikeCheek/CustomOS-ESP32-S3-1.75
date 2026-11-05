@@ -340,6 +340,19 @@ void sim_scenarios() {
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");
     shot(&fruitninja_screen, "game_fruitninja");
+    // The Casino: the floor, then Roulette - a bet on red and on 17, the spin, the result
+    { extern Screen casino_screen, roulette_screen;
+      shot(&casino_screen, "casino", 1500);
+      shot(&roulette_screen, "roulette");
+      sim_tap(121, 223); sim_tap(121, 223);                 // two chips on Red
+      sim_tap(233, 371); sim_run(400);                      // the numbers table
+      sim_tap(233 - 138 + 4 * 46 + 21, 108 + 2 * 46 + 21);  // 17
+      sim_run(300); sim_save("roulette_numbers");
+      sim_tap(233, 414); sim_run(400);                      // Done
+      sim_save("roulette_bets");
+      sim_tap(233 + 55, 415); sim_run(2600); sim_save("roulette_spin");
+      sim_run(3400); sim_save("roulette_result");
+      ui_pop_screen(); sim_run(500); }
     // Maze Raider: the title, then a few seconds in
     { extern Screen maze_screen; shot(&maze_screen, "game_maze_title");
       sim_tap(233, 300); sim_run(6000); sim_save("game_maze"); }

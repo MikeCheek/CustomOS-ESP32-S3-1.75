@@ -14,6 +14,8 @@
 // Not here (yet): the phone link (phase 2), sensors and sound (phase 3),
 // ESP-SR (chip-only libraries).
 #include "store.h"
+#include "game_roulette.h"
+#include "casino_wallet.h"
 #include <SD.h>
 #include "game_audio.h"
 #include "phone_images.h"
@@ -464,6 +466,23 @@ __attribute__((visibility("default"))) int emu_selftest() {
         memcpy(g_app_settings.home_act, keep, sizeof(keep));
         tiles_defaults(g_app_settings.tiles);
         pop_all(m, sizeof(m), "\"e\":\"home\"");
+    }
+    // ---- the Casino: roulette pays, the shared wallet
+    {
+        int32_t out[9] = {}, num[37] = {};
+        out[0] = 10;                                   // 10 on red
+        check(roulette_win(out, num, 1) == 20 && roulette_win(out, num, 2) == 0, "roulette: red pays 1:1");
+        check(roulette_win(out, num, 0) == 0, "roulette: zero loses the outside bets");
+        out[0] = 0; out[8] = 10;                       // 10 on the 3rd dozen
+        check(roulette_win(out, num, 30) == 30 && roulette_win(out, num, 12) == 0, "roulette: a dozen pays 2:1");
+        out[8] = 0; num[17] = 5; num[0] = 5;           // straight up on 17 and on 0
+        check(roulette_win(out, num, 17) == 180 && roulette_win(out, num, 0) == 180, "roulette: a number pays 35:1");
+        int32_t keep = casino_credit();
+        casino_set(3);
+        check(casino_top_up() == CASINO_TOP_UP, "casino: the cashier tops up an empty wallet");
+        casino_set(800);
+        check(casino_top_up() == 800, "casino: no top-up while there's credit");
+        casino_set(keep);
     }
     // ---- the sound switches: All sounds, Notification sounds, Game music
     {
