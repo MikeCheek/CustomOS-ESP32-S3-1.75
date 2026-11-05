@@ -2,6 +2,15 @@
 # push to a PR's branch runs it once - branch pushes don't trigger a second
 # build). A tag like v2.9.0 also makes a GitHub release with both files.
 # The iPhone build runs only for tags and manual runs (see app-ios).
+#
+# On a pull request only what it touches is built (the `changes` job):
+#  - the firmware jobs: firmware/ and what builds or tests it - tools/ (the
+#    PC tests, the simulator, the emulator self-tests), pio/, boards/,
+#    scripts/, platformio.ini, this file;
+#  - the app job: companion_app/ - and all of the above too, since the app
+#    compiles the firmware into its watch emulator.
+# The site (site/) has its own workflow (site.yml). Tags and manual runs
+# build everything.
 name: build
 
 on:
@@ -25,9 +34,41 @@ env:
   FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=custom,CDCOnBoot=cdc"
 
 jobs:
+  # What the pull request touched (see the top): firmware / app, true or false.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      firmware: ${{ steps.paths.outputs.firmware }}
+      app: ${{ steps.paths.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            fw=true; app=true          # tags and manual runs: everything
+          else
+            files=$(git diff --name-only "$BASE...$HEAD")
+            fw=false; app=false
+            # here-strings, not echo | grep -q: with pipefail an early-exiting grep can fail the pipe
+            grep -qE '^(firmware/|tools/|pio/|boards/|scripts/|platformio\.ini$|\.github/workflows/build\.yml$)' <<< "$files" && fw=true
+            grep -qE '^companion_app/' <<< "$files" && app=true
+            [ "$fw" = true ] && app=true   # the app builds the firmware into its emulator
+          fi
+          echo "firmware=$fw" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "Builds: firmware **$fw**, app **$app**" >> "$GITHUB_STEP_SUMMARY"
+
   # The release firmware: PlatformIO (pioarduino) with power management,
   # tickless idle and Bluetooth modem sleep compiled in (platformio.ini).
   firmware:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -155,6 +196,8 @@ jobs:
   # compiling so the sketch still opens and builds in the IDE. Releases use
   # the PlatformIO build below.
   firmware-arduino:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -220,6 +263,8 @@ jobs:
           path: AmoledSmartWatchOS-*.bin
 
   app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -306,9 +351,13 @@ jobs:
           else
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret - the APK can't update a previous build in place"
           fi
-          flutter build apk --debug --android-skip-build-dependency-validation \
+          # The release build (AOT-compiled, not debuggable), for arm64 phones - every phone of
+          # the last years; a debug build is several times bigger (JIT, every ABI) and is
+          # what Play Protect and users shouldn't get. One APK: the in-app updater takes it.
+          flutter build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation \
             --build-name="$fw" --build-number="${{ github.run_number }}"
-          cp build/app/outputs/flutter-apk/app-debug.apk "AmoledWatch-$fw.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "AmoledWatch-$fw.apk"
+          ls -l "AmoledWatch-$fw.apk" | awk '{printf "APK: %.0f MB\n", $5/1048576}' >> "$GITHUB_STEP_SUMMARY"
           rm -f "$RUNNER_TEMP/release.jks"
 
       - uses: actions/upload-artifact@v4

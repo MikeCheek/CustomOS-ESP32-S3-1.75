@@ -259,7 +259,18 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
 1. **Flash the watch once over USB** - build and upload from the Arduino IDE (see [Building](#building)).
    From then on, updates arrive over the air.
 2. **Install the app** - `AmoledWatch-x.y.z.apk` from the
-   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest).
+   [latest release](https://github.com/MikeCheek/CustomOS-ESP32-S3-1.75/releases/latest) (a release build for
+   64-bit ARM phones).
+
+   **"App blocked to protect your device"**: Play Protect's fraud protection blocks apps opened from a browser,
+   a chat or a file manager when they ask for notification access or accessibility. The app needs notification
+   access to send your notifications to the watch, and accessibility (optional) for the camera remote with the
+   phone's camera app. It isn't a problem with the file. Any of these installs it:
+   - **USB:** `adb install AmoledWatch-x.y.z.apk` from a computer. Play Protect doesn't block this.
+   - **Play Protect off for a minute:** Play Store > your profile > Play Protect > ⚙ > turn off "Scan apps with
+     Play Protect", install the APK, then turn scanning back on. Android won't let you turn it off during a phone
+     or video call.
+   - **Updates:** once the app is installed, it updates itself (Settings > Updates).
 3. **Pair** - open the app, connect, and type the 6-digit code the watch shows.
 
 ## Updates
