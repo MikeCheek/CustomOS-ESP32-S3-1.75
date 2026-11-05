@@ -1,6 +1,6 @@
 # AmoledWatch landing page
 
-The project's website: https://mikecheek.github.io/CustomOS-ESP32-S3-1.75/
+The project's website: https://mikecheek.github.io/CustomOS-ESP32-S3-Amoled/
 
 Vite + React + TypeScript + Tailwind CSS, no other runtime libraries. Every
 watch screen on it is a screenshot the [host simulator](../tools/watch_sim)
@@ -10,7 +10,7 @@ MP4s and the power-on animation into the frames the first section scrubs
 through as you scroll.
 
     npm install
-    npm run dev       # http://localhost:5173/CustomOS-ESP32-S3-1.75/
+    npm run dev       # http://localhost:5173/
     npm run build     # dist/
 
 `src/lib.ts` has the scroll hooks (reveal on view, a section's scroll

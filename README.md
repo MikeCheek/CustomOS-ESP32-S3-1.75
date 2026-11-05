@@ -1,6 +1,6 @@
 # AmoledSmartWatchOS
 
-**[🌐 See it on the website](https://mikecheek.github.io/CustomOS-ESP32-S3-1.75/)** - the watch and the app, in screens and motion.
+**[🌐 See it on the website](https://mikecheek.github.io/CustomOS-ESP32-S3-Amoled/)** - the watch and the app, in screens and motion.
 
 A full smartwatch OS for the **Waveshare ESP32-S3-Touch-AMOLED-1.75** (466×466 round AMOLED), with an Android companion app.
 Watch faces, notifications, calls, music, maps, calendar, voice memos with on-device AI, games, and over-the-air updates.
