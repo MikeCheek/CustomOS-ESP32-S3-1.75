@@ -340,6 +340,9 @@ void sim_scenarios() {
     // Games (their title screens - sprites and levels come from the SD card)
     shot(&flappy_screen, "game_flappy");
     shot(&fruitninja_screen, "game_fruitninja");
+    // Maze Raider: the title, then a few seconds in
+    { extern Screen maze_screen; shot(&maze_screen, "game_maze_title");
+      sim_tap(233, 300); sim_run(6000); sim_save("game_maze"); }
 
     home();
     ui_top_panel_open();
