@@ -507,6 +507,22 @@ __attribute__((visibility("default"))) int emu_selftest() {
         g_app_settings.music_enabled = false;
         game_music_poll();
         check(!audio_is_playing(), "sound: Game music off mid-game - it stops");
+        // Breathe: a chime to start, notes as each breath turns - and none with All sounds off
+        for (int pass = 0; pass < 2; pass++) {
+            g_app_settings.sfx_enabled = pass == 0;
+            tones();
+            ui_push(&breathe_screen);
+            for (int i = 0; i < 5; i++) emu_step();
+            emu_touch(233, 392, 1); emu_step(); emu_touch(233, 392, 0);   // Start
+            int n = 0;
+            for (int i = 0; i < 400; i++) { emu_step(); delay(20); n += emu_take_sounds(t, 64); }   // ~8 s: start, in, out
+            ui_pop_screen();
+            emu_step();
+            printf("breathe pass %d: %d tones\n", pass, n);
+            if (pass == 0) check(n >= 7, "sound: Breathe - a start chime and notes for in and out");
+            else check(n == 0, "sound: Breathe - silent with All sounds off");
+        }
+        g_app_settings.sfx_enabled = true;
         game_music_stop();
         SD.remove("/music/test.mp3");
         SD.rmdir("/music");

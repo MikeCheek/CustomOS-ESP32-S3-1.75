@@ -13,6 +13,9 @@
 #include "hal_ble.h"
 #include "hal_rtc.h"
 #include "hal_sleep.h"
+#include "hal_audio.h"
+#include "hal_vibrate.h"
+#include "app_settings_state.h"
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Preferences.h>
@@ -678,10 +681,40 @@ Screen life_nudge_screen = {
 //  Breathe: in 4 s, out 6 s, the circle growing and shrinking
 // =========================================================================
 static int s_br_len = 1;          // minutes
-static uint32_t s_br_start = 0;   // 0: choosing the length
+static uint32_t s_br_start = 0;   // 0: choosing the length; set ahead of now for the lead-in
 static int s_br_phase = -1;
+static const uint32_t BR_LEAD = 2200;   // the start chime, then the first breath
 
-static void br_create() { s_br_start = 0; s_br_phase = -1; }
+// Sounds to breathe by with the eyes closed (with All sounds on): soft
+// piano notes, each phase its own shape -
+//   start: a quick rising C-E-G        in: two notes stepping up (A-E)
+//   out:   the same two stepping down  end: a falling run onto a full chord
+struct BrNote { uint16_t at; uint8_t m[4]; uint8_t n; uint16_t ms; };
+static const BrNote BR_START[] = {{0, {60}, 1, 700}, {220, {64}, 1, 700}, {440, {67}, 1, 1400}};
+static const BrNote BR_IN[]    = {{0, {57}, 1, 1600}, {420, {64}, 1, 3000}};
+static const BrNote BR_OUT[]   = {{0, {64}, 1, 1600}, {420, {57}, 1, 4200}};
+static const BrNote BR_END[]   = {{0, {72}, 1, 600}, {260, {67}, 1, 600}, {520, {64}, 1, 600},
+                                  {780, {48, 60, 64, 67}, 4, 3200}};
+static const BrNote *s_cue = nullptr;
+static int s_cue_n = 0, s_cue_i = 0;
+static uint32_t s_cue_t0 = 0;
+
+static void br_cue(const BrNote *c, int n, uint16_t buzz_ms) {
+    vibrate_ms(buzz_ms);   // with a motor fitted: a buzz too (long for in, short for out)
+    if (!g_app_settings.sfx_enabled) { s_cue = nullptr; return; }
+    s_cue = c; s_cue_n = n; s_cue_i = 0; s_cue_t0 = millis();
+}
+#define BR_CUE(a, buzz) br_cue(a, (int)(sizeof(a) / sizeof(a[0])), buzz)
+
+static void br_cue_update() {
+    while (s_cue && s_cue_i < s_cue_n && millis() - s_cue_t0 >= s_cue[s_cue_i].at) {
+        const BrNote &b = s_cue[s_cue_i++];
+        audio_play_chord(b.m, b.n, b.ms);
+    }
+    if (s_cue && s_cue_i >= s_cue_n) s_cue = nullptr;
+}
+
+static void br_create() { s_br_start = 0; s_br_phase = -1; s_cue = nullptr; }
 
 static void br_draw() {
     Arduino_GFX *g = ui_gfx();
@@ -692,6 +725,9 @@ static void br_draw() {
         habit_icon(H_MIND, CX, 120, 46);
         ui_text_center(CX, 196, COLOR_TEXT, "Breathe", 3);
         ui_text_center(CX, 228, COLOR_TEXT_DIM, "Follow the circle: in as it grows, out as it shrinks", 1);
+        ui_text_center(CX, 246, COLOR_TEXT_DIM,
+                       g_app_settings.sfx_enabled ? "Eyes closed? Notes go up: in, down: out"
+                                                  : "All sounds on: breathe by sound", 1);
         static const int L[3] = {1, 3, 5};
         for (int i = 0; i < 3; i++) {
             int x = CX - 120 + i * 120;
@@ -702,6 +738,11 @@ static void br_draw() {
             ui_text_center(x, 322, L[i] == s_br_len ? COLOR_BG : COLOR_TEXT_DIM, "min", 1);
         }
         pill({CX - 80, 366, 160, 52}, C, COLOR_BG, "Start");
+        return;
+    }
+    if ((int32_t)(millis() - s_br_start) < 0) {   // the lead-in: the start chime
+        g->fillCircle(CX, CY - 20, 50, ui_dim(C, 0.4f));
+        ui_text_center(CX, CY + 160, COLOR_TEXT, "Get comfortable", 2);
         return;
     }
     uint32_t el = millis() - s_br_start;
@@ -725,19 +766,28 @@ static void br_draw() {
                       ui_dim(C, (i % 2 ? 0.30f : 0.45f) + 0.25f * e));   // two shades, so the petals show
     }
     ui_text_center(CX, CY + 160, COLOR_TEXT, in ? "Breathe in" : "Breathe out", 2);
-    int ph = in ? 0 : 1;
-    if (ph != s_br_phase) { s_br_phase = ph; haptic(HAP_CLICK); }
     ui_arc(CX, CY, 226, 4, 0, 360.0f * el / total, C, true);
 }
 
 static void br_tick() {
+    br_cue_update();
     if (!s_br_start) return;
     sleep_register_activity();   // the screen stays on through it
-    if (millis() - s_br_start >= s_br_len * 60000UL && s_br_phase != 9) {
+    int32_t el = (int32_t)(millis() - s_br_start);
+    if (el < 0 || s_br_phase == 9) return;
+    if ((uint32_t)el >= s_br_len * 60000UL) {
         s_br_phase = 9;
         s_today.mind += s_br_len;
-        haptic(HAP_SUCCESS);
+        BR_CUE(BR_END, 120);
         logged();
+        return;
+    }
+    // each breath: a cue as it turns (in 4 s, out 6 s), timed here rather than in draw
+    int ph = (el % 10000) < 4000 ? 0 : 1;
+    if (ph != s_br_phase) {
+        s_br_phase = ph;
+        if (ph == 0) BR_CUE(BR_IN, 300);
+        else BR_CUE(BR_OUT, 80);
     }
 }
 
@@ -755,7 +805,12 @@ static void br_touch(int x, int y, bool pressed) {
         int cx = CX - 120 + i * 120;
         if ((x - cx) * (x - cx) + (y - 300) * (y - 300) < 48 * 48) s_br_len = L[i];
     }
-    if (Btn{CX - 80, 366, 160, 52}.hit(x, y)) { s_br_start = millis(); s_br_phase = -1; }
+    if (Btn{CX - 80, 366, 160, 52}.hit(x, y)) {
+        s_br_start = millis() + BR_LEAD;
+        if (!s_br_start) s_br_start = 1;
+        s_br_phase = -1;
+        BR_CUE(BR_START, 60);
+    }
 }
 
 Screen breathe_screen = {
