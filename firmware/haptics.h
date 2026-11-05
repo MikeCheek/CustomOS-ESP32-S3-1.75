@@ -6,7 +6,7 @@
  * a workout's start and stop are mirror images...
  *
  * This board has no vibration motor (PIN_VIBRATE -1), so each pattern is
- * also a short tone sequence on the speaker ("Sound cues", Settings >
+ * also a short tone sequence on the speaker ("Notification sounds", Settings >
  * Sound); with a motor wired (FEATURE_VIBRATE) it buzzes the same rhythm.
  * Quiet in Do Not Disturb except the urgent ones (alarm, SOS).
  */

@@ -342,10 +342,10 @@ static SettingsRow ROWS_SOUND[] = {
     { "Volume", "Speaker volume level", ROW_SUBSCREEN, nullptr, nullptr, &settings_volume_screen, ICON_VOLUME },
     { "Voice", "Wake word, commands, voice cleanup", ROW_SUBSCREEN, nullptr, nullptr, &settings_voice_screen, ICON_SOUND },
     { "Microphone", "Recording sensitivity", ROW_SUBSCREEN, nullptr, nullptr, &settings_mic_screen, ICON_SOUND },
-    { "Sound Effects", "Play SFX in games and apps", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
-    { "Music", "Background music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
+    { "All sounds", "Messages, apps, games", ROW_TOGGLE, get_sfx, tap_sfx, nullptr, ICON_SOUND },
+    { "Game music", "Only the music in games", ROW_TOGGLE, get_music, tap_music, nullptr, ICON_SOUND },
     { "Haptic on Touch", "Vibrate briefly on every tap", ROW_TOGGLE, get_haptic, tap_haptic, nullptr, ICON_VIBRATION },
-    { "Sound cues", "A short pattern per event: messages, turns, goals", ROW_TOGGLE, get_cues, tap_cues, nullptr, ICON_SOUND },
+    { "Notification sounds", "A tune per message, goal", ROW_TOGGLE, get_cues, tap_cues, nullptr, ICON_SOUND },
 };
 
 static SettingsRow ROWS_CONNECT[] = {

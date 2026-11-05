@@ -345,8 +345,20 @@ void sim_scenarios() {
     ui_top_panel_open();
     sim_run(1500);
     sim_save("quick_panel");
+    // holding a tile names it: the game music one (233-40, 262)
+    ui_handle_touch(193, 262, true);
+    sim_run(120);
+    sim_save("quick_panel_held");
+    ui_handle_touch(193, 262, false);
+    sim_run(60);
+    ui_handle_touch(193, 262, true);   // and back, so the setting is as it was
+    sim_run(60);
+    ui_handle_touch(193, 262, false);
+    sim_run(60);
     ui_top_panel_close();
     sim_run(800);
+
+    { extern Screen settings_sound_screen; shot(&settings_sound_screen, "settings_sound"); }
 
     // Turn-by-turn from the phone's navigation app
     sim_link("{\"t\":\"nav\",\"st\":1,\"i\":\"Turn right onto Via Dante\",\"d\":\"250 m\",\"x\":\"12 min - 1.4 km\",\"h\":0}");
