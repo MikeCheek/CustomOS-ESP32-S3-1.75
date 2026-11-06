@@ -25,6 +25,8 @@ Future<void> main() async {
   } catch (e) {
     debugPrint('[main] LLM engine init failed: $e');
   }
+  // the language model is kept loaded between requests: it goes when the phone is short of memory
+  WidgetsBinding.instance.addObserver(_MemoryWatch());
 
   final container = ProviderContainer();
   container.read(bleProvider); // auto-reconnect to the last watch
@@ -43,4 +45,9 @@ Future<void> main() async {
   });
 
   runApp(UncontrolledProviderScope(container: container, child: const AmoledCompanionApp()));
+}
+
+class _MemoryWatch with WidgetsBindingObserver {
+  @override
+  void didHaveMemoryPressure() => GemmaService.instance.onMemoryPressure();
 }

@@ -294,6 +294,40 @@ class GemmaService {
   /// Drops the loaded model, so the next request loads it again (on the CPU / GPU now chosen).
   Future<void> reload() => _serial(_closeModel);
 
+  /// Loading the model is the slowest step (AI models > Performance): the
+  /// assistant starts it while the question is still being transcribed, so
+  /// the answer doesn't wait for it. Does nothing when it's loaded already.
+  void warmUp() {
+    if (_model != null) return;
+    unawaited(
+      _serial(() async {
+        try {
+          await _ensureModel();
+        } catch (e) {
+          print('[LLM] warm-up failed: $e');
+        }
+      }),
+    );
+  }
+
+  /// Kept loaded between requests, so a follow-up answers right away; let go
+  /// after [_idle] without one (it holds hundreds of MB), or at once when
+  /// the phone runs short of memory.
+  static const _idle = Duration(minutes: 10);
+  Timer? _idleTimer;
+
+  void _touch() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer(_idle, () => unawaited(_serial(_closeModel)));
+  }
+
+  /// The phone is short of memory (main.dart): the model goes, it's loaded again when needed.
+  void onMemoryPressure() {
+    if (_model == null) return;
+    _idleTimer?.cancel();
+    unawaited(_serial(_closeModel));
+  }
+
   Future<void> _closeModel() async {
     final m = _model;
     _model = null;
@@ -334,7 +368,9 @@ class GemmaService {
   Future<void> _queue = Future.value();
   Future<T> _serial<T>(Future<T> Function() fn) {
     final r = _queue.then((_) => fn());
-    _queue = r.then((_) {}, onError: (_) {});
+    _queue = r.then((_) {}, onError: (_) {}).whenComplete(() {
+      if (_model != null) _touch();
+    });
     return r;
   }
 

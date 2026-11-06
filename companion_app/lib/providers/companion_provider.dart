@@ -896,6 +896,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         return fail('Download the speech model in the companion app first');
       }
       await status('Listening');
+      GemmaService.instance.warmUp(); // loads while the question is received and transcribed
       if (mounted) state = state.copyWith(dictation: 'Assistant: receiving');
       final bytes = await _ref.read(notesProvider.notifier).fetchTemp(file, timeout: const Duration(seconds: 60));
       final dir = await getTemporaryDirectory();
@@ -969,6 +970,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     final whisper = WhisperService.instance;
     await whisper.loadPrefs();
     if (!await whisper.ready()) throw Exception('Download a speech model first (AI models)');
+    GemmaService.instance.warmUp(); // loads while it transcribes
     final heard = (await whisper.transcribe(
       wavPath,
     )).replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
