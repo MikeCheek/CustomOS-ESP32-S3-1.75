@@ -16,7 +16,9 @@
  *   {"e":"usage","p":3,"off":s,"pm":1,"aw":{"wakeword":s,...}}      what kept it from sleeping deeply
  *     with the screen off today (unplugged): "build" (no power management in this
  *     firmware), "setting" (Deep sleep off), "wakeword", "aod", "gps", "wifi",
- *     "espnow", "audio", "usbmode" - seconds each; "off": seconds with the screen off
+ *     "espnow", "audio", "usbmode" - seconds each; "off": seconds with the screen off;
+ *     "ft":{"speaker":s,"mic":s,"gps":s,"wifi":s} - how long each was in use today
+ *     (unplugged), for the app's battery estimate per feature
  */
 #pragma once
 #include <stdint.h>

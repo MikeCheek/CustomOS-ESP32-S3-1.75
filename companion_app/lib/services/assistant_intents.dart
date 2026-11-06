@@ -9,7 +9,7 @@
 /// (test/assistant_intents_test.dart).
 library;
 
-enum IntentKind { timer, cancelTimer, reminder, music, weather, time, date, battery, agenda, findPhone, dnd, memos, none }
+enum IntentKind { timer, cancelTimer, reminder, music, weather, time, date, battery, agenda, findPhone, dnd, memos, message, none }
 
 class AssistantIntent {
   final IntentKind kind;
@@ -17,7 +17,7 @@ class AssistantIntent {
   final int? seconds;        // timer
   final DateTime? at;        // reminder / alarm
   final String? text;        // reminder title, memo question
-  final String? command;     // music: play pause next prev volUp volDown
+  final String? command;     // music: play pause next prev volUp volDown; message: who to
   final bool? on;            // dnd
 
   const AssistantIntent(this.kind,
@@ -157,6 +157,21 @@ AssistantIntent parseAssistantIntent(String text, DateTime now) {
     }
   }
 
+  // ---- a message to someone: "tell Marco I'm late", "di' a Marco che arrivo tardi"
+  final msg = RegExp(
+    r"^(?:please )?(?:tell|text|message|send (?:a )?(?:message|text) to|write to|reply to|"
+    r"di' a|dì a|di a|scrivi a|rispondi a|manda un messaggio a|invia un messaggio a|manda a)\s+"
+    r"([\p{L}][\p{L}'-]*)\s+(?:that |saying |to say |che |dicendo |di )?(.+)$",
+    unicode: true,
+  ).firstMatch(s);
+  if (msg != null && !const {'me', 'mi', 'us', 'ci', 'it', 'him', 'her', 'them'}.contains(msg.group(1))) {
+    final orig = {for (final w in text.split(RegExp(r'[\s,!?;]+'))) w.toLowerCase().replaceAll(RegExp(r'[.]$'), ''): w};
+    String back(String x) => x.split(' ').map((w) => orig[w] ?? w).join(' ');
+    var body = back(msg.group(2)!.trim());
+    if (body.isNotEmpty) body = body[0].toUpperCase() + body.substring(1);
+    return i(IntentKind.message, command: back(msg.group(1)!), text: body);
+  }
+
   // ---- music
   if (_has(s, r'\b(volume up|louder|turn it up|alza (il )?volume|più forte)\b')) return i(IntentKind.music, command: 'volUp');
   if (_has(s, r'\b(volume down|quieter|turn it down|abbassa (il )?volume|più piano)\b')) {
@@ -178,7 +193,7 @@ AssistantIntent parseAssistantIntent(String text, DateTime now) {
   if (_has(s, r"\b(find my phone|where is my phone|where's my phone|ring my phone|trova (il )?(mio )?telefono|dov'è (il )?(mio )?telefono|dove è (il )?(mio )?telefono|dove si trova (il )?(mio )?telefono|fai squillare)\b")) {
     return i(IntentKind.findPhone);
   }
-  if (_has(s, r'\b(do not disturb|dnd|non disturbare)\b')) {
+  if (_has(s, r'\b(do not disturb|dnd|non disturbare|modalità silenziosa|silenzioso|silenzia)\b')) {
     final off = _has(s, r'\b(off|disable|stop|turn off|disattiva|spegni|togli)\b');
     return i(IntentKind.dnd, on: !off);
   }

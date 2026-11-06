@@ -38,6 +38,8 @@ static char s_question[200] = "";
 static char s_answer[400] = "";
 static char s_status[48] = "";
 static char s_chip[40] = "";        // what was done ("Timer 5:00")
+static bool s_send = false;         // a message by voice waits for its OK: the chip is a Send button
+static int s_chip_y = 0, s_chip_w = 0;
 // voice activity: the noise floor while listening, and when speech was last heard
 static int s_floor = 100;
 static bool s_spoke = false;
@@ -215,6 +217,8 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
     snprintf(s_answer, sizeof(s_answer), "%s", answer ? answer : "");
     clean(s_answer);
     s_chip[0] = 0;
+    s_send = action && !strcmp(action, "send");
+    if (s_send) snprintf(s_chip, sizeof(s_chip), "Send");
     if (action && !strcmp(action, "timer")) {
         if (seconds > 0) { char d[16]; fmt_dur(d, sizeof(d), seconds); snprintf(s_chip, sizeof(s_chip), "Timer %s", d); }
         else snprintf(s_chip, sizeof(s_chip), "Timer cancelled");
@@ -334,9 +338,16 @@ static void assist_draw() {
             } else {
                 snprintf(c, sizeof(c), "%s", s_chip);
             }
-            int w = ui_text_width(c, 1) + 32;
-            g->fillRoundRect(CX - w / 2, y + 2, w, 30, 15, COLOR_PANEL);
-            ui_text_center(CX, y + 17, COLOR_ACCENT, c, 1);
+            if (s_send) {   // a button: send the message
+                int w = 150;
+                s_chip_y = y + 4; s_chip_w = w;
+                g->fillRoundRect(CX - w / 2, s_chip_y, w, 44, 22, s_press == 1 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+                ui_text_center(CX, s_chip_y + 22, COLOR_TEXT, "Send", 2);
+            } else {
+                int w = ui_text_width(c, 1) + 32;
+                g->fillRoundRect(CX - w / 2, y + 2, w, 30, 15, COLOR_PANEL);
+                ui_text_center(CX, y + 17, COLOR_ACCENT, c, 1);
+            }
         }
         draw_mic_button(g, MIC_Y, MIC_R, s_press == 0 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
         if (s_hist_n > 1) ui_text_center(CX, MIC_Y + MIC_R + 22, COLOR_TEXT_DIM, "Swipe up: earlier", 1);
@@ -406,10 +417,18 @@ static void assist_touch(int x, int y, bool pressed) {
     }
     if (s_state == A_WAIT) return;
     bool on_mic = (x - CX) * (x - CX) + (y - MIC_Y) * (y - MIC_Y) < (MIC_R + 14) * (MIC_R + 14);
-    if (edge) s_press = on_mic ? 0 : -1;
+    bool on_send = s_send && s_state == A_ANSWER && abs(x - CX) < s_chip_w / 2 + 6 && y >= s_chip_y - 6 && y < s_chip_y + 50;
+    if (edge) s_press = on_mic ? 0 : (on_send ? 1 : -1);
     if (pressed) return;
     int p = s_press;
     s_press = -1;
+    if (p == 1 && on_send) {
+        s_send = false;
+        s_chip[0] = 0;
+        s_follow_ok = false;
+        ui_show_toast(ble_link_send("{\"e\":\"asksend\"}") ? "Sending..." : "Phone not reachable", 1500);
+        return;
+    }
     if (p == 0 && on_mic) { s_follow_ok = false; start_listening(); }
 }
 
@@ -472,3 +491,11 @@ Screen timer_alert_screen = {
     ring_create, ring_draw, ring_touch, ring_tick, nullptr, nullptr,
     0, true,
 };
+
+void assistant_on_sent(bool ok, const char *to) {
+    char b[64];
+    snprintf(b, sizeof(b), ok ? "Sent to %s" : "Couldn't send it to %s", to && to[0] ? to : "them");
+    ble_fold_utf8(b);
+    ui_show_toast(b, 2000);
+    if (s_open && s_state == A_ANSWER) { s_send = false; s_chip[0] = 0; }
+}

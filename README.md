@@ -29,6 +29,11 @@ Built on Arduino + Arduino_GFX, no LVGL.
   - the "Today" complication and Smart Stack card, worded by the phone's AI (tap the card to hear it)
   - an evening recap of the day, said on the watch and kept as a Smart Stack card; Catch me up read aloud; the
     briefing said in the phone's language when there's a voice for it; the assistant's earlier answers (swipe up)
+  - messages by voice ("tell Marco I'm late", "di' a Luca che arrivo tardi"), sent after an OK; voice replies
+    touched up by the AI (shorter, friendlier, formal); more commands in Italian without the language model
+  - Diagnostics: the battery cost of the speaker, microphone, GPS and Wi-Fi, next to the screen's
+- **In the app:** AI models > Speed > "Test the language model" checks the model in use; one that keeps answering
+  garbled text is replaced by another installed model, and the app says so.
 - **New in the app, checked on a phone:** the voices speak again (sherpa-onnx 2 needs its text turned into phonemes
   first), model installs no longer fail, the language model runs on the GPU when it can, and AI models > Speed >
   Performance times every model run (average, fastest, slowest, where it ran, crashes). Not tried on a phone yet: a

@@ -42,6 +42,11 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
 // assistant, for the next minute.
 void assistant_expect_speech();
 bool assistant_speech_expected();
+// A message by voice ("tell Marco I'm late"): the result has "do":"send" and
+// the answer asks for the OK - the Send button sends {"e":"asksend"} (or
+// "yes" as a follow-up); the phone answers {"t":"sent","ok":1,"to":".."}.
+void assistant_on_sent(bool ok, const char *to);
+
 // The answers kept for the history (swipe up on an answer), up to 6.
 int assistant_history_count();
 

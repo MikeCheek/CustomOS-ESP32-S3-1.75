@@ -534,12 +534,18 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
           diagnosticsAt: DateTime.now(),
         );
         break;
+      case 'dict' when e['rw'] is String:
+        unawaited(_rewriteReply(e));
+        break;
       case 'dict':
         await _transcribeReply(
           (e['id'] as num?)?.toInt() ?? 0,
           (e['n'] as num?)?.toInt() ?? 0,
           e['f'] as String? ?? '',
         );
+        break;
+      case 'asksend':
+        await _sendPending();
         break;
       case 'ask':
         await _assistant((e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '', followUp: e['fu'] == 1);
@@ -997,6 +1003,23 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         return;
       }
       if (mounted) state = state.copyWith(dictation: 'Assistant: "$heard"');
+      // "yes" to a message waiting to be sent
+      if (followUp &&
+          _pendingSend != null &&
+          RegExp(
+            r"^(yes|yeah|yep|sure|send it|ok|okay|sì|si|certo|invia|mandalo|va bene)\b",
+            caseSensitive: false,
+          ).hasMatch(heard.trim())) {
+        final to = _pendingSend!.to;
+        final ok = await _sendPending();
+        await _ble.sendLink({
+          't': 'ask',
+          'n': seq,
+          'q': _clip(heard, 160),
+          'a': ok ? 'Sent to $to.' : 'Couldn\'t send it.',
+        });
+        return;
+      }
       final prev = _lastAsk;
       final context = followUp && prev != null && DateTime.now().difference(prev.at).inMinutes < 3 ? prev : null;
       final reply = await _assistantReply(heard, () => status('Thinking'), previous: context);
@@ -1013,6 +1036,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'a': _clip(reply.answer, 360),
         if (reply.timer != null) 'do': 'timer',
         if (reply.timer != null) 's': reply.timer,
+        if (reply.timer == null && _pendingSend != null && DateTime.now().difference(_pendingSend!.at).inSeconds < 5)
+          'do': 'send',
         if (speaks) 'sp': 1,
         if (speaks && await tts.followUps()) 'fl': 1,
       });
@@ -1201,6 +1226,22 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   /// Now, from the app (AI models > Spoken answers).
   Future<void> recapNow() => _maybeRecap(force: true);
+
+  /// A dictated reply touched up by the language model before it's sent
+  /// ("Shorter", "Friendlier", "Formal" on the watch), in its own language.
+  Future<void> _rewriteReply(Map<String, dynamic> e) async {
+    final id = (e['id'] as num?)?.toInt() ?? 0, seq = (e['n'] as num?)?.toInt() ?? 0;
+    final text = (e['tx'] as String? ?? '').trim();
+    Future<void> err(String why) => _ble.sendLink({'t': 'dict', 'id': id, 'n': seq, 'err': why});
+    try {
+      if (text.isEmpty) return await err('Nothing to rewrite');
+      final out = await GemmaService.instance.rewriteMessage(text, e['rw'] as String);
+      if (out == null) return await err('Install a language model in the app (AI models)');
+      await _ble.sendLink({'t': 'dict', 'id': id, 'n': seq, 'tx': _clip(out, 300)});
+    } catch (x) {
+      await err(_clip(x.toString().replaceFirst('Exception: ', ''), 80));
+    }
+  }
 
   /// The phone's language as a 2-letter code ("it", "en").
   static String _userLangCode() => Platform.localeName.split(RegExp('[_-]')).first.toLowerCase();
@@ -1434,8 +1475,55 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         final ans = await gemma.ask(q, [for (final c in ctx) c.$2]);
         final text = (ans ?? ctx.first.$1.summary).replaceAll(RegExp(r'\s*\[\d+\]'), '').trim();
         return (answer: text.isEmpty ? ctx.first.$1.displayTitle : text, timer: null);
+      case IntentKind.message:
+        // the newest notification from them that can be answered: the reply goes there
+        final to = (intent.command ?? '').toLowerCase();
+        final since = DateTime.now().subtract(const Duration(hours: 24));
+        final target = NotifAi.instance.recent
+            .where(
+              (n) =>
+                  n.at.isAfter(since) &&
+                  n.canReply &&
+                  (n.title.toLowerCase().contains(to) || n.app.toLowerCase() == to),
+            )
+            .firstOrNull;
+        if (target == null) {
+          return (
+            answer: t(
+              'I can only write to someone whose message is on the phone - nothing recent from ${intent.command}.',
+              'Posso scrivere solo a chi ti ha scritto di recente - niente da ${intent.command}.',
+            ),
+            timer: null,
+          );
+        }
+        _pendingSend = (id: target.id, text: intent.text ?? '', to: target.title, at: DateTime.now());
+        return (
+          answer: t(
+            'Send to ${target.title} on ${target.app}: "${intent.text}"? Tap Send, or say yes.',
+            'Invio a ${target.title} su ${target.app}: "${intent.text}"? Tocca Invia, o di\' sì.',
+          ),
+          timer: null,
+        );
       case IntentKind.none:
         return (answer: '', timer: null);
+    }
+  }
+
+  /// A message by voice waiting for its OK on the watch (Send, or "yes" as a follow-up).
+  ({int id, String text, String to, DateTime at})? _pendingSend;
+
+  /// Sends the message waiting for its OK; tells the watch how it went.
+  Future<bool> _sendPending() async {
+    final p = _pendingSend;
+    _pendingSend = null;
+    if (p == null || DateTime.now().difference(p.at).inMinutes >= 3) return false;
+    try {
+      await _native.notificationAction(p.id, 'reply', text: p.text);
+      await _ble.sendLink({'t': 'sent', 'ok': 1, 'to': _clip(p.to, 30)});
+      return true;
+    } catch (e) {
+      await _ble.sendLink({'t': 'sent', 'ok': 0, 'to': _clip(p.to, 30)});
+      return false;
     }
   }
 

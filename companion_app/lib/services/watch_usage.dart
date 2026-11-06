@@ -24,6 +24,10 @@ class WatchUsage {
   final int offS;
   final bool hasPowerManagement;
 
+  /// Seconds today each costly part was in use, unplugged (part 3 "ft":
+  /// speaker, mic, gps, wifi - firmware 3.5+).
+  final Map<String, int> features;
+
   /// The last 7 days as the watch kept them (part 4, newest first): date,
   /// screen-on minutes, wake-ups, battery % used unplugged, charges.
   final List<UsageDay> week;
@@ -51,6 +55,7 @@ class WatchUsage {
     this.awake = const {},
     this.offS = 0,
     this.hasPowerManagement = true,
+    this.features = const {},
     this.week = const [],
   });
 
@@ -99,6 +104,10 @@ class WatchUsage {
       },
       offS: (d?['off'] as num?)?.toInt() ?? 0,
       hasPowerManagement: (d?['pm'] as num?)?.toInt() != 0,
+      features: {
+        for (final e in ((d?['ft'] as Map?) ?? const {}).entries)
+          if (e.value is num && (e.value as num) > 0) '${e.key}': (e.value as num).toInt(),
+      },
       week: [
         for (final r in (wk?['wk'] as List? ?? const []))
           if (r is List && r.length >= 5)
@@ -199,6 +208,31 @@ class WatchUsage {
     ];
     l.sort((a, b) => b.$2.compareTo(a.$2));
     return l.take(n).toList();
+  }
+
+  /// What each costly part took of the battery today, estimated: the time it
+  /// was on (as the watch counted it) at its typical extra draw, for a
+  /// [batteryMah] cell; with the screen measured from the drain for scale.
+  /// (label, what uses it, seconds, % of a full battery), most first.
+  List<(String, String, int, double)> featureCosts({int batteryMah = 350}) {
+    const mA = {'speaker': 45.0, 'mic': 20.0, 'gps': 30.0, 'wifi': 60.0};
+    const what = {
+      'speaker': ('Speaker', 'spoken answers, music, games'),
+      'mic': ('Microphone', 'the assistant, memos, voice replies'),
+      'gps': ('GPS', 'workouts, maps'),
+      'wifi': ('Wi-Fi', 'updates, transfers'),
+    };
+    final out = <(String, String, int, double)>[
+      for (final e in features.entries)
+        if (mA[e.key] != null)
+          (what[e.key]!.$1, what[e.key]!.$2, e.value, e.value / 3600 * mA[e.key]! / batteryMah * 100),
+    ];
+    final rates = drainRates();
+    if (rates != null && screenOnTodayS > 0) {
+      out.add(('Screen on', 'measured from the drain', screenOnTodayS, rates.on * screenOnTodayS / 3600));
+    }
+    out.sort((a, b) => b.$4.compareTo(a.$4));
+    return out;
   }
 
   /// Where today's battery went, % of what was used: each app by its screen

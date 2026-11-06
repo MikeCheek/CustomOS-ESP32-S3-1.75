@@ -62,6 +62,8 @@ extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar
     flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
     fall_alert_screen, sleep_screen, draw_screen, activity_screen;
 void sleep_load_demo();
+void dictate_open(uint32_t, const char *);
+void dictate_on_result(uint32_t, uint32_t, const char *, const char *);
 void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *, bool, bool);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
@@ -322,6 +324,26 @@ void sim_scenarios() {
     sim_run(800);
     sim_save("assistant_long_word");
     g_sim.recording = false;
+    // a message by voice, waiting for its OK
+    shot(&assistant_screen, "assistant_listen", 900);
+    sim_tap(233, 233);
+    sim_run(200);
+    assistant_on_result(3, "Tell Marco I'm 10 minutes late", "Send to Marco on WhatsApp: \"I'm 10 minutes late\"? Tap Send, or say yes.",
+                        "send", 0, "", false, false);
+    sim_run(800);
+    sim_save("assistant_send");
+    g_sim.recording = false;
+    // a voice reply, transcribed: the AI can touch it up before it's sent
+    { extern Screen dictate_screen;
+      dictate_open(14, "Marco");
+      sim_run(2500);
+      sim_tap(233, 233);   // done talking
+      sim_run(300);
+      dictate_on_result(14, 0, "yes I'm coming tonight see you at eight at the usual place", "");
+      sim_run(600);
+      sim_save("voice_reply_rewrite");
+      ui_pop_screen(); sim_run(300);
+      g_sim.recording = false; }
 
     // Fall detection asking
     shot(&fall_alert_screen, "fall_alert", 8000);

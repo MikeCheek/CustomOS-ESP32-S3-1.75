@@ -233,6 +233,8 @@ static void handle(const char *msg) {
         comp_set_todos(doc["n"] | 0, doc["top"] | "");
     } else if (!strcmp(t, "brief")) {
         comp_set_brief(doc["v"] | "", doc["l"] | "", doc["x"] | "");
+    } else if (!strcmp(t, "sent")) {
+        assistant_on_sent((doc["ok"] | 0) != 0, doc["to"] | "");
     } else if (!strcmp(t, "recap")) {
         comp_set_recap(doc["x"] | "");
         assistant_expect_speech();   // the phone says it right after

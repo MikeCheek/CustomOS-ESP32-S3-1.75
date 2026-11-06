@@ -645,6 +645,24 @@ class GemmaService {
     return (b, l, dn);
   }
 
+  /// A message the user dictated, rewritten in [style] ("short", "friendly",
+  /// "formal") in the same language, or null without a model.
+  Future<String?> rewriteMessage(String text, String style) async {
+    if (!await hasModel()) return null;
+    final how = switch (style) {
+      'short' => 'shorter and to the point, keeping everything that matters',
+      'friendly' => 'warmer and friendlier, as to a friend',
+      _ => 'polite and formal, as to a colleague or a client',
+    };
+    final out = await _generate(
+      task: 'Rewrite reply',
+      'Rewrite this chat message so it is $how. Keep its language and its meaning; fix obvious '
+      'speech-to-text mistakes. Reply with the message only, no quotes.\n\n$text /no_think',
+      temperature: 0.4,
+    );
+    return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
+  }
+
   /// [text] translated into [language], or null without a model.
   Future<String?> translate(String text, String language) async {
     if (!await hasModel()) return null;
