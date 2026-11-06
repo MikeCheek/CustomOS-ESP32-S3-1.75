@@ -145,11 +145,15 @@ class DiarizationService {
       where: () => 'CPU, ${AiSpeed.threads()} threads',
       input: AiProfiler.wavSeconds(mono16kWav),
       unit: 's',
-      run: () => Isolate.run(() => _diarize(seg, emb, mono16kWav)),
+      run: () => _diarizeInBackground(seg, emb, mono16kWav),
     );
     return [for (final r in raw) SpeakerTurn(r[0], r[1], r[2].toInt())];
   }
 }
+
+// Top level, so the isolate gets only the three paths (see background.dart).
+Future<List<List<double>>> _diarizeInBackground(String seg, String emb, String wav) =>
+    Isolate.run(() => _diarize(seg, emb, wav));
 
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
 List<List<double>> _diarize(String seg, String emb, String wav) {

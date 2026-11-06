@@ -3,12 +3,12 @@ import 'dart:math' as math;
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'model_fetch.dart';
 import 'ai_speed.dart';
+import 'background.dart';
 import 'speaker_merge.dart';
 
 enum AsrKind { whisper, moonshine, senseVoice }
@@ -144,7 +144,7 @@ class SherpaAsr {
     );
     try {
       final tar = tarball.path, out = root.path;
-      await Isolate.run(() => extractFileToDisk(tar, out)); // creates <root>/<id>/
+      await extractArchive(tar, out); // creates <root>/<id>/
     } finally {
       if (await tarball.exists()) await tarball.delete();
     }

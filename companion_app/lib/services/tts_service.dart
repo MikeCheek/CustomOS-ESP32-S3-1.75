@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
-import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'ai_speed.dart';
 import 'ai_profiler.dart';
+import 'background.dart';
 import 'model_fetch.dart';
 
 /// A Piper voice (MIT, rhasspy/piper), packaged for sherpa-onnx.
@@ -82,7 +82,7 @@ class TtsService {
     );
     try {
       final tar = tarball.path, out = root.path;
-      await Isolate.run(() => extractFileToDisk(tar, out)); // creates <root>/<id>/
+      await extractArchive(tar, out); // creates <root>/<id>/
     } finally {
       if (await tarball.exists()) await tarball.delete();
     }
@@ -117,10 +117,14 @@ class TtsService {
       where: () => 'CPU, ${AiSpeed.threads()} threads',
       input: text.length.toDouble(),
       unit: 'chars',
-      run: () => Isolate.run(() => _synthesize(model, dir, text)),
+      run: () => _synthesizeInBackground(model, dir, text),
     );
   }
 }
+
+// Top level, so the isolate gets only the three strings (see background.dart).
+Future<Uint8List> _synthesizeInBackground(String model, String dir, String text) =>
+    Isolate.run(() => _synthesize(model, dir, text));
 
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
 // A voice that gives back nothing usable (no samples, a rate of 0, or
