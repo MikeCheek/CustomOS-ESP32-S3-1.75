@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
+import 'package:piper_phonemize/piper_phonemize.dart' as piper;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'ai_speed.dart';
@@ -117,32 +119,33 @@ class TtsService {
       where: () => 'CPU, ${AiSpeed.threads()} threads',
       input: text.length.toDouble(),
       unit: 'chars',
-      run: () => _synthesizeInBackground(model, dir, text),
+      // espeak-ng's data for the phonemizer, copied out of the app once (~19 MB)
+      run: () async => _synthesizeInBackground(model, dir, await piper.extractEspeakNgData(), text),
     );
   }
 }
 
 // Top level, so the isolate gets only the three strings (see background.dart).
-Future<Uint8List> _synthesizeInBackground(String model, String dir, String text) =>
-    Isolate.run(() => _synthesize(model, dir, text));
+Future<Uint8List> _synthesizeInBackground(String model, String dir, String espeakData, String text) =>
+    Isolate.run(() => _synthesize(model, dir, espeakData, text));
 
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
 // A voice that gives back nothing usable (no samples, a rate of 0, or
 // samples that aren't numbers) is tried once more on one thread, then
 // reported plainly - converting such output used to fail with
 // "Infinity or NaN toInt".
-Uint8List _synthesize(String model, String dir, String text) {
+Uint8List _synthesize(String model, String dir, String espeakData, String text) {
   sherpa.initBindings();
+  // sherpa-onnx 2 dropped its built-in espeak-ng (it ignores dataDir and
+  // gives back no audio for text): the text is turned into phonemes here
+  final phonemes = phonemize(text, espeakData, espeakVoice(dir));
+  if (phonemes.isEmpty) throw Exception('Nothing to say in "$text"');
   String? why;
   for (final threads in {AiSpeed.threads(), 1}) {
     final tts = sherpa.OfflineTts(
       sherpa.OfflineTtsConfig(
         model: sherpa.OfflineTtsModelConfig(
-          vits: sherpa.OfflineTtsVitsModelConfig(
-            model: model,
-            tokens: '$dir/tokens.txt',
-            dataDir: '$dir/espeak-ng-data',
-          ),
+          vits: sherpa.OfflineTtsVitsModelConfig(model: model, tokens: '$dir/tokens.txt'),
           numThreads: threads,
           debug: false,
         ),
@@ -150,14 +153,63 @@ Uint8List _synthesize(String model, String dir, String text) {
       ),
     );
     try {
-      final a = tts.generate(text: text, sid: 0, speed: 1.0);
+      final a = tts.generateWithConfig(
+        text: '',
+        config: sherpa.OfflineTtsGenerationConfig(phonemeCodepoints: phonemes),
+      );
       why = _unusable(a.samples, a.sampleRate);
       if (why == null) return pcm16Wav(a.samples, a.sampleRate);
+      why = '$why; the voice runs at ${_rate(tts)} Hz';
     } finally {
       tts.free();
     }
   }
   throw Exception('The voice gave no audio ($why) - try reinstalling it in AI models');
+}
+
+/// [text] as Piper phonemes (Unicode code points), one list per sentence.
+/// [espeakData]: espeak-ng's data folder. Empty sentences are left out.
+List<List<int>> phonemize(String text, String espeakData, String voice) {
+  piper.initBindings();
+  // the first call sets espeak-ng up (0 after that: already done); -1 failed
+  if (piper.PiperPhonemize.initialize(espeakData) < 0) {
+    throw Exception('The pronunciation data (espeak-ng) didn\'t load');
+  }
+  return [
+    for (final s in piper.PiperPhonemize.phonemize(text, voice: voice))
+      if (s.isNotEmpty) s,
+  ];
+}
+
+/// The espeak-ng voice a Piper voice was trained with: from its .onnx.json
+/// when the voice has one, else from its name (vits-piper-`lang`_`REGION`-...).
+String espeakVoice(String dir) {
+  try {
+    for (final f in Directory(dir).listSync()) {
+      if (f is File && f.path.endsWith('.onnx.json')) {
+        final v = (jsonDecode(f.readAsStringSync()) as Map)['espeak']?['voice'];
+        if (v is String && v.isNotEmpty) return v;
+      }
+    }
+  } catch (_) {}
+  return espeakVoiceFor(dir.split('/').last);
+}
+
+/// From a voice id like vits-piper-en_US-amy-low: "en-us".
+String espeakVoiceFor(String id) {
+  final m = RegExp(r'piper-([a-z]{2,3})_([A-Z]{2})').firstMatch(id);
+  if (m == null) return 'en-us';
+  final lang = m[1]!, region = m[2]!;
+  const special = {'en_GB': 'en-gb-x-rp', 'es_MX': 'es-419', 'pt_BR': 'pt-br', 'en_US': 'en-us', 'zh_CN': 'cmn'};
+  return special['${lang}_$region'] ?? lang;
+}
+
+int _rate(sherpa.OfflineTts tts) {
+  try {
+    return tts.sampleRate;
+  } catch (_) {
+    return -1;
+  }
 }
 
 /// Why this output can't be played, or null when it can.

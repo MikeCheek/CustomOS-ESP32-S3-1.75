@@ -800,6 +800,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.2"
+  piper_phonemize:
+    dependency: "direct main"
+    description:
+      name: piper_phonemize
+      sha256: e57a07acf4c0738f021eb4315fe57ea0556a81f6e7fa3974aee14fad27d075f1
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.5.9"
   platform:
     dependency: transitive
     description:

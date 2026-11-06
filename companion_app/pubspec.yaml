@@ -44,6 +44,8 @@ dependencies:
   image: ^4.12.0
   gal: ^2.3.3
   share_plus: ^12.0.2
+  # Text -> phonemes for the Piper voices (sherpa-onnx 2 no longer has espeak-ng built in)
+  piper_phonemize: ^1.5.9
 
 dev_dependencies:
   flutter_test:
