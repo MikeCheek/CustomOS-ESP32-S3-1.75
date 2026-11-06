@@ -378,44 +378,124 @@ class GemmaService {
   /// Where the language model runs now, for the profiler.
   String _where() => AiSpeed.lastBackend?.toUpperCase() ?? '?';
 
-  Future<String?> _generate(String prompt, {double temperature = 0.2, String task = 'Answer'}) => _serial(() async {
-    InferenceModel? model;
-    try {
-      model = await _ensureModel();
-    } catch (e) {
-      print('[LLM] load failed: $e');
-    }
-    if (model == null) return null;
-    // A garbled answer (control tokens leaked, a word repeated - llm_text.dart)
-    // counts as a failed run; it's tried once more, a little warmer, then given up.
-    for (var attempt = 0; attempt < 2; attempt++) {
-      final chat = await model.createChat(
-        temperature: attempt == 0 ? temperature : (temperature + 0.4).clamp(0.0, 1.0),
-        topK: 20,
-        modelType: byKey(_loadedKey).type,
-      );
-      try {
-        return await AiProfiler.instance.track(
-          model: byKey(_loadedKey).name,
-          task: task,
-          where: _where,
-          input: prompt.length.toDouble(),
-          unit: 'chars',
-          run: () async {
-            await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
-            final response = await chat.generateChatResponse();
-            final raw = response is TextResponse ? response.token : response.toString();
-            final out = cleanLlmText(raw);
-            if (out == null) throw const GarbledAnswer();
-            return out;
-          },
-        );
-      } on GarbledAnswer {
-        print('[LLM] garbled answer (attempt ${attempt + 1})');
+  Future<String?> _generate(String prompt, {double temperature = 0.2, String task = 'Answer'}) =>
+      _serial(() async {
+        InferenceModel? model;
+        try {
+          model = await _ensureModel();
+        } catch (e) {
+          print('[LLM] load failed: $e');
+        }
+        if (model == null) return null;
+        // A garbled answer (control tokens leaked, a word repeated - llm_text.dart)
+        // counts as a failed run; it's tried once more, a little warmer, then given up.
+        for (var attempt = 0; attempt < 2; attempt++) {
+          final chat = await model.createChat(
+            temperature: attempt == 0 ? temperature : (temperature + 0.4).clamp(0.0, 1.0),
+            topK: 20,
+            modelType: byKey(_loadedKey).type,
+          );
+          try {
+            return await AiProfiler.instance.track(
+              model: byKey(_loadedKey).name,
+              task: task,
+              where: _where,
+              input: prompt.length.toDouble(),
+              unit: 'chars',
+              run: () async {
+                await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
+                final response = await chat.generateChatResponse();
+                final raw = response is TextResponse ? response.token : response.toString();
+                final out = cleanLlmText(raw);
+                if (out == null) throw const GarbledAnswer();
+                return out;
+              },
+            );
+          } on GarbledAnswer {
+            print('[LLM] garbled answer (attempt ${attempt + 1})');
+          }
+        }
+        if (++_garbledRun >= 3) await _switchAway();
+        throw const GarbledAnswer();
+      }).then((v) {
+        _garbledRun = 0;
+        return v;
+      });
+
+  // ---- a model that keeps answering garbled text ----------------------------------------
+  int _garbledRun = 0; // requests in a row that came out garbled
+
+  /// What happened the last time the model was switched away from (AI models shows it), or null.
+  Future<String?> switchNotice() async => (await SharedPreferences.getInstance()).getString('llm_switch_notice');
+  Future<void> clearSwitchNotice() async => (await SharedPreferences.getInstance()).remove('llm_switch_notice');
+
+  /// Three garbled answers in a row: another installed model takes over (the
+  /// smallest first is not a good guess - the one listed first that isn't
+  /// this one), and AI models says so. With no other model, it only says so.
+  Future<void> _switchAway() async {
+    _garbledRun = 0;
+    final cur = byKey(_loadedKey ?? await selectedKey());
+    GemmaModelInfo? next;
+    for (final m in models) {
+      if (m.key != cur.key && await isInstalled(m)) {
+        next = m;
+        break;
       }
     }
-    throw const GarbledAnswer();
-  });
+    final p = await SharedPreferences.getInstance();
+    if (next == null) {
+      await p.setString(
+        'llm_switch_notice',
+        '${cur.name} keeps answering garbled text on this phone. Install another language model below and use it instead.',
+      );
+      return;
+    }
+    try {
+      await install(next); // installed already: makes it the one used
+      await p.setString(
+        'llm_switch_notice',
+        '${cur.name} kept answering garbled text on this phone, so ${next.name} is used now. '
+            'You can pick ${cur.name} again below.',
+      );
+      print('[LLM] switched from ${cur.name} to ${next.name}: garbled answers');
+    } catch (e) {
+      print('[LLM] switch failed: $e');
+    }
+  }
+
+  /// A quick check of the language model (AI models > Speed > Test): a short
+  /// question, the answer as it came out, how long it took, and whether it's
+  /// usable. Null without a model.
+  Future<({String model, bool ok, String reply, int ms, String backend})?> selfTest() async {
+    if (!await hasModel()) return null;
+    return _serial(() async {
+      final sw = Stopwatch()..start();
+      final model = await _ensureModel();
+      if (model == null) return null;
+      final info = byKey(_loadedKey);
+      final chat = await model.createChat(temperature: 0.2, topK: 20, modelType: info.type);
+      final raw = await AiProfiler.instance.track(
+        model: info.name,
+        task: 'Test',
+        where: _where,
+        run: () async {
+          await chat.addQueryChunk(
+            Message.text(isUser: true, text: 'In one short sentence: why is the sky blue? /no_think'),
+          );
+          final r = await chat.generateChatResponse();
+          return r is TextResponse ? r.token : r.toString();
+        },
+      );
+      final clean = cleanLlmText(raw);
+      return (
+        model: info.name,
+        ok: clean != null,
+        reply: clean ?? (raw.length > 300 ? '${raw.substring(0, 300)}...' : raw),
+        ms: sw.elapsedMilliseconds,
+        backend: _where(),
+      );
+    });
+  }
 
   /// Answers [question] from memo excerpts ([contexts], numbered 1..n), citing
   /// them as [1], [2]... Null when no model is installed.

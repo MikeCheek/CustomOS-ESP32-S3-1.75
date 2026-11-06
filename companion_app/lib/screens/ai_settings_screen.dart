@@ -36,6 +36,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final Set<String> _open = {};
   bool _loading = true, _diarOn = true, _ttsOn = true, _followOn = true, _briefAloud = true, _recapOn = true;
   int _recapMin = 20 * 60 + 30;
+  String? _switchNotice; // the language model was switched away from (garbled answers)
   int _running = 0;
 
   @override
@@ -74,6 +75,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     _briefAloud = await TtsService.instance.briefingAloud();
     _recapOn = await TtsService.instance.recapOn();
     _recapMin = await TtsService.instance.recapMinute();
+    _switchNotice = await GemmaService.instance.switchNotice();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -533,6 +535,33 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   AppColors.warning,
                   'The phone listens for doorbells, alarms, a baby crying',
                 ),
+                if (_switchNotice != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Panel(
+                      color: AppColors.warning.withValues(alpha: 0.12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.swap_horiz_rounded, color: AppColors.warning),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _switchNotice!,
+                              style: const TextStyle(color: AppColors.text, fontSize: 13, height: 1.35),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'OK',
+                            icon: const Icon(Icons.close_rounded, color: AppColors.textDim),
+                            onPressed: () async {
+                              await GemmaService.instance.clearSwitchNotice();
+                              await _refresh();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SectionLabel('Speed'),
                 const _SpeedPanel(),
                 const SectionLabel('On the watch'),
@@ -1024,7 +1053,55 @@ class _SpeedPanelState extends State<_SpeedPanel> {
             icon: const Icon(Icons.speed_rounded, size: 18),
             label: const Text('Performance: run times, GPU or CPU, crashes'),
           ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed: _testing ? null : _test,
+            icon: _testing
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.fact_check_outlined, size: 18),
+            label: Text(_testing ? 'Testing the language model...' : 'Test the language model'),
+          ),
         ],
+      ),
+    );
+  }
+
+  bool _testing = false;
+
+  /// One short question to the model in use: its answer, the time, and whether it's usable on this phone.
+  Future<void> _test() async {
+    setState(() => _testing = true);
+    String title, body;
+    var good = false;
+    try {
+      final r = await GemmaService.instance.selfTest();
+      if (r == null) {
+        title = 'No language model';
+        body = 'Download one under Summaries & answers first.';
+      } else {
+        good = r.ok;
+        final secs = (r.ms / 1000).toStringAsFixed(1);
+        title = r.ok ? '${r.model} works' : '${r.model} answered garbled text';
+        body =
+            '${r.ok ? 'Answer' : 'What came out'}: ${r.reply}\n\n$secs s (loading included), on the ${r.backend}.'
+            '${r.ok ? '' : '\n\nTry the other backend (CPU / GPU) above, or another model.'}';
+      }
+    } catch (e) {
+      title = 'The test failed';
+      body = e.toString().replaceFirst('Exception: ', '');
+    }
+    if (!mounted) return;
+    setState(() => _testing = false);
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        icon: Icon(
+          good ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+          color: good ? AppColors.success : AppColors.danger,
+        ),
+        title: Text(title),
+        content: Text(body),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
       ),
     );
   }
