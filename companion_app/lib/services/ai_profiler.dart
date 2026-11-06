@@ -60,7 +60,21 @@ class AiStats {
   final List<AiRun> runs; // oldest first, all of them (also the failed ones)
   const AiStats(this.model, this.runs);
 
-  List<AiRun> get good => runs.where((r) => r.ok).toList();
+  /// The runs that worked - not counting loading the model, a one-off that would skew the average.
+  List<AiRun> get good {
+    final g = runs.where((r) => r.ok && r.task != 'Load').toList();
+    return g.isEmpty ? runs.where((r) => r.ok).toList() : g;
+  }
+
+  /// The same numbers for each task (Load, Memo summary, Transcription...).
+  List<AiStats> get byTask {
+    final m = <String, List<AiRun>>{};
+    for (final r in runs) {
+      m.putIfAbsent(r.task, () => []).add(r);
+    }
+    return [for (final e in m.entries) AiStats(e.key, e.value)];
+  }
+
   int get count => runs.length;
   int get failures => runs.where((r) => !r.ok).length;
   int get avgMs {

@@ -123,28 +123,53 @@ class TtsService {
 }
 
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
+// A voice that gives back nothing usable (no samples, a rate of 0, or
+// samples that aren't numbers) is tried once more on one thread, then
+// reported plainly - converting such output used to fail with
+// "Infinity or NaN toInt".
 Uint8List _synthesize(String model, String dir, String text) {
   sherpa.initBindings();
-  final tts = sherpa.OfflineTts(
-    sherpa.OfflineTtsConfig(
-      model: sherpa.OfflineTtsModelConfig(
-        vits: sherpa.OfflineTtsVitsModelConfig(model: model, tokens: '$dir/tokens.txt', dataDir: '$dir/espeak-ng-data'),
-        numThreads: AiSpeed.threads(),
-        debug: false,
+  String? why;
+  for (final threads in {AiSpeed.threads(), 1}) {
+    final tts = sherpa.OfflineTts(
+      sherpa.OfflineTtsConfig(
+        model: sherpa.OfflineTtsModelConfig(
+          vits: sherpa.OfflineTtsVitsModelConfig(
+            model: model,
+            tokens: '$dir/tokens.txt',
+            dataDir: '$dir/espeak-ng-data',
+          ),
+          numThreads: threads,
+          debug: false,
+        ),
+        maxNumSentences: 2,
       ),
-      maxNumSentences: 2,
-    ),
-  );
-  try {
-    final a = tts.generate(text: text, sid: 0, speed: 1.0);
-    return pcm16Wav(a.samples, a.sampleRate);
-  } finally {
-    tts.free();
+    );
+    try {
+      final a = tts.generate(text: text, sid: 0, speed: 1.0);
+      why = _unusable(a.samples, a.sampleRate);
+      if (why == null) return pcm16Wav(a.samples, a.sampleRate);
+    } finally {
+      tts.free();
+    }
   }
+  throw Exception('The voice gave no audio ($why) - try reinstalling it in AI models');
+}
+
+/// Why this output can't be played, or null when it can.
+String? _unusable(Float32List x, int rate) {
+  if (rate <= 0) return 'sample rate $rate';
+  if (x.isEmpty) return 'no samples';
+  var bad = 0;
+  for (final v in x) {
+    if (!v.isFinite) bad++;
+  }
+  return bad > x.length ~/ 2 ? '$bad of ${x.length} samples not numbers' : null;
 }
 
 /// Float samples at [rate] -> 16 kHz mono 16-bit WAV (linear resampling).
 Uint8List pcm16Wav(Float32List x, int rate, {int outRate = 16000}) {
+  if (rate <= 0 || x.isEmpty) rate = outRate; // nothing to resample (callers check first)
   final n = rate == outRate ? x.length : (x.length * outRate / rate).floor();
   final b = ByteData(44 + n * 2);
   for (var i = 0; i < n; i++) {
@@ -157,6 +182,7 @@ Uint8List pcm16Wav(Float32List x, int rate, {int outRate = 16000}) {
       final i1 = i0 + 1 < x.length ? i0 + 1 : i0;
       v = x[i0] + (x[i1] - x[i0]) * (t - i0);
     }
+    if (!v.isFinite) v = 0; // a stray NaN / Infinity sample: silence, not a crash
     b.setInt16(44 + i * 2, (v * 32767).round().clamp(-32768, 32767), Endian.little);
   }
   void tag(int o, String s) {

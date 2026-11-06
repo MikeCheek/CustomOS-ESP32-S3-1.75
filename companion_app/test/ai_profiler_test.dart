@@ -36,6 +36,25 @@ void main() {
     expect(s.runs.last.error, contains('boom'));
   });
 
+  test('loading the model is apart from the average, with its own line', () async {
+    final p = AiProfiler.fresh();
+    await p.track(
+      model: 'Q',
+      task: 'Load',
+      where: () => 'GPU',
+      run: () => Future.delayed(const Duration(milliseconds: 200)),
+    );
+    await p.track(
+      model: 'Q',
+      task: 'Answer',
+      where: () => 'GPU',
+      run: () => Future.delayed(const Duration(milliseconds: 20)),
+    );
+    final s = (await p.stats()).single;
+    expect(s.maxMs, lessThan(150)); // the load isn't in it
+    expect(s.byTask.map((t) => t.model).toSet(), {'Load', 'Answer'});
+  });
+
   test('speed per second of audio', () async {
     final p = AiProfiler.fresh();
     await p.track(

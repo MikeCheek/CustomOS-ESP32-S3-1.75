@@ -78,7 +78,7 @@ class _AiProfileScreenState extends State<AiProfileScreen> {
                 children: [
                   const Text(
                     'How long each model took on this phone. Average, fastest and slowest count the runs that '
-                    'worked; red bars are failed runs and crashes.',
+                    'worked, without loading the model (it has its own line); red bars are failed runs and crashes.',
                     style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
@@ -140,6 +140,20 @@ class _ModelCard extends StatelessWidget {
                 _Num('Runs', '${s.count}${s.failures > 0 ? ' (${s.failures} failed)' : ''}'),
               ],
             ),
+            if (s.tasks.length > 1) ...[
+              const SizedBox(height: 8),
+              for (final t in s.byTask)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    t.good.isEmpty
+                        ? '${t.model}: ${t.count} run${t.count == 1 ? '' : 's'}, all failed'
+                        : '${t.model}: ${_dur(t.avgMs)} average, ${_dur(t.minMs)}-${_dur(t.maxMs)} '
+                              '(${t.count} run${t.count == 1 ? '' : 's'})',
+                    style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                  ),
+                ),
+            ],
             if (rtf != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
