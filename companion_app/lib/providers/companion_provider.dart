@@ -854,7 +854,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     try {
       await whisper.loadPrefs();
       if (!await whisper.ready()) {
-        return fail('Download the speech model in the companion app first');
+        await fail('Download the speech model in the companion app first');
+        return;
       }
       if (mounted) state = state.copyWith(dictation: 'Receiving voice reply');
       // The watch waits 3 minutes in total; leave time for transcription.
@@ -866,7 +867,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       final text = (await whisper.transcribe(tmp.path)).replaceAll(RegExp(r'\s+'), ' ').trim();
       // whisper marks silence like "[BLANK_AUDIO]" / "(music)"
       final clean = text.replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '').trim();
-      if (clean.isEmpty) return fail('No words recognized - try again');
+      if (clean.isEmpty) {
+        await fail('No words recognized - try again');
+        return;
+      }
       await _ble.sendLink({'t': 'dict', 'id': id, 'n': seq, 'tx': _clip(clean, 300)});
     } catch (e) {
       await fail(_clip(e.toString().replaceFirst('Exception: ', ''), 90));
@@ -893,7 +897,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     try {
       await whisper.loadPrefs();
       if (!await whisper.ready()) {
-        return fail('Download the speech model in the companion app first');
+        await fail('Download the speech model in the companion app first');
+        return;
       }
       await status('Listening');
       GemmaService.instance.warmUp(); // loads while the question is received and transcribed
@@ -907,7 +912,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       final heard = (await whisper.transcribe(
         tmp.path,
       )).replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
-      if (heard.isEmpty) return fail('Didn\'t catch that - try again');
+      if (heard.isEmpty) {
+        await fail('Didn\'t catch that - try again');
+        return;
+      }
       if (mounted) state = state.copyWith(dictation: 'Assistant: "$heard"');
       final reply = await _assistantReply(heard, () => status('Thinking'));
       await _ble.sendLink({
