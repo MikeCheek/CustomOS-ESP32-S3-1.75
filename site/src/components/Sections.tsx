@@ -154,7 +154,7 @@ export function Games() {
   const [ref, p] = useSectionProgress<HTMLElement>()
   const g: { shot: string; loop?: boolean; name: string; text: string }[] = [
     { shot: 'anim_piano', loop: true, name: 'Piano Tiles', text: '42 songs, a real piano synth, your own songs from a hum or a MIDI file.' },
-    { shot: 'casino.png', name: 'Casino', text: 'Slots, blackjack and roulette on one floor, one wallet.' },
+    { shot: 'casino.png', name: 'Casino', text: 'Slots, blackjack, video poker, roulette and dice on one floor, one wallet.' },
     { shot: 'game_maze.png', name: 'Maze Raider', text: 'A 3D raid through a new maze every level.' },
     { shot: 'roulette_spin.png', name: 'Roulette', text: 'The ball runs, drops and settles on the frets.' },
     { shot: 'game_breakout.png', name: 'Breakout', text: 'An arc paddle on the rim, 50 levels, bosses.' },

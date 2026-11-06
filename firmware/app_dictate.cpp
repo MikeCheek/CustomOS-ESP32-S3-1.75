@@ -6,6 +6,7 @@
 #include "hal_sd.h"
 #include "hal_ble.h"
 #include "phone_link.h"
+#include <ArduinoJson.h>
 #include <Arduino_GFX_Library.h>
 #include <SD.h>
 #include <math.h>
@@ -20,6 +21,9 @@
 //   watch -> phone  {"e":"dict","id":<notif id>,"f":"_reply.wav"}
 //   phone downloads it over the notes characteristic and transcribes
 //   phone -> watch  {"t":"dict","id":..,"tx":"text"}  or  {"t":"dict","id":..,"err":"why"}
+//   then, to have the phone's language model touch it up before sending:
+//   watch -> phone  {"e":"dict","id":..,"n":..,"rw":"short|friendly|formal","tx":"text"}
+//   phone -> watch  {"t":"dict","id":..,"n":..,"tx":"rewritten"}   (same answer as above)
 // =========================================================================
 
 #define DICT_FILE     "_reply.wav"
@@ -39,6 +43,20 @@ static int       s_press = -1;
 static uint32_t  s_seq = 0;            // attempt number - a late answer to an old take is ignored
 static bool      s_open = false;
 static int       s_confirm_by = 320;   // button row y, laid out by the draw
+static int       s_rw_y = 270;         // the rewrite chips' row y
+static bool      s_rewriting = false;  // waiting for a rewrite, not a transcription
+static const char *const RW_KEY[3] = {"short", "friendly", "formal"};
+static const char *const RW_LABEL[3] = {"Shorter", "Friendlier", "Formal"};
+
+static void rewrite(int k) {
+    char msg[600];
+    JsonDocument d;
+    d["e"] = "dict"; d["id"] = s_notif_id; d["n"] = ++s_seq; d["rw"] = RW_KEY[k]; d["tx"] = s_text;
+    serializeJson(d, msg, sizeof(msg));
+    if (!ble_link_send(msg)) { ui_show_toast("Phone not reachable", 1500); --s_seq; return; }
+    s_rewriting = true;
+    s_state = D_WAITING; s_state_ms = millis(); s_press = -1;
+}
 
 static void set_state(DictState st) { s_state = st; s_state_ms = millis(); s_press = -1; }
 
@@ -49,6 +67,7 @@ static void fail(const char *why) {
 }
 
 static void start_recording() {
+    s_rewriting = false;
     s_text[0] = 0;
     s_error[0] = 0;
     if (!phone_link_active()) { fail("Connect the companion app to use voice replies"); return; }
@@ -75,6 +94,13 @@ static void stop_and_send() {
 void dictate_on_result(uint32_t id, uint32_t seq, const char *text, const char *err) {
     if (!s_open || s_state != D_WAITING || id != s_notif_id) return;
     if (seq != 0 && seq != s_seq) return;   // answer to an earlier take
+    bool was_rewrite = s_rewriting;
+    s_rewriting = false;
+    if (was_rewrite && err && err[0]) {   // a rewrite that failed: the text as it was
+        ui_show_toast(err, 2200);
+        set_state(D_CONFIRM);
+        return;
+    }
     if (err && err[0]) {
         snprintf(s_error, sizeof(s_error), "%s", err);
         ble_fold_utf8(s_error);
@@ -171,7 +197,7 @@ static void dict_draw() {
     if (s_to[0]) {
         snprintf(t, sizeof(t), "Reply to %s", s_to);
         ui_fit(t, 1, 280);
-        ui_text_center(CX, 70, COLOR_TEXT_DIM, t, 1);
+        ui_text_center(CX, 92, COLOR_TEXT_DIM, t, 1);   // under the screen's title
     }
 
     switch (s_state) {
@@ -195,14 +221,22 @@ static void dict_draw() {
     case D_WAITING: {
         float a = (millis() % 1200) * 0.3f;
         ui_arc(CX, CY - 20, 46, 8, a, 270, COLOR_ACCENT, true);
-        ui_text_center(CX, CY + 60, COLOR_TEXT, "Transcribing", 2);
+        ui_text_center(CX, CY + 60, COLOR_TEXT, s_rewriting ? "Rewriting" : "Transcribing", 2);
         ui_text_center(CX, CY + 90, COLOR_TEXT_DIM, "on your phone...", 1);
         break;
     }
     case D_CONFIRM: {
-        int y = wrap_center(s_text, 112, 330, 2, COLOR_TEXT, 7);
-        int by = y + 16 < 320 ? 320 : y + 16;
-        if (by > LCD_HEIGHT - 90) by = LCD_HEIGHT - 90;
+        int y = wrap_center(s_text, 124, 330, 2, COLOR_TEXT, 5);
+        // the phone's AI can touch it up: three chips above the buttons
+        int ry = y + 12 < 270 ? 270 : y + 12;
+        if (ry > LCD_HEIGHT - 150) ry = LCD_HEIGHT - 150;
+        s_rw_y = ry;
+        for (int k = 0; k < 3; k++) {
+            int x = CX - 165 + k * 112;
+            g->fillRoundRect(x, ry, 106, 36, 18, s_press == 20 + k ? COLOR_ACCENT2 : COLOR_PANEL);
+            ui_text_center(x + 53, ry + 18, s_press == 20 + k ? COLOR_BG : COLOR_TEXT, RW_LABEL[k], 1);
+        }
+        int by = ry + 52;
         s_confirm_by = by;
         draw_buttons(g, by, "Retry", "Send", COLOR_ACCENT);
         break;
@@ -228,13 +262,21 @@ static void dict_touch(int x, int y, bool pressed) {
     }
     if (s_state == D_WAITING) return;
     int by = s_state == D_CONFIRM ? confirm_btn_y() : CY + 60;
-    if (edge) s_press = hit_buttons(x, y, by);
+    if (edge) {
+        s_press = hit_buttons(x, y, by);
+        if (s_state == D_CONFIRM && y >= s_rw_y && y < s_rw_y + 36)
+            for (int k = 0; k < 3; k++) {
+                int bx = CX - 165 + k * 112;
+                if (x >= bx && x < bx + 106) s_press = 20 + k;
+            }
+    }
     if (pressed) return;
     int p = s_press;
     s_press = -1;
     if (p < 0) return;
     if (s_state == D_CONFIRM) {
-        if (p == 0) start_recording();
+        if (p >= 20) rewrite(p - 20);
+        else if (p == 0) start_recording();
         else {
             if (phone_link_notif_reply(s_notif_id, s_text)) {
                 ui_show_toast("Reply sent", 1500);

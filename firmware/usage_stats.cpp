@@ -47,6 +47,12 @@ static const char *const AW_KEYS[AW_N] = {"build", "setting", "wakeword", "aod",
 static uint32_t s_aw[AW_N];
 static uint32_t s_off_s = 0;   // seconds with the screen off today (unplugged)
 
+// How long the parts that cost the most beyond the screen were in use today
+// (unplugged, screen on or off): the app turns them into battery estimates.
+enum FeatTime { FT_SPEAKER, FT_MIC, FT_GPS, FT_WIFI, FT_N };
+static const char *const FT_KEYS[FT_N] = {"speaker", "mic", "gps", "wifi"};
+static uint32_t s_ft[FT_N];
+
 // The last 7 days, newest first (part 4): kept with the rest in the store.
 struct DaySum { uint32_t date; uint16_t on_min, wakes; uint8_t drop, charges; uint16_t pad; };
 static DaySum s_week[7];
@@ -106,6 +112,7 @@ static void save() {
     p.putUInt("disc", s_disc);
     p.putUInt("ntf", s_ntf);
     p.putShort("day", (int16_t)s_day);
+    p.putBytes("ft", s_ft, sizeof(s_ft));
     p.end();
 }
 
@@ -138,6 +145,7 @@ void usage_init() {
     s_wakes = p.getUInt("wakes", 0);
     s_disc = p.getUInt("disc", 0);
     s_ntf = p.getUInt("ntf", 0);
+    if (p.getBytesLength("ft") == sizeof(s_ft)) p.getBytes("ft", s_ft, sizeof(s_ft));
     s_day = p.getShort("day", -1);
     p.end();
     // the time asleep while powered off isn't known: mark the gap
@@ -187,6 +195,7 @@ static void new_day() {
     memset(s_apps, 0, sizeof(s_apps));
     s_wakes = s_disc = s_ntf = 0;
     memset(s_aw, 0, sizeof(s_aw));
+    memset(s_ft, 0, sizeof(s_ft));
     s_off_s = 0;
 }
 
@@ -212,6 +221,18 @@ void usage_update() {
     static bool plugged = false;
     static uint32_t plugged_ms = 0;
     if (!plugged_ms || ms - plugged_ms > 10000) { plugged_ms = ms ? ms : 1; plugged = power_vbus_present(); }   // the PMU, every 10 s
+    if (!plugged) {
+#if FEATURE_AUDIO
+        if (audio_is_recording()) s_ft[FT_MIC]++;
+        else if (audio_is_playing()) s_ft[FT_SPEAKER]++;
+#endif
+#if FEATURE_GPS
+        if (gps_is_enabled()) s_ft[FT_GPS]++;
+#endif
+#if FEATURE_WIFI
+        if (wifi_is_enabled()) s_ft[FT_WIFI]++;
+#endif
+    }
     if (asleep && !plugged) {
         s_off_s++;
         if (!power_auto_sleep_available()) s_aw[AW_BUILD]++;
@@ -329,6 +350,9 @@ void usage_send() {
         JsonObject aw = d["aw"].to<JsonObject>();
         for (int i = 0; i < AW_N; i++)
             if (s_aw[i]) aw[AW_KEYS[i]] = s_aw[i];
+        JsonObject ft = d["ft"].to<JsonObject>();
+        for (int i = 0; i < FT_N; i++)
+            if (s_ft[i]) ft[FT_KEYS[i]] = s_ft[i];
         phone_link_send(d);
     }
     {

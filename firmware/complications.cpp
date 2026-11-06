@@ -19,10 +19,10 @@
 #include <string.h>
 
 static const char *const KEYS[COMP_COUNT] = {
-    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings",
+    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings", "brief",
 };
 static const char *const LABELS[COMP_COUNT] = {
-    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings",
+    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings", "Today",
 };
 
 const char *comp_key(CompId id) { return id < COMP_COUNT ? KEYS[id] : "none"; }
@@ -72,6 +72,49 @@ void comp_set_todos(int count, const char *top) {
     s_todo_n = count;
     snprintf(s_todo_top, sizeof(s_todo_top), "%s", top ? top : "");
     ble_fold_utf8(s_todo_top);
+}
+
+static char s_brief_v[8] = "";
+static char s_brief_l[40] = "";
+static char s_brief_x[120] = "";
+
+void comp_set_brief(const char *value, const char *label, const char *line) {
+    snprintf(s_brief_v, sizeof(s_brief_v), "%s", value ? value : "");
+    snprintf(s_brief_l, sizeof(s_brief_l), "%s", label ? label : "");
+    snprintf(s_brief_x, sizeof(s_brief_x), "%s", line ? line : "");
+    ble_fold_utf8(s_brief_l);
+    ble_fold_utf8(s_brief_x);
+}
+
+static char s_recap[384] = "";
+static int s_recap_day = -1;   // yyyymmdd of the evening it belongs to
+
+// The evening a moment is in: before 4:00 it's still the day before.
+static int evening_of(const WatchTime &t) {
+    if (!t.valid) return -1;
+    int d = t.year * 10000 + t.month * 100 + t.day;
+    if (t.hour >= 4) return d;
+    // yesterday, roughly (the 1st after midnight counts as the last of the month)
+    return t.day > 1 ? d - 1 : d - 100 + 30;
+}
+
+void comp_set_recap(const char *text) {
+    snprintf(s_recap, sizeof(s_recap), "%s", text ? text : "");
+    ble_fold_utf8(s_recap);
+    s_recap_day = evening_of(rtc_now());
+}
+
+bool comp_recap(char *text, int n) {
+    if (!s_recap[0] || s_recap_day < 0 || evening_of(rtc_now()) != s_recap_day) return false;
+    snprintf(text, n, "%s", s_recap);
+    return true;
+}
+
+bool comp_brief(char *head, int hn, char *line, int ln) {
+    if (!s_brief_l[0]) return false;
+    snprintf(head, hn, "%s", s_brief_l);
+    snprintf(line, ln, "%s", s_brief_x);
+    return true;
 }
 
 static uint32_t s_step_goal = 8000;
@@ -208,6 +251,12 @@ void comp_draw(Arduino_GFX *g, CompId id, int cx, int cy, int r, uint16_t accent
         if (s_todo_n < 0) snprintf(v, sizeof(v), "--");
         else snprintf(v, sizeof(v), "%d", s_todo_n);
         value_label(cx, cy, r, v, s_todo_n > 0 && s_todo_top[0] ? s_todo_top : "to-dos", COLOR_TEXT);
+        break;
+    }
+    case COMP_BRIEF: {
+        bool some = s_brief_v[0] && strcmp(s_brief_v, "-") != 0;
+        ring(cx, cy, r, some ? 1.0f : 0, some ? accent : COLOR_PANEL);
+        value_label(cx, cy, r, s_brief_v[0] ? s_brief_v : "--", s_brief_l[0] ? s_brief_l : "today", COLOR_TEXT);
         break;
     }
     case COMP_RINGS: {

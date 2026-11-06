@@ -70,6 +70,23 @@ void main() {
     expect(titles.any((t) => t.startsWith('GPS')), isFalse); // under a fifth of the time
   });
 
+  test('battery cost per feature: time on at its typical draw', () {
+    final u = WatchUsage.fromParts({
+      0: {'bat': 'ff' * 144, 'chg': '0' * 144, 'iv': 10},
+      1: {'on': List.filled(24, 0), 'wk': List.filled(24, 0), 'ony': List.filled(24, 0)},
+      2: {'apps': [], 'rr': 'power on'},
+      3: {
+        'off': 3600,
+        'pm': 1,
+        'ft': {'speaker': 1800, 'gps': 3600, 'mic': 0},
+      },
+    }, DateTime(2026, 11, 4))!;
+    final c = u.featureCosts(batteryMah: 300);
+    expect(c.map((x) => x.$1).toList(), ['GPS', 'Speaker']); // most first; unused ones left out
+    expect(c.first.$4, closeTo(10, 0.01)); // an hour at 30 mA of 300 mAh
+    expect(c.last.$4, closeTo(7.5, 0.01)); // half an hour at 45 mA
+  });
+
   test('the three parts, put together', () {
     final u = WatchUsage.fromParts({
       2: {

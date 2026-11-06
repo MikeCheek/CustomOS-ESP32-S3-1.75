@@ -23,12 +23,27 @@ Built on Arduino + Arduino_GFX, no LVGL.
   - the camera remote, including with the phone's own camera app (Android)
   - the floating watch on Android
   - Breathe by sound; clearer sound switches
-  - the Casino (with Roulette); the new Maze Raider
+  - the Casino (with Roulette, Video Poker and Hi-Lo Dice, stats and a daily bonus); the new Maze Raider
+  - the assistant listens for a follow-up after a spoken answer ("and tomorrow?"), with no wake word
+  - spoken answers without an SD card; messages read aloud (hold one); the morning briefing said aloud
+  - the "Today" complication and Smart Stack card, worded by the phone's AI (tap the card to hear it)
+  - an evening recap of the day, said on the watch and kept as a Smart Stack card; Catch me up read aloud; the
+    briefing said in the phone's language when there's a voice for it; the assistant's earlier answers (swipe up)
+  - messages by voice ("tell Marco I'm late", "di' a Luca che arrivo tardi"), sent after an OK; voice replies
+    touched up by the AI (shorter, friendlier, formal); more commands in Italian without the language model
+  - Diagnostics: the battery cost of the speaker, microphone, GPS and Wi-Fi, next to the screen's
+- **In the app:** AI models > Speed > "Test the language model" checks the model in use; one that keeps answering
+  garbled text is replaced by another installed model, and the app says so.
+- **New in the app, checked on a phone:** the voices speak again (sherpa-onnx 2 needs its text turned into phonemes
+  first), model installs no longer fail, the language model runs on the GPU when it can, and AI models > Speed >
+  Performance times every model run (average, fastest, slowest, where it ran, crashes). Not tried on a phone yet: a
+  play button on each voice, suggestions for the phone from those timings, and the model kept loaded between questions.
 - **iPhone:** the app builds in CI and an unsigned `.ipa` comes with each release. Android-only features are marked as
   such in the app.
 - **Tests:** every push builds the firmware twice (PlatformIO and Arduino), runs the PC tests (falls, sleep,
   handwriting, motion, voice) and the emulator self-tests (storage, Wallet, home gestures, the sound switches,
-  Breathe, roulette payouts, the live view), analyzes and builds the Android app.
+  Breathe, the Casino's payouts, poker hands and stats, the assistant's follow-ups and spoken requests, the live
+  view), analyzes and builds the Android app.
 
 ## Screenshots
 
@@ -118,13 +133,16 @@ The five most complete:
      card can be deleted on the watch.
    - The piano is a real synth: six voices, two strings, hammer and damper, chords as written.
    - **Listen** plays a song by itself, with no score.
-2. **Casino**: a casino floor drawn on the round screen, with a slot machine, a blackjack table and a roulette wheel.
-   Tap one to play.
-   - One wallet for all three. When you're out of chips, the cashier tops you up. Play money only.
+2. **Casino**: a casino floor drawn on the round screen, with a slot machine, a blackjack table, a video poker
+   machine, a roulette wheel and a dice table. Tap one to play.
+   - One wallet for all five. When you're out of chips, the cashier tops you up, and once a day there's a bonus. Play
+     money only. **Stats** shows each game's rounds, overall result and biggest win, and your best poker hand.
    - **Crystal Cavern**: cascading clusters, wilds, scatters and free spins.
    - **Blackjack**: side bets, insurance, other players at the table.
    - **Roulette**: a single-zero wheel. Bet on red/black, odd/even, halves, dozens or any number on a 0-36 table. The
      ball runs, drops and settles, ticking on the frets.
+   - **Video Poker**: Jacks or Better on the usual 9/6 table. Tap the cards to keep, then draw once.
+   - **Hi-Lo Dice**: bet that two dice land under 7, on 7 (4:1) or over 7, then watch them tumble.
 3. **Maze Raider**: a 3D raid through a new maze each level.
    - Take every gem to open the portal, then reach it.
    - Enemies find their way to you: red ones bite, purple ones shoot. A boss every 4th level.
@@ -227,7 +245,7 @@ You can play by touch, by tilt, with the phone as a gamepad, or with an ESP-NOW 
   the settings button has both switches.
 - **Apps** - Recorder, Music and Media player (MP3/AAC, video), Gallery, Files, Contacts, Phone, Battery,
   3D printer status (Bambu), sensor tests.
-- **Games**: Piano Tiles, the Casino (Crystal Cavern, Blackjack, Roulette), Maze Raider, Breakout, Flappy and more.
+- **Games**: Piano Tiles, the Casino (Crystal Cavern, Blackjack, Video Poker, Roulette, Hi-Lo Dice), Maze Raider, Breakout, Flappy and more.
   See [Games](#games).
 - **Health** - hardware pedometer with daily history, GPS (on the `-G` board); fall detection (free fall, impact, lying still: "Did you fall?" for 30 s, then the phone rings
   and texts your emergency contact with the location).

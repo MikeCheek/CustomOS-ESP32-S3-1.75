@@ -456,7 +456,7 @@ class NotesNotifier extends StateNotifier<NotesState> {
     }
 
     _downloadBuffer.addAll(List<int>.from(data as List));
-    _xferBytes += (data as List).length;
+    _xferBytes += data.length;
     // A voice reply in the background mustn't drive the memos banner.
     final temp = _tempName != null && _tempName == _downloadFilename;
 

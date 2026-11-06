@@ -8,6 +8,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'text_insights.dart';
 import 'smart_replies.dart';
+import 'ai_speed.dart';
+import 'ai_profiler.dart';
+import 'llm_text.dart';
 import 'model_fetch.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
@@ -247,11 +250,25 @@ class GemmaService {
     return _serial(() async {
       await _closeModel();
       await _activate(m);
-      final model = await FlutterGemma.getActiveModel(maxTokens: 2048, supportImage: true, maxNumImages: 1);
+      final model = await AiProfiler.instance.track(
+        model: m.name,
+        task: 'Load',
+        where: _where,
+        run: () => AiSpeed.load(maxTokens: 2048, supportImage: true, maxNumImages: 1), // GPU when it can
+      );
       try {
         final chat = await model.createChat(temperature: 0.2, topK: 20, supportImage: true, modelType: m.type);
-        await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
-        final r = await chat.generateChatResponse();
+        final r = await AiProfiler.instance.track(
+          model: m.name,
+          task: 'Look',
+          where: _where,
+          input: prompt.length.toDouble(),
+          unit: 'chars',
+          run: () async {
+            await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
+            return chat.generateChatResponse();
+          },
+        );
         final raw = r is TextResponse ? r.token : r.toString();
         return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').replaceAll(RegExp(r'[*#`]'), '').trim();
       } finally {
@@ -275,6 +292,43 @@ class GemmaService {
     }
   }
 
+  /// Drops the loaded model, so the next request loads it again (on the CPU / GPU now chosen).
+  Future<void> reload() => _serial(_closeModel);
+
+  /// Loading the model is the slowest step (AI models > Performance): the
+  /// assistant starts it while the question is still being transcribed, so
+  /// the answer doesn't wait for it. Does nothing when it's loaded already.
+  void warmUp() {
+    if (_model != null) return;
+    unawaited(
+      _serial(() async {
+        try {
+          await _ensureModel();
+        } catch (e) {
+          print('[LLM] warm-up failed: $e');
+        }
+      }),
+    );
+  }
+
+  /// Kept loaded between requests, so a follow-up answers right away; let go
+  /// after [_idle] without one (it holds hundreds of MB), or at once when
+  /// the phone runs short of memory.
+  static const _idle = Duration(minutes: 10);
+  Timer? _idleTimer;
+
+  void _touch() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer(_idle, () => unawaited(_serial(_closeModel)));
+  }
+
+  /// The phone is short of memory (main.dart): the model goes, it's loaded again when needed.
+  void onMemoryPressure() {
+    if (_model == null) return;
+    _idleTimer?.cancel();
+    unawaited(_serial(_closeModel));
+  }
+
   Future<void> _closeModel() async {
     final m = _model;
     _model = null;
@@ -296,7 +350,12 @@ class GemmaService {
     await _closeModel();
     // Re-activate it (cheap if already installed) so the spec matches.
     await _activate(info);
-    _model = await FlutterGemma.getActiveModel(maxTokens: 2048);
+    _model = await AiProfiler.instance.track(
+      model: info.name,
+      task: 'Load',
+      where: _where,
+      run: () => AiSpeed.load(maxTokens: 2048), // GPU when it can
+    );
     _loadedKey = key;
     return _model;
   }
@@ -310,24 +369,133 @@ class GemmaService {
   Future<void> _queue = Future.value();
   Future<T> _serial<T>(Future<T> Function() fn) {
     final r = _queue.then((_) => fn());
-    _queue = r.then((_) {}, onError: (_) {});
+    _queue = r.then((_) {}, onError: (_) {}).whenComplete(() {
+      if (_model != null) _touch();
+    });
     return r;
   }
 
-  Future<String?> _generate(String prompt, {double temperature = 0.2}) => _serial(() async {
-    InferenceModel? model;
-    try {
-      model = await _ensureModel();
-    } catch (e) {
-      print('[LLM] load failed: $e');
+  /// Where the language model runs now, for the profiler.
+  String _where() => AiSpeed.lastBackend?.toUpperCase() ?? '?';
+
+  Future<String?> _generate(String prompt, {double temperature = 0.2, String task = 'Answer'}) =>
+      _serial(() async {
+        InferenceModel? model;
+        try {
+          model = await _ensureModel();
+        } catch (e) {
+          print('[LLM] load failed: $e');
+        }
+        if (model == null) return null;
+        // A garbled answer (control tokens leaked, a word repeated - llm_text.dart)
+        // counts as a failed run; it's tried once more, a little warmer, then given up.
+        for (var attempt = 0; attempt < 2; attempt++) {
+          final chat = await model.createChat(
+            temperature: attempt == 0 ? temperature : (temperature + 0.4).clamp(0.0, 1.0),
+            topK: 20,
+            modelType: byKey(_loadedKey).type,
+          );
+          try {
+            return await AiProfiler.instance.track(
+              model: byKey(_loadedKey).name,
+              task: task,
+              where: _where,
+              input: prompt.length.toDouble(),
+              unit: 'chars',
+              run: () async {
+                await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
+                final response = await chat.generateChatResponse();
+                final raw = response is TextResponse ? response.token : response.toString();
+                final out = cleanLlmText(raw);
+                if (out == null) throw const GarbledAnswer();
+                return out;
+              },
+            );
+          } on GarbledAnswer {
+            print('[LLM] garbled answer (attempt ${attempt + 1})');
+          }
+        }
+        if (++_garbledRun >= 3) await _switchAway();
+        throw const GarbledAnswer();
+      }).then((v) {
+        _garbledRun = 0;
+        return v;
+      });
+
+  // ---- a model that keeps answering garbled text ----------------------------------------
+  int _garbledRun = 0; // requests in a row that came out garbled
+
+  /// What happened the last time the model was switched away from (AI models shows it), or null.
+  Future<String?> switchNotice() async => (await SharedPreferences.getInstance()).getString('llm_switch_notice');
+  Future<void> clearSwitchNotice() async => (await SharedPreferences.getInstance()).remove('llm_switch_notice');
+
+  /// Three garbled answers in a row: another installed model takes over (the
+  /// smallest first is not a good guess - the one listed first that isn't
+  /// this one), and AI models says so. With no other model, it only says so.
+  Future<void> _switchAway() async {
+    _garbledRun = 0;
+    final cur = byKey(_loadedKey ?? await selectedKey());
+    GemmaModelInfo? next;
+    for (final m in models) {
+      if (m.key != cur.key && await isInstalled(m)) {
+        next = m;
+        break;
+      }
     }
-    if (model == null) return null;
-    final chat = await model.createChat(temperature: temperature, topK: 20, modelType: byKey(_loadedKey).type);
-    await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
-    final response = await chat.generateChatResponse();
-    final raw = response is TextResponse ? response.token : response.toString();
-    return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').trim();
-  });
+    final p = await SharedPreferences.getInstance();
+    if (next == null) {
+      await p.setString(
+        'llm_switch_notice',
+        '${cur.name} keeps answering garbled text on this phone. Install another language model below and use it instead.',
+      );
+      return;
+    }
+    try {
+      await install(next); // installed already: makes it the one used
+      await p.setString(
+        'llm_switch_notice',
+        '${cur.name} kept answering garbled text on this phone, so ${next.name} is used now. '
+            'You can pick ${cur.name} again below.',
+      );
+      print('[LLM] switched from ${cur.name} to ${next.name}: garbled answers');
+    } catch (e) {
+      print('[LLM] switch failed: $e');
+    }
+  }
+
+  /// A quick check of the language model (AI models > Speed > Test): a short
+  /// question, the answer as it came out, how long it took, and whether it's
+  /// usable. Null without a model.
+  Future<({String model, bool ok, String reply, int ms, String backend})?> selfTest() async {
+    if (!await hasModel()) return null;
+    return _serial(() async {
+      final sw = Stopwatch()..start();
+      final model = await _ensureModel();
+      if (model == null) return null;
+      final info = byKey(_loadedKey);
+      final chat = await model.createChat(temperature: 0.2, topK: 20, modelType: info.type);
+      final raw = await AiProfiler.instance.track(
+        model: info.name,
+        task: 'Test',
+        where: _where,
+        run: () async {
+          await chat.addQueryChunk(
+            Message.text(isUser: true, text: 'In one short sentence: why is the sky blue? /no_think'),
+          );
+          final r = await chat.generateChatResponse();
+          return r is TextResponse ? r.token : r.toString();
+        },
+      );
+      final clean = cleanLlmText(raw);
+      return (
+        model: info.name,
+        ok: clean != null,
+        reply: clean ?? (raw.length > 300 ? '${raw.substring(0, 300)}...' : raw),
+        ms: sw.elapsedMilliseconds,
+        backend: _where(),
+      );
+    });
+  }
 
   /// Answers [question] from memo excerpts ([contexts], numbered 1..n), citing
   /// them as [1], [2]... Null when no model is installed.
@@ -341,6 +509,7 @@ class GemmaService {
       budget -= c.length;
     }
     final out = await _generate(
+      task: 'Ask AI',
       'Answer the question using ONLY these notes from the user\'s voice memos. '
       'Cite the notes you used like [1] or [2]. If the notes don\'t contain the answer, say so briefly. '
       'Answer in the language of the question, in at most 5 sentences.\n\n'
@@ -353,9 +522,11 @@ class GemmaService {
   /// (services/assistant_intents.dart): maps [request] to one of the same
   /// actions, or answers it. Returns {"tool": ..., ...} - "answer" with
   /// "text" for a plain answer - or null without a model.
-  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now) async {
+  /// [previous]: the exchange just before, when this is a follow-up to it.
+  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now, {String? previous}) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Assistant',
       'You are the voice assistant of a smartwatch. It is ${now.toIso8601String().substring(0, 16)}.\n'
       'Reply with ONLY one JSON object, no other text.\n'
       'If the request is one of these actions, reply with it:\n'
@@ -367,6 +538,7 @@ class GemmaService {
       '{"tool":"dnd","on":true}  {"tool":"memos","query":"what to look for in the user\'s voice memos"}\n'
       'Otherwise answer it yourself, in the language of the request, in at most 2 short sentences:\n'
       '{"tool":"answer","text":"..."}\n\n'
+      '${previous == null ? '' : 'This follows on from:\n$previous\n\n'}'
       'Request: $request /no_think',
       temperature: 0.2,
     );
@@ -388,7 +560,7 @@ class GemmaService {
   /// or null without a model.
   Future<List<String>?> suggestReplies(String app, String sender, String message) async {
     if (!await hasModel()) return null;
-    final out = await _generate(SmartReplies.prompt(app, sender, message), temperature: 0.6);
+    final out = await _generate(task: 'Smart replies', SmartReplies.prompt(app, sender, message), temperature: 0.6);
     if (out == null) return null;
     final r = SmartReplies.parse(out);
     return r.isEmpty ? null : r;
@@ -401,6 +573,7 @@ class GemmaService {
     var buf = lines.join('\n');
     if (buf.length > 3000) buf = buf.substring(buf.length - 3000);
     final out = await _generate(
+      task: 'Catch me up',
       'These are the user\'s phone notifications, oldest first:\n$buf\n\n'
       'Summarize them for a smartwatch screen in $language, in at most 6 short lines. '
       'First what needs a reply or action (who, what), then the rest grouped by app or person. '
@@ -439,6 +612,7 @@ class GemmaService {
     ];
     final d = day ?? DateTime.now();
     final out = await _generate(
+      task: 'Meal ideas',
       'Suggest today\'s meals for a healthy, balanced day. Diet: $diet. '
       '${notes.trim().isEmpty ? '' : 'About the person (follow it strictly, e.g. allergies): ${notes.trim()}. '}'
       '${training ? 'It is a training day: a little more protein and carbohydrates. ' : ''}'
@@ -471,20 +645,52 @@ class GemmaService {
     return (b, l, dn);
   }
 
+  /// A message the user dictated, rewritten in [style] ("short", "friendly",
+  /// "formal") in the same language, or null without a model.
+  Future<String?> rewriteMessage(String text, String style) async {
+    if (!await hasModel()) return null;
+    final how = switch (style) {
+      'short' => 'shorter and to the point, keeping everything that matters',
+      'friendly' => 'warmer and friendlier, as to a friend',
+      _ => 'polite and formal, as to a colleague or a client',
+    };
+    final out = await _generate(
+      task: 'Rewrite reply',
+      'Rewrite this chat message so it is $how. Keep its language and its meaning; fix obvious '
+      'speech-to-text mistakes. Reply with the message only, no quotes.\n\n$text /no_think',
+      temperature: 0.4,
+    );
+    return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
+  }
+
   /// [text] translated into [language], or null without a model.
   Future<String?> translate(String text, String language) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Translate',
       'Translate this message into $language. Reply with the translation only.\n\n$text /no_think',
       temperature: 0.1,
     );
     return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
   }
 
+  /// The evening recap's sentences (evening_recap.dart), or null without a model.
+  Future<String?> eveningRecap(String prompt) async {
+    if (!await hasModel()) return null;
+    return _generate(task: 'Evening recap', prompt, temperature: 0.5);
+  }
+
+  /// The few words for the watch face's "Today" complication (today_brief.dart), or null without a model.
+  Future<String?> todayHeadline(String prompt) async {
+    if (!await hasModel()) return null;
+    return _generate(task: 'Today brief', prompt, temperature: 0.3);
+  }
+
   /// A 1-4 word name for a group of memos about [keywords], or null.
   Future<String?> nameCollection(List<String> keywords, List<String> titles) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Collection name',
       'These voice memos were grouped together.\nKeywords: ${keywords.join(', ')}\n'
       'Titles: ${titles.take(6).join('; ')}\n'
       'Give the group a short name (1-4 words, no quotes, no punctuation at the end). Reply with the name only. /no_think',
@@ -515,24 +721,33 @@ class GemmaService {
     final text = transcript.length > 3000 ? transcript.substring(0, 3000) : transcript;
     try {
       final chat = await model.createChat(temperature: 0.2, topK: 20, modelType: byKey(_loadedKey).type);
-      await chat.addQueryChunk(
-        Message.text(
-          isUser: true,
-          text:
-              'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
-              'Answer with ONLY a JSON object, no other text, all text in '
-              '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
-              '{"title": "3-6 word title", '
-              '"summary": "2-3 sentences", '
-              '"importance": 1-5, '
-              '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
-              '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
-              '"actions": ["concrete things to do mentioned, short, empty if none"], '
-              '"people": ["names of people mentioned, empty if none"]}\n\n'
-              'Memo:\n$text /no_think',
-        ),
+      final response = await AiProfiler.instance.track(
+        model: byKey(_loadedKey).name,
+        task: 'Memo summary',
+        where: _where,
+        input: text.length.toDouble(),
+        unit: 'chars',
+        run: () async {
+          await chat.addQueryChunk(
+            Message.text(
+              isUser: true,
+              text:
+                  'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
+                  'Answer with ONLY a JSON object, no other text, all text in '
+                  '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
+                  '{"title": "3-6 word title", '
+                  '"summary": "2-3 sentences", '
+                  '"importance": 1-5, '
+                  '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
+                  '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
+                  '"actions": ["concrete things to do mentioned, short, empty if none"], '
+                  '"people": ["names of people mentioned, empty if none"]}\n\n'
+                  'Memo:\n$text /no_think',
+            ),
+          );
+          return chat.generateChatResponse();
+        },
       );
-      final response = await chat.generateChatResponse();
       final raw = response is TextResponse ? response.token : response.toString();
       final parsed = _parse(raw);
       if (parsed != null) return parsed;
@@ -619,4 +834,11 @@ class GemmaService {
       'people': TextInsights.people(transcript),
     };
   }
+}
+
+/// The model's answer came out garbled twice (llm_text.dart).
+class GarbledAnswer implements Exception {
+  const GarbledAnswer();
+  @override
+  String toString() => 'The AI\'s answer came out garbled - try again, or pick another model';
 }

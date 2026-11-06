@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
 import 'model_fetch.dart';
 import 'sherpa_asr.dart';
+import 'ai_profiler.dart';
+import 'ai_speed.dart';
 import 'speaker_merge.dart';
 
 /// A transcript and, when asked for, its timed pieces.
@@ -208,22 +210,37 @@ class WhisperService {
 
     final prepared = await _toMono16k(input);
     try {
+      final secs = AiProfiler.wavSeconds(prepared.path);
       if (sm != null) {
-        final r = await SherpaAsr.instance.transcribe(
-          sm,
-          prepared.path,
-          lang: (lang == null || lang.isEmpty) ? _language : lang,
-          onProgress: onProgress,
+        final r = await AiProfiler.instance.track(
+          model: sm.name,
+          task: 'Transcription',
+          where: () => 'CPU, ${AiSpeed.threads()} threads',
+          input: secs,
+          unit: 's',
+          run: () => SherpaAsr.instance.transcribe(
+            sm,
+            prepared.path,
+            lang: (lang == null || lang.isEmpty) ? _language : lang,
+            onProgress: onProgress,
+          ),
         );
         if (withAudio != null) await withAudio(prepared.path);
         return TimedTranscript(r.text, timed ? r.pieces : const []);
       }
-      final result = await _controller.transcribe(
-        model: _model,
-        audioPath: prepared.path,
-        lang: (lang == null || lang.isEmpty) ? _language : lang,
-        withSegments: timed,
-        onProgress: onProgress == null ? null : (p) => onProgress(p / 100.0),
+      final result = await AiProfiler.instance.track(
+        model: 'Whisper ${_model.name} (whisper.cpp)',
+        task: 'Transcription',
+        where: () => 'CPU, 6 threads',
+        input: secs,
+        unit: 's',
+        run: () => _controller.transcribe(
+          model: _model,
+          audioPath: prepared.path,
+          lang: (lang == null || lang.isEmpty) ? _language : lang,
+          withSegments: timed,
+          onProgress: onProgress == null ? null : (p) => onProgress(p / 100.0),
+        ),
       );
       if (result == null) throw Exception('Transcription failed');
       final pieces = [

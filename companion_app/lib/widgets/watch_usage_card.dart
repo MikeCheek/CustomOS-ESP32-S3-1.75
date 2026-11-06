@@ -55,6 +55,7 @@ class WatchUsageSection extends ConsumerWidget {
     final rates = u.drainRates();
     final life = u.fullChargeHours();
     final shares = u.drainShares();
+    final costs = u.featureCosts();
     final peaks = u.peakHours();
     final findings = usageFindings(
       u,
@@ -141,6 +142,47 @@ class WatchUsageSection extends ConsumerWidget {
             ],
           ),
         ),
+        if (costs.isNotEmpty) ...[
+          const SectionLabel('Battery cost per feature, today'),
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final (name, what, secs, pct) in costs)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              Text(
+                                '$what · ${_dur(secs)}',
+                                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          pct < 0.5 ? '<1%' : '~${pct.round()}%',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Of a full battery. The screen is measured from the drain; the others are estimated from how long '
+                  'they were on and their typical draw (a ~350 mAh battery).',
+                  style: TextStyle(color: AppColors.textFaint, fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         if (shares.isNotEmpty) ...[
           const SectionLabel('Where the battery goes'),
           Panel(

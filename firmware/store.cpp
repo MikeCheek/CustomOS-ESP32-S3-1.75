@@ -75,6 +75,7 @@ void store_begin() {
 
 bool store_ok() { return s_fs != nullptr; }
 const char *store_where() { return s_where; }
+fs::FS *store_fs() { return s_fs; }
 
 static void path(char *b, size_t n, const char *name, const char *ext = "") {
     snprintf(b, n, "%s/%s%s", DIR_DATA, name, ext);
@@ -136,3 +137,5 @@ bool store_remove(const char *name) {
     path(p, sizeof(p), name);
     return s_fs->remove(p);
 }
+
+void store_path(char *buf, size_t n, const char *name) { path(buf, n, name); }

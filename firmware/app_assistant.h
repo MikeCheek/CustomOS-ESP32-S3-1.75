@@ -15,6 +15,11 @@
  *                   {"t":"ask","n":..,"q":"heard","a":"answer",
  *                    "do":"timer","s":300}                       the result
  *                   {"t":"ask","n":..,"err":"why"}
+ *   "sp":1 in the result: the answer is being spoken (a "say:" file
+ *   follows); "fl":1 too: once it has been said, the watch listens a few
+ *   seconds more for a follow-up - no wake word, no tap - and sends it as
+ *   {"e":"ask",...,"fu":1}, so the phone answers it in context. Nothing
+ *   said in 4 s: back to the answer.
  *
  * "do" is for what happens on the watch itself: "timer" with "s" seconds
  * (0 = cancel). The timer keeps running when the screen is closed and
@@ -30,7 +35,20 @@ extern Screen assistant_screen;
 // phone_link.cpp
 void assistant_on_status(uint32_t seq, const char *status);
 void assistant_on_result(uint32_t seq, const char *question, const char *answer, const char *action,
-                         int32_t seconds, const char *err);
+                         int32_t seconds, const char *err, bool spoken = false, bool follow = false);
+
+// Something the watch asked the phone to say (a message read aloud, the
+// briefing, the Today card): its "say:" file is played even outside the
+// assistant, for the next minute.
+void assistant_expect_speech();
+bool assistant_speech_expected();
+// A message by voice ("tell Marco I'm late"): the result has "do":"send" and
+// the answer asks for the OK - the Send button sends {"e":"asksend"} (or
+// "yes" as a follow-up); the phone answers {"t":"sent","ok":1,"to":".."}.
+void assistant_on_sent(bool ok, const char *to);
+
+// The answers kept for the history (swipe up on an answer), up to 6.
+int assistant_history_count();
 
 // loop(): rings the timer when it's due, awake or asleep.
 void assistant_timer_update();

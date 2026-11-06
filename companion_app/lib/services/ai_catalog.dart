@@ -33,6 +33,7 @@ class AiItem {
   final bool github; // false: Hugging Face (mirrors apply)
   final bool gated; // needs the Hugging Face token
   final String? lang; // voices: ISO code
+  final Future<File> Function()? sample; // voices: something to play to hear it
   final Future<bool> Function() installed;
   final Future<void> Function(void Function(double) onProgress) install; // also makes it the one used
   final Future<void> Function() select; // installed already: use this one
@@ -48,6 +49,7 @@ class AiItem {
     required this.github,
     this.gated = false,
     this.lang,
+    this.sample,
     required this.installed,
     required this.install,
     required this.select,
@@ -180,6 +182,7 @@ class AiCatalog {
           sizeBytes: v.sizeBytes,
           github: true,
           lang: v.lang,
+          sample: () => tts.sample(v),
           installed: () => tts.isInstalled(v),
           install: (p) async {
             await tts.install(v, onProgress: p);

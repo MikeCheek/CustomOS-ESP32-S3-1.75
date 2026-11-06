@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../providers/companion_provider.dart';
 import '../services/ai_catalog.dart';
+import '../services/ai_speed.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
+import '../services/memo_player.dart';
 import '../services/model_fetch.dart';
 import '../services/tts_service.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'ai_profile_screen.dart';
 import 'wake_word_screen.dart';
 
 /// The on-device AI: one card per feature with its status; open it to
@@ -29,7 +34,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _mirrorCtrl = TextEditingController();
   final Map<String, bool> _installed = {}, _selected = {};
   final Set<String> _open = {};
-  bool _loading = true, _diarOn = true, _ttsOn = true;
+  bool _loading = true, _diarOn = true, _ttsOn = true, _followOn = true, _briefAloud = true, _recapOn = true;
+  int _recapMin = 20 * 60 + 30;
+  String? _switchNotice; // the language model was switched away from (garbled answers)
   int _running = 0;
 
   @override
@@ -64,6 +71,11 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     _mirrorCtrl.text = await ModelFetch.instance.mirror();
     _diarOn = await DiarizationService.instance.enabled();
     _ttsOn = await TtsService.instance.enabled();
+    _followOn = await TtsService.instance.followUps();
+    _briefAloud = await TtsService.instance.briefingAloud();
+    _recapOn = await TtsService.instance.recapOn();
+    _recapMin = await TtsService.instance.recapMinute();
+    _switchNotice = await GemmaService.instance.switchNotice();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -125,7 +137,28 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       onInstall: busy ? null : () => _install(i),
       onSelect: () => _select(i),
       onDelete: () => _delete(i),
+      sampling: _sampling == i.id,
+      onSample: i.sample == null || busy ? null : () => _playSample(i),
+      sampleHint: i.sample == null ? null : (_installed[i.id] == true ? 'Said on this phone' : 'Recording, online'),
     );
+  }
+
+  String? _sampling;
+
+  /// Plays what a voice sounds like (made here when it's installed, else
+  /// Piper's recording) - also a check that an installed one works.
+  Future<void> _playSample(AiItem i) async {
+    if (_sampling != null) return;
+    setState(() => _sampling = i.id);
+    try {
+      final f = await i.sample!();
+      if (!mounted) return;
+      await ProviderScope.containerOf(context, listen: false).read(memoPlayerProvider.notifier).playPath(f.path);
+    } catch (e) {
+      if (mounted) showSnack(context, 'Couldn\'t play ${i.name}: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _sampling = null);
+    }
   }
 
   List<Widget> _cards(Iterable<AiItem> items) => [
@@ -406,6 +439,86 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                           await _refresh();
                         },
                       ),
+                    if (_ttsOn && AiCatalog.of(AiFeature.voice).any((i) => _installed[i.id] == true)) ...[
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text(
+                          'Listen for a follow-up',
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'After an answer, the watch listens a few seconds more - "and tomorrow?" - no wake word',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _followOn,
+                        onChanged: (v) async {
+                          await TtsService.instance.setFollowUps(v);
+                          await _refresh();
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text(
+                          'Read the morning briefing aloud',
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Messages are read when you hold one on the watch, the Today card when you tap it',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _briefAloud,
+                        onChanged: (v) async {
+                          await TtsService.instance.setBriefingAloud(v);
+                          await _refresh();
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: Text(
+                          'Evening recap at ${_recapMin ~/ 60}:${(_recapMin % 60).toString().padLeft(2, '0')}',
+                          style: const TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Your day\'s memos, open to-dos and how tomorrow starts, said on the watch '
+                          '(and kept on its Smart Stack). Tap the time to change it',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _recapOn,
+                        onChanged: (v) async {
+                          await TtsService.instance.setRecapOn(v);
+                          await _refresh();
+                        },
+                      ),
+                      if (_recapOn)
+                        Row(
+                          children: [
+                            TextButton.icon(
+                              icon: const Icon(Icons.schedule_rounded, size: 18),
+                              label: const Text('Change the time'),
+                              onPressed: () async {
+                                final t = await showTimePicker(
+                                  context: context,
+                                  initialTime: TimeOfDay(hour: _recapMin ~/ 60, minute: _recapMin % 60),
+                                );
+                                if (t == null) return;
+                                await TtsService.instance.setRecapMinute(t.hour * 60 + t.minute);
+                                await _refresh();
+                              },
+                            ),
+                            TextButton.icon(
+                              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                              label: const Text('Send one now'),
+                              onPressed: () {
+                                ProviderScope.containerOf(
+                                  context,
+                                  listen: false,
+                                ).read(companionProvider.notifier).recapNow();
+                                showSnack(context, 'Making the recap - it goes to the watch');
+                              },
+                            ),
+                          ],
+                        ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -422,6 +535,35 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   AppColors.warning,
                   'The phone listens for doorbells, alarms, a baby crying',
                 ),
+                if (_switchNotice != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Panel(
+                      color: AppColors.warning.withValues(alpha: 0.12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.swap_horiz_rounded, color: AppColors.warning),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _switchNotice!,
+                              style: const TextStyle(color: AppColors.text, fontSize: 13, height: 1.35),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'OK',
+                            icon: const Icon(Icons.close_rounded, color: AppColors.textDim),
+                            onPressed: () async {
+                              await GemmaService.instance.clearSwitchNotice();
+                              await _refresh();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SectionLabel('Speed'),
+                const _SpeedPanel(),
                 const SectionLabel('On the watch'),
                 RowGroup(
                   children: [
@@ -736,8 +878,14 @@ class _ModelCard extends StatelessWidget {
   final VoidCallback? onInstall;
   final VoidCallback onSelect;
   final VoidCallback onDelete;
+  final VoidCallback? onSample; // voices: hear it
+  final bool sampling;
+  final String? sampleHint;
 
   const _ModelCard({
+    this.onSample,
+    this.sampling = false,
+    this.sampleHint,
     required this.title,
     required this.subtitle,
     required this.selected,
@@ -778,6 +926,17 @@ class _ModelCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              if (sampleHint != null)
+                sampling
+                    ? const Padding(
+                        padding: EdgeInsets.all(13),
+                        child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : IconButton(
+                        tooltip: 'Play a sample (${sampleHint!.toLowerCase()})',
+                        onPressed: onSample,
+                        icon: const Icon(Icons.play_circle_outline_rounded, color: AppColors.accent),
+                      ),
               if (busy)
                 const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
               else if (installed)
@@ -806,6 +965,143 @@ class _ModelCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Where the language model runs (summaries, answers, smart replies, translation, Look).
+class _SpeedPanel extends StatefulWidget {
+  const _SpeedPanel();
+
+  @override
+  State<_SpeedPanel> createState() => _SpeedPanelState();
+}
+
+class _SpeedPanelState extends State<_SpeedPanel> {
+  String _mode = 'auto';
+  bool _gpuFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final m = await AiSpeed.mode();
+    final f = await AiSpeed.gpuFailed();
+    if (mounted) {
+      setState(() {
+        _mode = m;
+        _gpuFailed = f;
+      });
+    }
+  }
+
+  Future<void> _set(String m) async {
+    await AiSpeed.setMode(m);
+    await GemmaService.instance.reload(); // the next request loads it on the new choice
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = AiSpeed.lastBackend;
+    final note = _mode == 'cpu'
+        ? 'The CPU: slower, but it works on every phone.'
+        : _gpuFailed && _mode == 'auto'
+        ? 'The GPU didn\'t work on this phone, so it uses the CPU. Choose GPU to try again.'
+        : 'The GPU reads a long memo many times faster than the CPU; '
+              'if it doesn\'t work, the CPU takes over by itself.';
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Run the language model on',
+            style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'auto', label: Text('Auto')),
+              ButtonSegment(value: 'gpu', label: Text('GPU')),
+              ButtonSegment(value: 'cpu', label: Text('CPU')),
+            ],
+            selected: {_mode},
+            onSelectionChanged: (v) => _set(v.first),
+          ),
+          const SizedBox(height: 8),
+          Text(note, style: const TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.35)),
+          if (now != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Last loaded on the ${now.toUpperCase()}.',
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            'Transcription, who said what and the voices use ${AiSpeed.threads()} CPU cores.',
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiProfileScreen())),
+            icon: const Icon(Icons.speed_rounded, size: 18),
+            label: const Text('Performance: run times, GPU or CPU, crashes'),
+          ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed: _testing ? null : _test,
+            icon: _testing
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.fact_check_outlined, size: 18),
+            label: Text(_testing ? 'Testing the language model...' : 'Test the language model'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _testing = false;
+
+  /// One short question to the model in use: its answer, the time, and whether it's usable on this phone.
+  Future<void> _test() async {
+    setState(() => _testing = true);
+    String title, body;
+    var good = false;
+    try {
+      final r = await GemmaService.instance.selfTest();
+      if (r == null) {
+        title = 'No language model';
+        body = 'Download one under Summaries & answers first.';
+      } else {
+        good = r.ok;
+        final secs = (r.ms / 1000).toStringAsFixed(1);
+        title = r.ok ? '${r.model} works' : '${r.model} answered garbled text';
+        body =
+            '${r.ok ? 'Answer' : 'What came out'}: ${r.reply}\n\n$secs s (loading included), on the ${r.backend}.'
+            '${r.ok ? '' : '\n\nTry the other backend (CPU / GPU) above, or another model.'}';
+      }
+    } catch (e) {
+      title = 'The test failed';
+      body = e.toString().replaceFirst('Exception: ', '');
+    }
+    if (!mounted) return;
+    setState(() => _testing = false);
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        icon: Icon(
+          good ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+          color: good ? AppColors.success : AppColors.danger,
+        ),
+        title: Text(title),
+        content: Text(body),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
       ),
     );
   }

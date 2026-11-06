@@ -38,4 +38,31 @@ void main() {
     expect(p('What did I say about the trip in my memos?').kind, IntentKind.memos);
     expect(p('Who wrote the Divine Comedy?').kind, IntentKind.none);
   });
+
+  test('a message to someone, in English and Italian', () {
+    final a = p("Tell Marco I'm 10 minutes late");
+    expect((a.kind, a.command, a.text), (IntentKind.message, 'Marco', "I'm 10 minutes late"));
+    final b = p('Send a message to Giulia saying see you at the station');
+    expect((b.kind, b.command, b.text), (IntentKind.message, 'Giulia', 'See you at the station'));
+    final c = p("Di' a Luca che arrivo tardi");
+    expect((c.kind, c.command, c.text, c.italian), (IntentKind.message, 'Luca', 'Arrivo tardi', true));
+    final d = p('Scrivi a Sara che ci vediamo domani');
+    expect((d.kind, d.command), (IntentKind.message, 'Sara'));
+    expect(p('Tell me a joke').kind, IntentKind.none); // "me" is no one to write to
+  });
+
+  test('more in Italian, without the language model', () {
+    expect(p('Imposta un timer di 10 minuti').seconds, 600);
+    expect(p('Che tempo fa domani?').kind, IntentKind.weather);
+    expect(p('Che ore sono?').kind, IntentKind.time);
+    expect(p('Che giorno è oggi?').kind, IntentKind.date);
+    expect(p('Metti la modalità silenziosa').kind, IntentKind.dnd);
+    expect(p('Canzone successiva').command, 'next');
+    expect(p('Alza il volume').command, 'volUp');
+    expect(p('Quanta batteria ho?').kind, IntentKind.battery);
+    expect(p('Dove è il mio telefono?').kind, IntentKind.findPhone);
+    expect(p('Cosa ho oggi in calendario?').kind, IntentKind.agenda);
+    expect(p('Ricordami di chiamare la mamma alle 18').kind, IntentKind.reminder);
+    expect(p('Che ore sono?').italian, isTrue);
+  });
 }

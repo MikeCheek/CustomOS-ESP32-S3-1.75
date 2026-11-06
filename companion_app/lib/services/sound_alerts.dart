@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
-import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'model_fetch.dart';
+import 'background.dart';
 import 'phone_recorder.dart';
 
 /// A sound worth telling the watch about, and the AudioSet classes that are it.
@@ -91,7 +91,7 @@ class SoundAlerts {
     final out = '${d.path}/x';
     final tar = tarball.path;
     if (await Directory(out).exists()) await Directory(out).delete(recursive: true);
-    await Isolate.run(() => extractFileToDisk(tar, out));
+    await extractArchive(tar, out);
     await tarball.delete();
     // keep the two files we need, flat
     await for (final f in Directory(out).list(recursive: true)) {
@@ -137,7 +137,7 @@ class SoundAlerts {
         continue;
       }
       if (!_on) break;
-      final tags = await Isolate.run(() => _tag(model, labels, path));
+      final tags = await _tagInBackground(model, labels, path);
       final now = DateTime.now();
       for (final s in sounds) {
         if (!wanted.contains(s.id)) continue;
@@ -165,6 +165,10 @@ class SoundAlerts {
 }
 
 // In the isolate: the clip's top classes with their probabilities.
+// Top level, so the isolate gets only the three paths (see background.dart).
+Future<Map<String, double>> _tagInBackground(String model, String labels, String wav) =>
+    Isolate.run(() => _tag(model, labels, wav));
+
 Map<String, double> _tag(String model, String labels, String wav) {
   sherpa.initBindings();
   final at = sherpa.AudioTagging(

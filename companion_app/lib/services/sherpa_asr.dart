@@ -3,11 +3,12 @@ import 'dart:math' as math;
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'model_fetch.dart';
+import 'ai_speed.dart';
+import 'background.dart';
 import 'speaker_merge.dart';
 
 enum AsrKind { whisper, moonshine, senseVoice }
@@ -143,7 +144,7 @@ class SherpaAsr {
     );
     try {
       final tar = tarball.path, out = root.path;
-      await Isolate.run(() => extractFileToDisk(tar, out)); // creates <root>/<id>/
+      await extractArchive(tar, out); // creates <root>/<id>/
     } finally {
       if (await tarball.exists()) await tarball.delete();
     }
@@ -222,7 +223,7 @@ void _run(List<dynamic> a) {
           task: 'transcribe',
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
       AsrKind.moonshine => sherpa.OfflineModelConfig(
@@ -233,7 +234,7 @@ void _run(List<dynamic> a) {
           cachedDecoder: f['cached']!,
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
       AsrKind.senseVoice => sherpa.OfflineModelConfig(
@@ -243,7 +244,7 @@ void _run(List<dynamic> a) {
           useInverseTextNormalization: true,
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
     };

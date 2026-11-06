@@ -235,6 +235,7 @@ static void settle() {
     s_won = roulette_win(s_out, s_num, s_result);
     s_credit += s_won;
     casino_set(s_credit);
+    casino_record(CG_ROULETTE, s_won - s_staked);
     memmove(s_hist + 1, s_hist, sizeof(s_hist) - 1);
     s_hist[0] = (uint8_t)s_result;
     if (s_hist_n < 10) s_hist_n++;

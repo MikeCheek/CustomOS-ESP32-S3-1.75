@@ -23,6 +23,8 @@
 #define ASK_MAX_S     10          // a question, not a memo - and it has to cross Bluetooth
 #define ASK_WAIT_MS   120000
 #define QUIET_STOP_MS 1300        // this long quiet after speaking ends the question
+#define FOLLOW_WAIT_MS 4000       // a follow-up: this long to start talking
+#define FOLLOW_MAX    3           // follow-ups in a row before it waits for a tap
 
 enum AskState { A_LISTEN, A_WAIT, A_ANSWER, A_ERROR };
 
@@ -36,12 +38,41 @@ static char s_question[200] = "";
 static char s_answer[400] = "";
 static char s_status[48] = "";
 static char s_chip[40] = "";        // what was done ("Timer 5:00")
+static bool s_send = false;         // a message by voice waits for its OK: the chip is a Send button
+static int s_chip_y = 0, s_chip_w = 0;
 // voice activity: the noise floor while listening, and when speech was last heard
 static int s_floor = 100;
 static bool s_spoke = false;
 static uint32_t s_last_voice_ms = 0;
+// follow-ups: the answer is spoken, then the watch listens again by itself
+static bool s_follow = false;        // this listen is a follow-up
+static bool s_speaks = false, s_follow_ok = false, s_heard_say = false;
+static int s_followups = 0;
+static uint32_t s_answer_ms = 0;
+static uint32_t s_expect_until = 0;
 
-static void set_state(AskState st) { s_state = st; s_state_ms = millis(); s_press = -1; }
+// The last answers, newest first, for the history (swipe up on an answer).
+#define HIST_N 6
+struct AskHist { char q[100]; char a[200]; };
+static AskHist s_hist[HIST_N];
+static int s_hist_n = 0;
+
+static void hist_add(const char *q, const char *a) {
+    if (!a || !a[0]) return;
+    memmove(&s_hist[1], &s_hist[0], sizeof(AskHist) * (HIST_N - 1));
+    snprintf(s_hist[0].q, sizeof(s_hist[0].q), "%s", q ? q : "");
+    snprintf(s_hist[0].a, sizeof(s_hist[0].a), "%s", a);
+    ui_utf8_trim(s_hist[0].q);
+    ui_utf8_trim(s_hist[0].a);
+    if (s_hist_n < HIST_N) s_hist_n++;
+}
+int assistant_history_count() { return s_hist_n; }
+
+void assistant_expect_speech() { s_expect_until = millis() + 60000; }
+bool assistant_speech_expected() { return s_expect_until && (int32_t)(s_expect_until - millis()) > 0; }
+
+static bool s_hist_view = false;    // the history of answers is showing (swipe up)
+static void set_state(AskState st) { s_state = st; s_state_ms = millis(); s_press = -1; s_hist_view = false; }
 
 static void fail(const char *why) {
     snprintf(s_answer, sizeof(s_answer), "%s", why);
@@ -95,8 +126,10 @@ static void fmt_dur(char *b, int n, uint32_t s) {
 }
 
 // ---- asking ------------------------------------------------------------------------------
-static void start_listening() {
-    s_question[0] = s_answer[0] = s_chip[0] = s_status[0] = 0;
+static void start_listening(bool follow = false) {
+    s_follow = follow;
+    if (!follow) { s_question[0] = s_answer[0] = s_chip[0] = s_status[0] = 0; s_followups = 0; }
+    s_speaks = false;
     if (!phone_link_active()) { fail("Connect the companion app to use the assistant"); return; }
     if (!sd_is_mounted()) { fail("The assistant needs the SD card"); return; }
     if (audio_is_playing()) audio_stop_playback();
@@ -111,13 +144,23 @@ static void start_listening() {
 static void send_ask() {
     char msg[80];
     s_seq++;
-    snprintf(msg, sizeof(msg), "{\"e\":\"ask\",\"n\":%lu,\"f\":\"" ASK_FILE "\"}", (unsigned long)s_seq);
+    snprintf(msg, sizeof(msg), "{\"e\":\"ask\",\"n\":%lu,\"f\":\"" ASK_FILE "\"%s}", (unsigned long)s_seq,
+             s_follow ? ",\"fu\":1" : "");
     if (!ble_link_send(msg)) { fail("Phone not reachable"); return; }
     snprintf(s_status, sizeof(s_status), "Sending");
     set_state(A_WAIT);
 }
 
+// A follow-up nobody asked: back to the answer, quietly.
+static void follow_give_up() {
+    audio_stop_record();
+    s_follow = false;
+    s_speaks = false;
+    set_state(A_ANSWER);
+}
+
 static void stop_and_send() {
+    if (s_follow && !s_spoke) { follow_give_up(); return; }
     audio_stop_record();
     if (!s_spoke && millis() - s_state_ms < 900) { fail("Didn't hear anything - tap and ask again"); return; }
     send_ask();
@@ -159,7 +202,7 @@ void assistant_on_status(uint32_t seq, const char *status) {
 }
 
 void assistant_on_result(uint32_t seq, const char *question, const char *answer, const char *action,
-                         int32_t seconds, const char *err) {
+                         int32_t seconds, const char *err, bool spoken, bool follow) {
     // The watch-side action happens even if the screen was closed meanwhile.
     if (action && !strcmp(action, "timer") && seq == s_seq) assistant_timer_set(seconds > 0 ? seconds : 0);
     if (!s_open || s_state != A_WAIT || seq != s_seq) return;
@@ -174,10 +217,18 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
     snprintf(s_answer, sizeof(s_answer), "%s", answer ? answer : "");
     clean(s_answer);
     s_chip[0] = 0;
+    s_send = action && !strcmp(action, "send");
+    if (s_send) snprintf(s_chip, sizeof(s_chip), "Send");
     if (action && !strcmp(action, "timer")) {
         if (seconds > 0) { char d[16]; fmt_dur(d, sizeof(d), seconds); snprintf(s_chip, sizeof(s_chip), "Timer %s", d); }
         else snprintf(s_chip, sizeof(s_chip), "Timer cancelled");
     }
+    hist_add(s_question, s_answer);
+    s_speaks = spoken;
+    s_follow_ok = spoken && follow;
+    s_heard_say = false;
+    s_answer_ms = millis();
+    s_follow = false;
     set_state(A_ANSWER);
 }
 
@@ -198,7 +249,19 @@ static int wrap_center(const char *text, int y, int width, int size, uint16_t co
             best = e; n = e;
             if (!p[e]) break;
         }
-        if (best == 0) { best = n > 0 ? n : (int)strlen(p); if (best > (int)sizeof(line) - 1) best = sizeof(line) - 1; }
+        if (best == 0) {
+            // one word wider than the line (a long link, run-together text): break it to fit
+            int e = 0;
+            while (p[e] && p[e] != ' ' && e < (int)sizeof(line) - 1) e++;
+            best = e > 0 ? e : (int)strlen(p);
+            if (best > (int)sizeof(line) - 1) best = sizeof(line) - 1;
+            memcpy(line, p, best); line[best] = 0;
+            while (best > 1 && ui_text_width(line, size) > width) {
+                best--;
+                while (best > 1 && ((uint8_t)p[best] & 0xC0) == 0x80) best--;   // whole UTF-8 letters
+                line[best] = 0;
+            }
+        }
         memcpy(line, p, best); line[best] = 0;
         ui_utf8_trim(line);
         int used = (int)strlen(line);
@@ -221,10 +284,24 @@ static void draw_mic_button(Arduino_GFX *g, int y, int r, uint16_t c) {
     g->fillRect(CX - 7, y + 15, 15, 2, COLOR_BG);
 }
 
+// The history: the earlier answers, newest first, the question above each.
+static void draw_history(Arduino_GFX *g) {
+    ui_text_center(CX, 64, COLOR_ACCENT, "Earlier", 2);
+    int y = 100;
+    for (int i = 1; i < s_hist_n && y < LCD_HEIGHT - 70; i++) {   // [0] is the answer on screen
+        if (s_hist[i].q[0]) y = wrap_center(s_hist[i].q, y, 300, 1, COLOR_TEXT_DIM, 1) + 2;
+        y = wrap_center(s_hist[i].a, y, 330, 1, COLOR_TEXT, 3) + 12;
+    }
+    if (s_hist_n < 2) ui_text_center(CX, CY, COLOR_TEXT_DIM, "Nothing earlier yet", 1);
+    ui_text_center(CX, LCD_HEIGHT - 44, COLOR_TEXT_DIM, "Swipe down: back", 1);
+    (void)g;
+}
+
 static void assist_draw() {
     Arduino_GFX *g = ui_gfx();
     if (!g) return;
     uint32_t now = millis();
+    if (s_hist_view && (s_state == A_ANSWER || s_state == A_ERROR)) { draw_history(g); return; }
     switch (s_state) {
     case A_LISTEN: {
         int lvl = audio_mic_level_percent();
@@ -233,9 +310,12 @@ static void assist_draw() {
         g->fillCircle(CX, CY - 10, r + 10, ui_dim(COLOR_ACCENT, 0.18f));
         g->fillCircle(CX, CY - 10, r, ui_dim(COLOR_ACCENT, 0.45f));
         draw_mic_button(g, CY - 10, 44, COLOR_ACCENT);
-        ui_text_center(CX, CY + 92, COLOR_TEXT, "Listening", 2);
-        ui_text_center(CX, CY + 122, COLOR_TEXT_DIM, "Ask, then pause - or tap", 1);
-        ui_edge_ring(0, 360.0f * (now - s_state_ms) / (ASK_MAX_S * 1000.0f), COLOR_ACCENT, 4, 6, true);
+        ui_text_center(CX, CY + 92, COLOR_TEXT, s_follow ? "Anything else?" : "Listening", 2);
+        ui_text_center(CX, CY + 122, COLOR_TEXT_DIM, s_follow ? "Just ask - or tap to stop" : "Ask, then pause - or tap", 1);
+        if (s_follow && !s_spoke)
+            ui_edge_ring(0, 360.0f * (1.0f - (now - s_state_ms) / (float)FOLLOW_WAIT_MS), COLOR_ACCENT2, 4, 6, true);
+        else
+            ui_edge_ring(0, 360.0f * (now - s_state_ms) / (ASK_MAX_S * 1000.0f), COLOR_ACCENT, 4, 6, true);
         break;
     }
     case A_WAIT: {
@@ -258,11 +338,19 @@ static void assist_draw() {
             } else {
                 snprintf(c, sizeof(c), "%s", s_chip);
             }
-            int w = ui_text_width(c, 1) + 32;
-            g->fillRoundRect(CX - w / 2, y + 2, w, 30, 15, COLOR_PANEL);
-            ui_text_center(CX, y + 17, COLOR_ACCENT, c, 1);
+            if (s_send) {   // a button: send the message
+                int w = 150;
+                s_chip_y = y + 4; s_chip_w = w;
+                g->fillRoundRect(CX - w / 2, s_chip_y, w, 44, 22, s_press == 1 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+                ui_text_center(CX, s_chip_y + 22, COLOR_TEXT, "Send", 2);
+            } else {
+                int w = ui_text_width(c, 1) + 32;
+                g->fillRoundRect(CX - w / 2, y + 2, w, 30, 15, COLOR_PANEL);
+                ui_text_center(CX, y + 17, COLOR_ACCENT, c, 1);
+            }
         }
         draw_mic_button(g, MIC_Y, MIC_R, s_press == 0 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+        if (s_hist_n > 1) ui_text_center(CX, MIC_Y + MIC_R + 22, COLOR_TEXT_DIM, "Swipe up: earlier", 1);
         break;
     }
     case A_ERROR:
@@ -300,8 +388,17 @@ static void assist_tick() {
         if (now - s_state_ms < 300) { if (lvl < s_floor) s_floor = lvl; return; }
         if (lvl > s_floor + 10) { s_spoke = true; s_last_voice_ms = now; }
         if (s_spoke && now - s_last_voice_ms > QUIET_STOP_MS) { stop_and_send(); return; }
+        if (s_follow && !s_spoke && now - s_state_ms > FOLLOW_WAIT_MS) { follow_give_up(); return; }
         if (!s_spoke && now - s_state_ms > 5000) { fail("Didn't hear anything - tap and ask again"); return; }
         if (now - s_state_ms > ASK_MAX_S * 1000UL) stop_and_send();
+    } else if (s_state == A_ANSWER && s_follow_ok) {
+        // the spoken answer: once it has played, listen for a follow-up
+        if (audio_is_playing()) s_heard_say = true;
+        else if (s_heard_say && s_followups < FOLLOW_MAX && phone_link_active()) {
+            s_follow_ok = false;
+            s_followups++;
+            start_listening(true);
+        } else if (!s_heard_say && now - s_answer_ms > 25000) s_follow_ok = false;   // the speech never came
     } else if (s_state == A_WAIT) {
         if (!ble_is_connected()) fail("Phone disconnected");
         else if (now - s_state_ms > ASK_WAIT_MS) fail("The phone didn't answer");
@@ -312,6 +409,7 @@ static void assist_touch(int x, int y, bool pressed) {
     static bool prev = false;
     bool edge = pressed && !prev;
     prev = pressed;
+    if (s_hist_view) return;           // the history: only swipes
     if (s_state == A_LISTEN) {          // tap anywhere: done talking
         if (!pressed && s_press == 9) stop_and_send();
         else if (edge) s_press = 9;
@@ -319,14 +417,28 @@ static void assist_touch(int x, int y, bool pressed) {
     }
     if (s_state == A_WAIT) return;
     bool on_mic = (x - CX) * (x - CX) + (y - MIC_Y) * (y - MIC_Y) < (MIC_R + 14) * (MIC_R + 14);
-    if (edge) s_press = on_mic ? 0 : -1;
+    bool on_send = s_send && s_state == A_ANSWER && abs(x - CX) < s_chip_w / 2 + 6 && y >= s_chip_y - 6 && y < s_chip_y + 50;
+    if (edge) s_press = on_mic ? 0 : (on_send ? 1 : -1);
     if (pressed) return;
     int p = s_press;
     s_press = -1;
-    if (p == 0 && on_mic) start_listening();
+    if (p == 1 && on_send) {
+        s_send = false;
+        s_chip[0] = 0;
+        s_follow_ok = false;
+        ui_show_toast(ble_link_send("{\"e\":\"asksend\"}") ? "Sending..." : "Phone not reachable", 1500);
+        return;
+    }
+    if (p == 0 && on_mic) { s_follow_ok = false; start_listening(); }
 }
 
 static void assist_gesture(Gesture g) {
+    bool idle = s_state == A_ANSWER || s_state == A_ERROR;
+    if (s_hist_view) {
+        if (g == GESTURE_SWIPE_DOWN || g == GESTURE_SWIPE_RIGHT) s_hist_view = false;
+        return;
+    }
+    if (g == GESTURE_SWIPE_UP && idle) { s_hist_view = true; s_follow_ok = false; return; }
     if (g == GESTURE_SWIPE_RIGHT && s_state != A_LISTEN) ui_pop_screen();
 }
 
@@ -379,3 +491,11 @@ Screen timer_alert_screen = {
     ring_create, ring_draw, ring_touch, ring_tick, nullptr, nullptr,
     0, true,
 };
+
+void assistant_on_sent(bool ok, const char *to) {
+    char b[64];
+    snprintf(b, sizeof(b), ok ? "Sent to %s" : "Couldn't send it to %s", to && to[0] ? to : "them");
+    ble_fold_utf8(b);
+    ui_show_toast(b, 2000);
+    if (s_open && s_state == A_ANSWER) { s_send = false; s_chip[0] = 0; }
+}

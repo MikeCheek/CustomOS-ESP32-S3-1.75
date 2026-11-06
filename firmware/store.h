@@ -21,3 +21,8 @@ int  store_size(const char *name);        // -1: no such file
 bool store_write(const char *name, const void *buf, size_t len);
 bool store_remove(const char *name);
 bool store_exists(const char *name);
+// Where those files are (the SD card or the flash; null: nowhere), and the
+// full path of <name> there - to open one directly (e.g. to play a WAV).
+namespace fs { class FS; }
+fs::FS *store_fs();
+void store_path(char *buf, size_t n, const char *name);
