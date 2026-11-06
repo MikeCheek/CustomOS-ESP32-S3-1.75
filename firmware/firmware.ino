@@ -132,7 +132,8 @@ static void check_file_transfer() {
 
     // The assistant's answer, spoken (the app's text-to-speech): "say:<x>.wav"
     // into /Recordings/_say.wav (hidden from the list), played while the
-    // assistant is still on screen.
+    // assistant is still on screen. No card: into the watch's own flash
+    // (store.h), so the answer is heard all the same.
     bool spoken = !strncmp(ble_file_name(), "say:", 4);
     if (st == BLE_FILE_PENDING && spoken) {
         ble_file_approve();
@@ -141,8 +142,14 @@ static void check_file_transfer() {
     if (st == BLE_FILE_COMPLETE && spoken) {
 #if FEATURE_SD_CARD && FEATURE_AUDIO
         int len = ble_file_bytes_received();
-        if (sd_is_mounted() && !usb_msc_host_active() && len > 44 && len <= 1024 * 1024 &&
-            ui_screen_on_top(&assistant_screen) && !audio_is_recording()) {
+        bool can = len > 44 && len <= 1024 * 1024 && ui_screen_on_top(&assistant_screen) && !audio_is_recording();
+        bool card = sd_is_mounted() && !usb_msc_host_active();
+        if (can && !card && store_fs() && store_write("_say.wav", ble_file_data(), len)) {
+            char p[48];
+            store_path(p, sizeof p, "_say.wav");
+            if (audio_is_playing()) audio_stop_playback();
+            audio_play_wav_fs(*store_fs(), p);
+        } else if (can && card) {
             SD.mkdir("/Recordings");
             SD.remove("/Recordings/_say.wav");
             File f = SD.open("/Recordings/_say.wav", FILE_WRITE);

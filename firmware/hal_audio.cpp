@@ -1171,7 +1171,9 @@ static void play_pairs(const int16_t *in, int in_pairs, uint32_t src_rate, volat
     }
 }
 
-bool audio_play_wav(const char *filename) {
+bool audio_play_wav(const char *filename) { return audio_play_wav_fs(SD, filename); }
+
+bool audio_play_wav_fs(fs::FS &fs, const char *filename) {
     codecs_retry_if_needed();
     if (!s_ok) {
         DEBUG_PRINTF("[audio] WAV play failed: audio not initialized (s_ok=0)\n");
@@ -1182,7 +1184,7 @@ bool audio_play_wav(const char *filename) {
         DEBUG_PRINTF("[audio] WAV play: file already open, skipping open\n");
     } else {
         // filename already starts with / (e.g. "/song.wav")
-        s_wav_file = SD.open(filename, FILE_READ);
+        s_wav_file = fs.open(filename, FILE_READ);
         if (!s_wav_file) {
             DEBUG_PRINTF("[audio] WAV open failed: %s\n", filename);
             return false;
@@ -2134,6 +2136,7 @@ void audio_play_sfx(uint16_t, uint16_t) {}
 void audio_play_note(uint16_t, uint16_t) {}
 void audio_play_chord(const uint8_t *, int, uint16_t) {}
 bool audio_play_wav(const char *) { return false; }
+bool audio_play_wav_fs(fs::FS &, const char *) { return false; }
 bool audio_play_mp3(const char *) { return false; }
 bool audio_update() { return false; }
 void audio_idle_power() {}

@@ -63,6 +63,9 @@ void audio_play_chord(const uint8_t *midi, int n, uint16_t duration_ms);
 // Starts playing <filename> (root of SD) through the speaker.
 // Non-blocking: call audio_update() from loop() to feed data.
 bool audio_play_wav(const char *filename);
+// The same from another file system (the watch's own flash, store.h).
+namespace fs { class FS; }
+bool audio_play_wav_fs(fs::FS &fs, const char *filename);
 // MP3 file playback from SD card (same interface as WAV).
 bool audio_play_mp3(const char *filename);
 // Call from loop() to feed buffered audio data to I2S. Returns true while playing.

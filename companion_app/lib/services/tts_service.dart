@@ -89,7 +89,76 @@ class TtsService {
       if (await tarball.exists()) await tarball.delete();
     }
     if (!await isInstalled(v)) throw Exception('The voice is incomplete - try again');
+    onProgress?.call(0.95);
+    await espeakData(); // now, so the first answer doesn't wait for it
     onProgress?.call(1);
+  }
+
+  Future<String>? _espeak;
+
+  /// espeak-ng's data (pronunciation rules for the phonemizer), copied out of
+  /// the app once (~19 MB). A copy cut short (the app closed halfway) has no
+  /// ".complete" mark and is redone.
+  Future<String> espeakData() => _espeak ??=
+      () async {
+        final dir = Directory('${(await getApplicationSupportDirectory()).path}/espeak-ng-data');
+        final done = File('${dir.path}/.complete');
+        if (await dir.exists() && !await done.exists()) await dir.delete(recursive: true);
+        final path = await piper.extractEspeakNgData();
+        await done.writeAsString('1');
+        return path;
+      }().catchError((Object e) {
+        _espeak = null; // try again next time
+        throw e;
+      });
+
+  /// A sentence in [lang] to hear what a voice sounds like.
+  static String sampleText(String lang) => switch (lang) {
+    'it' => 'Ciao, sono il tuo orologio. La prossima riunione è alle tre e il pomeriggio sarà soleggiato.',
+    'de' => 'Hallo, ich bin deine Uhr. Dein nächster Termin ist um drei, und der Nachmittag wird sonnig.',
+    'es' => 'Hola, soy tu reloj. Tu próxima reunión es a las tres y la tarde será soleada.',
+    'fr' => 'Bonjour, je suis ta montre. Ta prochaine réunion est à quinze heures et l\'après-midi sera ensoleillé.',
+    'pt' => 'Olá, eu sou o teu relógio. A próxima reunião é às três e a tarde vai estar ensolarada.',
+    'pl' => 'Cześć, jestem twoim zegarkiem. Następne spotkanie jest o piętnastej, a popołudnie będzie słoneczne.',
+    'ro' => 'Salut, sunt ceasul tău. Următoarea întâlnire este la ora trei, iar după-amiaza va fi însorită.',
+    'ru' => 'Привет, я твои часы. Следующая встреча в три часа, и после обеда будет солнечно.',
+    'uk' => 'Привіт, я твій годинник. Наступна зустріч о третій, і після обіду буде сонячно.',
+    'zh' => '你好，我是你的手表。下一个会议在三点，下午会是晴天。',
+    _ => 'Hi, I\'m your watch. Your next meeting is at three, and it\'ll be sunny all afternoon.',
+  };
+
+  /// Where Piper's own recording of [v] is (Hugging Face, rhasspy/piper-voices),
+  /// to hear a voice before downloading it.
+  static String? sampleUrl(TtsVoice v) {
+    final m = RegExp(r'^vits-piper-(([a-z]{2,3})_[A-Z]{2})-(.+)-([a-z_]+)$').firstMatch(v.id);
+    if (m == null) return null;
+    return 'https://huggingface.co/rhasspy/piper-voices/resolve/main/${m[2]}/${m[1]}/${m[3]}/${m[4]}/samples/speaker_0.mp3';
+  }
+
+  /// A file to play to hear [v]: said on this phone when it's installed
+  /// (what the watch will get), else Piper's recording of it, downloaded.
+  Future<File> sample(TtsVoice v) async {
+    final tmp = await getTemporaryDirectory();
+    if (await isInstalled(v)) {
+      final f = File('${tmp.path}/voice_sample.wav');
+      return f.writeAsBytes(await speak(v, sampleText(v.lang)));
+    }
+    final url = sampleUrl(v);
+    if (url == null) throw Exception('No sample for this voice');
+    final f = File('${tmp.path}/voice_sample_${v.id}.mp3');
+    if (await f.exists() && await f.length() > 0) return f;
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final res = await (await c.getUrl(Uri.parse(url))).close();
+      if (res.statusCode != 200) throw Exception('No sample online (${res.statusCode})');
+      await res.pipe(f.openWrite());
+      return f;
+    } catch (e) {
+      if (await f.exists()) await f.delete();
+      rethrow;
+    } finally {
+      c.close();
+    }
   }
 
   Future<void> delete(TtsVoice v) async {
@@ -119,8 +188,7 @@ class TtsService {
       where: () => 'CPU, ${AiSpeed.threads()} threads',
       input: text.length.toDouble(),
       unit: 'chars',
-      // espeak-ng's data for the phonemizer, copied out of the app once (~19 MB)
-      run: () async => _synthesizeInBackground(model, dir, await piper.extractEspeakNgData(), text),
+      run: () async => _synthesizeInBackground(model, dir, await espeakData(), text),
     );
   }
 }

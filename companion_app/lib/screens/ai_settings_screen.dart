@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/ai_catalog.dart';
 import '../services/ai_speed.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
+import '../services/memo_player.dart';
 import '../services/model_fetch.dart';
 import '../services/tts_service.dart';
 import '../services/whisper_service.dart';
@@ -127,7 +129,28 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       onInstall: busy ? null : () => _install(i),
       onSelect: () => _select(i),
       onDelete: () => _delete(i),
+      sampling: _sampling == i.id,
+      onSample: i.sample == null || busy ? null : () => _playSample(i),
+      sampleHint: i.sample == null ? null : (_installed[i.id] == true ? 'Said on this phone' : 'Recording, online'),
     );
+  }
+
+  String? _sampling;
+
+  /// Plays what a voice sounds like (made here when it's installed, else
+  /// Piper's recording) - also a check that an installed one works.
+  Future<void> _playSample(AiItem i) async {
+    if (_sampling != null) return;
+    setState(() => _sampling = i.id);
+    try {
+      final f = await i.sample!();
+      if (!mounted) return;
+      await ProviderScope.containerOf(context, listen: false).read(memoPlayerProvider.notifier).playPath(f.path);
+    } catch (e) {
+      if (mounted) showSnack(context, 'Couldn\'t play ${i.name}: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _sampling = null);
+    }
   }
 
   List<Widget> _cards(Iterable<AiItem> items) => [
@@ -740,8 +763,14 @@ class _ModelCard extends StatelessWidget {
   final VoidCallback? onInstall;
   final VoidCallback onSelect;
   final VoidCallback onDelete;
+  final VoidCallback? onSample; // voices: hear it
+  final bool sampling;
+  final String? sampleHint;
 
   const _ModelCard({
+    this.onSample,
+    this.sampling = false,
+    this.sampleHint,
     required this.title,
     required this.subtitle,
     required this.selected,
@@ -782,6 +811,17 @@ class _ModelCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              if (sampleHint != null)
+                sampling
+                    ? const Padding(
+                        padding: EdgeInsets.all(13),
+                        child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : IconButton(
+                        tooltip: 'Play a sample (${sampleHint!.toLowerCase()})',
+                        onPressed: onSample,
+                        icon: const Icon(Icons.play_circle_outline_rounded, color: AppColors.accent),
+                      ),
               if (busy)
                 const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
               else if (installed)
