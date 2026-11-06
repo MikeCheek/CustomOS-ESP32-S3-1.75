@@ -74,6 +74,14 @@ class TtsService {
   Future<bool> followUps() async => (await SharedPreferences.getInstance()).getBool('tts_follow_ups') ?? true;
   Future<void> setFollowUps(bool on) async => (await SharedPreferences.getInstance()).setBool('tts_follow_ups', on);
 
+  /// The evening recap (evening_recap.dart): on, at what minute of the day, the last day it was given.
+  Future<bool> recapOn() async => (await SharedPreferences.getInstance()).getBool('recap_on') ?? true;
+  Future<void> setRecapOn(bool on) async => (await SharedPreferences.getInstance()).setBool('recap_on', on);
+  Future<int> recapMinute() async => (await SharedPreferences.getInstance()).getInt('recap_min') ?? 20 * 60 + 30;
+  Future<void> setRecapMinute(int m) async => (await SharedPreferences.getInstance()).setInt('recap_min', m);
+  Future<int> recapDay() async => (await SharedPreferences.getInstance()).getInt('recap_day') ?? 0;
+  Future<void> setRecapDay(int d) async => (await SharedPreferences.getInstance()).setInt('recap_day', d);
+
   /// The watch's morning briefing is also said, on its speaker.
   Future<bool> briefingAloud() async => (await SharedPreferences.getInstance()).getBool('tts_briefing') ?? true;
   Future<void> setBriefingAloud(bool on) async => (await SharedPreferences.getInstance()).setBool('tts_briefing', on);

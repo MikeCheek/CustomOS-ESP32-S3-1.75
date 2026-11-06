@@ -58,6 +58,9 @@ class NotifAi {
 
   /// A short summary of the last day's notifications, what needs an answer
   /// first. Throws with a readable message.
+  /// The last "Catch me up" summary (the watch can ask to hear it).
+  String? lastDigest;
+
   Future<String> digest() async {
     final since = DateTime.now().subtract(const Duration(hours: 24));
     final items = _log.where((n) => n.at.isAfter(since)).take(25).toList();
@@ -66,6 +69,7 @@ class NotifAi {
       for (final n in items.reversed) '${n.app}${n.title.isEmpty ? '' : ' - ${n.title}'}: ${n.text}',
     ], userLanguage());
     if (text == null) throw Exception('Install a summary model in the companion app (Transcription & AI)');
+    lastDigest = text;
     return text;
   }
 

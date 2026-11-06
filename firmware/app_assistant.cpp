@@ -49,10 +49,28 @@ static int s_followups = 0;
 static uint32_t s_answer_ms = 0;
 static uint32_t s_expect_until = 0;
 
+// The last answers, newest first, for the history (swipe up on an answer).
+#define HIST_N 6
+struct AskHist { char q[100]; char a[200]; };
+static AskHist s_hist[HIST_N];
+static int s_hist_n = 0;
+
+static void hist_add(const char *q, const char *a) {
+    if (!a || !a[0]) return;
+    memmove(&s_hist[1], &s_hist[0], sizeof(AskHist) * (HIST_N - 1));
+    snprintf(s_hist[0].q, sizeof(s_hist[0].q), "%s", q ? q : "");
+    snprintf(s_hist[0].a, sizeof(s_hist[0].a), "%s", a);
+    ui_utf8_trim(s_hist[0].q);
+    ui_utf8_trim(s_hist[0].a);
+    if (s_hist_n < HIST_N) s_hist_n++;
+}
+int assistant_history_count() { return s_hist_n; }
+
 void assistant_expect_speech() { s_expect_until = millis() + 60000; }
 bool assistant_speech_expected() { return s_expect_until && (int32_t)(s_expect_until - millis()) > 0; }
 
-static void set_state(AskState st) { s_state = st; s_state_ms = millis(); s_press = -1; }
+static bool s_hist_view = false;    // the history of answers is showing (swipe up)
+static void set_state(AskState st) { s_state = st; s_state_ms = millis(); s_press = -1; s_hist_view = false; }
 
 static void fail(const char *why) {
     snprintf(s_answer, sizeof(s_answer), "%s", why);
@@ -201,6 +219,7 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
         if (seconds > 0) { char d[16]; fmt_dur(d, sizeof(d), seconds); snprintf(s_chip, sizeof(s_chip), "Timer %s", d); }
         else snprintf(s_chip, sizeof(s_chip), "Timer cancelled");
     }
+    hist_add(s_question, s_answer);
     s_speaks = spoken;
     s_follow_ok = spoken && follow;
     s_heard_say = false;
@@ -249,10 +268,24 @@ static void draw_mic_button(Arduino_GFX *g, int y, int r, uint16_t c) {
     g->fillRect(CX - 7, y + 15, 15, 2, COLOR_BG);
 }
 
+// The history: the earlier answers, newest first, the question above each.
+static void draw_history(Arduino_GFX *g) {
+    ui_text_center(CX, 64, COLOR_ACCENT, "Earlier", 2);
+    int y = 100;
+    for (int i = 1; i < s_hist_n && y < LCD_HEIGHT - 70; i++) {   // [0] is the answer on screen
+        if (s_hist[i].q[0]) y = wrap_center(s_hist[i].q, y, 300, 1, COLOR_TEXT_DIM, 1) + 2;
+        y = wrap_center(s_hist[i].a, y, 330, 1, COLOR_TEXT, 3) + 12;
+    }
+    if (s_hist_n < 2) ui_text_center(CX, CY, COLOR_TEXT_DIM, "Nothing earlier yet", 1);
+    ui_text_center(CX, LCD_HEIGHT - 44, COLOR_TEXT_DIM, "Swipe down: back", 1);
+    (void)g;
+}
+
 static void assist_draw() {
     Arduino_GFX *g = ui_gfx();
     if (!g) return;
     uint32_t now = millis();
+    if (s_hist_view && (s_state == A_ANSWER || s_state == A_ERROR)) { draw_history(g); return; }
     switch (s_state) {
     case A_LISTEN: {
         int lvl = audio_mic_level_percent();
@@ -294,6 +327,7 @@ static void assist_draw() {
             ui_text_center(CX, y + 17, COLOR_ACCENT, c, 1);
         }
         draw_mic_button(g, MIC_Y, MIC_R, s_press == 0 ? ui_dim(COLOR_ACCENT, 0.6f) : COLOR_ACCENT);
+        if (s_hist_n > 1) ui_text_center(CX, MIC_Y + MIC_R + 22, COLOR_TEXT_DIM, "Swipe up: earlier", 1);
         break;
     }
     case A_ERROR:
@@ -352,6 +386,7 @@ static void assist_touch(int x, int y, bool pressed) {
     static bool prev = false;
     bool edge = pressed && !prev;
     prev = pressed;
+    if (s_hist_view) return;           // the history: only swipes
     if (s_state == A_LISTEN) {          // tap anywhere: done talking
         if (!pressed && s_press == 9) stop_and_send();
         else if (edge) s_press = 9;
@@ -367,6 +402,12 @@ static void assist_touch(int x, int y, bool pressed) {
 }
 
 static void assist_gesture(Gesture g) {
+    bool idle = s_state == A_ANSWER || s_state == A_ERROR;
+    if (s_hist_view) {
+        if (g == GESTURE_SWIPE_DOWN || g == GESTURE_SWIPE_RIGHT) s_hist_view = false;
+        return;
+    }
+    if (g == GESTURE_SWIPE_UP && idle) { s_hist_view = true; s_follow_ok = false; return; }
     if (g == GESTURE_SWIPE_RIGHT && s_state != A_LISTEN) ui_pop_screen();
 }
 

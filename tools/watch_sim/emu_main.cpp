@@ -520,6 +520,7 @@ __attribute__((visibility("default"))) int emu_selftest() {
         said();
         run(400, 5);
         check(!audio_is_recording(), "assistant: without \"fl\" it doesn't listen by itself");
+        check(assistant_history_count() >= 3, "assistant: the answers are kept for the history");
         ui_pop_screen();
         emu_step();
         // speech the watch asked for: played outside the assistant for a while
@@ -533,6 +534,12 @@ __attribute__((visibility("default"))) int emu_selftest() {
         char head[40], line[120];
         check(comp_brief(head, sizeof(head), line, sizeof(line)) && !strcmp(head, "Prep the review") &&
                   !strcmp(line, "2 events left: Review at 15:00."), "today: the brief and its sentence arrive");
+        // the evening recap: kept for tonight's RECAP card, its speech expected
+        emu_link_push("{\"t\":\"recap\",\"x\":\"A calm day: two memos, one to-do left.\"}");
+        emu_step();
+        char rc[128];
+        check(comp_recap(rc, sizeof(rc)) && !strcmp(rc, "A calm day: two memos, one to-do left.") &&
+                  assistant_speech_expected(), "recap: kept for the card, and said");
         sim_set_mic_level(0);
         emu_set_connected(was);
     }

@@ -11,6 +11,7 @@ import '../services/ble_protocol.dart';
 import '../services/ble_service.dart';
 import '../services/native_service.dart';
 import '../services/today_brief.dart';
+import '../services/evening_recap.dart';
 import '../services/weather_service.dart';
 import '../services/whisper_service.dart';
 import '../services/assistant_intents.dart';
@@ -230,6 +231,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   final List<StreamSubscription> _subs = [];
   Timer? _weatherTimer;
   Timer? _calendarTimer;
+  Timer? _recapTimer;
   int _stepGoal = 8000;
   String _lastWidget = '';
   // Maneuver icons the watch already has (it caches 12; we track 10).
@@ -263,6 +265,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     _ref.listen(doneActionsProvider, (_, __) => _todosChanged());
     _subs.add(_ble.batteryStream.listen((_) => _pushWidget()));
     _calendarTimer = Timer.periodic(const Duration(minutes: 15), (_) => refreshCalendar());
+    _recapTimer = Timer.periodic(const Duration(minutes: 1), (_) => _maybeRecap());
     Future.delayed(const Duration(seconds: 2), refreshCalendar);
     // A widget left at "Connected" by a process that died: correct it now.
     Future.delayed(const Duration(milliseconds: 500), _pushWidget);
@@ -327,6 +330,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     await _sendTodos();
     _lastBrief = null;
     unawaited(_sendBrief());
+    unawaited(_maybeRecap()); // a watch that connects after the time still gets it
     if (_settings.dndSync) {
       final d = await _native.getDnd();
       await _ble.sendLink({'t': 'dnd', 'on': d.on ? 1 : 0});
@@ -1067,9 +1071,36 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
               ? Platform.localeName.split(RegExp('[_-]')).first.toLowerCase()
               : TextInsights.detectLanguage(n.text).code;
           if (code.isNotEmpty) lang = code;
+        case 'digest':
+          final d = NotifAi.instance.lastDigest;
+          if (d == null || d.trim().isEmpty) {
+            await no('Ask Catch me up first');
+            return;
+          }
+          text = d;
+          lang = _userLangCode();
+        case 'recap':
+          final r = _lastRecap;
+          if (r == null) {
+            await no('No recap yet today');
+            return;
+          }
+          text = r;
         case 'briefing':
           if (!await tts.briefingAloud()) return; // off: the card is enough
           text = (e['x'] as String? ?? '').trim();
+          // in the phone's language when it isn't English (the watch writes it in English)
+          final code = _userLangCode();
+          // (only with a voice for it: an English voice reading Italian is no help)
+          if (code != 'en' && text.isNotEmpty && (await tts.voiceFor(code))?.lang == code) {
+            try {
+              final tr = await GemmaService.instance.translate(text, NotifAi.userLanguage());
+              if (tr != null && tr.trim().isNotEmpty) {
+                text = tr.trim();
+                lang = code;
+              }
+            } catch (_) {} // no model: in English
+          }
         case 'brief':
           final b = _lastBrief;
           if (b == null) {
@@ -1097,6 +1128,82 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
       await no(_clip(err.toString().replaceFirst('Exception: ', ''), 80));
     }
   }
+
+  // ---- the evening recap (evening_recap.dart) -------------------------------------------
+
+  String? _lastRecap;
+  bool _recapBusy = false;
+
+  /// Once a day at the time set (or the first time the watch is connected
+  /// after it): the day in a few sentences, sent to the watch (its RECAP card)
+  /// and said on its speaker when a voice is installed.
+  Future<void> _maybeRecap({bool force = false}) async {
+    if (_recapBusy || !_ble.hasPhoneLink) return;
+    final tts = TtsService.instance;
+    final now = DateTime.now();
+    if (!force && (!await tts.recapOn() || !recapDue(now, await tts.recapMinute(), await tts.recapDay()))) return;
+    _recapBusy = true;
+    try {
+      final today = [
+        for (final r in _ref.read(notesProvider).recordings)
+          if (r.recordedAt != null &&
+              r.recordedAt!.year == now.year &&
+              r.recordedAt!.month == now.month &&
+              r.recordedAt!.day == now.day)
+            r,
+      ]..sort((a, b) => a.recordedAt!.compareTo(b.recordedAt!));
+      final done = _ref.read(doneActionsProvider);
+      final tomorrow = DateTime(now.year, now.month, now.day + 1);
+      final next =
+          state.agenda
+              .where(
+                (e) => e.start.year == tomorrow.year && e.start.month == tomorrow.month && e.start.day == tomorrow.day,
+              )
+              .toList()
+            ..sort((a, b) => a.start.compareTo(b.start));
+      final input = RecapInput(
+        memoTitles: [for (final r in today) r.title.isNotEmpty ? r.title : 'a memo'],
+        memoSummaries: [
+          for (final r in today)
+            if (r.summary.isNotEmpty) r.summary,
+        ],
+        openTodos: [
+          for (final a in _ref.read(knowledgeProvider).actions())
+            if (!done.contains(a.key)) a.text,
+        ],
+        tomorrowFirst: next.isEmpty ? null : (next.first.title, next.first.start, next.first.allDay),
+      );
+      String? text;
+      if (!input.isEmpty) {
+        try {
+          text = cleanRecap(await GemmaService.instance.eveningRecap(recapPrompt(input)));
+        } catch (e) {
+          debugPrintSafe('[recap] model: $e');
+        }
+      }
+      text ??= recapRules(input);
+      _lastRecap = text;
+      await tts.setRecapDay(now.year * 10000 + now.month * 100 + now.day);
+      await _ble.sendLink({'t': 'recap', 'x': _clip(text, 380)});
+      if (await tts.enabled()) {
+        final voice = await tts.voiceFor('en');
+        if (voice != null) {
+          final wav = await tts.speak(voice, _clip(text, 360));
+          if (_ble.isConnected) await _ble.sendFile('say:recap.wav', wav);
+        }
+      }
+    } catch (e) {
+      debugPrintSafe('[recap] $e');
+    } finally {
+      _recapBusy = false;
+    }
+  }
+
+  /// Now, from the app (AI models > Spoken answers).
+  Future<void> recapNow() => _maybeRecap(force: true);
+
+  /// The phone's language as a 2-letter code ("it", "en").
+  static String _userLangCode() => Platform.localeName.split(RegExp('[_-]')).first.toLowerCase();
 
   Future<void> _speakAnswer(String text, String lang) async {
     try {
@@ -1616,6 +1723,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     }
     _weatherTimer?.cancel();
     _calendarTimer?.cancel();
+    _recapTimer?.cancel();
     super.dispose();
   }
 }

@@ -709,7 +709,10 @@ static void draw_digest(Arduino_GFX *g) {
     ui_text_center(CX, 84 + off, COLOR_ACCENT2, "Catch me up", 2);
     const char *t = s_digest_wait ? "Summarizing on your phone..." : (s_digest && s_digest[0] ? s_digest : "");
     if (s_digest_wait && millis() - s_ask_ms > 90000) t = "No answer from the phone";
-    draw_wrapped(g, t, 120 + off, 330, 2, COLOR_TEXT, 14);
+    // done: a tap has the phone say it on the watch's speaker
+    bool done = !s_digest_wait && s_digest && s_digest[0] && phone_link_active();
+    if (done) ui_text_center(CX, 106 + off, COLOR_TEXT_DIM, "Tap to hear it", 1);
+    draw_wrapped(g, t, (done ? 128 : 120) + off, 330, 2, COLOR_TEXT, 14);
 }
 
 static void draw_reply(Arduino_GFX *g) {
@@ -874,7 +877,8 @@ static void notifications_touch(int x, int y, bool pressed) {
                 enter(V_DIGEST);
             }
         } else if (s_view == V_DIGEST) {
-            // nothing to tap
+            if (!s_digest_wait && s_digest && s_digest[0])
+                ui_show_toast(phone_link_say("digest") ? "Saying it on the watch" : "Phone not reachable", 1500);
         } else if (s_view == V_LIST) {
             if (p == 300) {
                 notifications_clear_all();

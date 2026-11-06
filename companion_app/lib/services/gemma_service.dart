@@ -560,6 +560,12 @@ class GemmaService {
     return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
   }
 
+  /// The evening recap's sentences (evening_recap.dart), or null without a model.
+  Future<String?> eveningRecap(String prompt) async {
+    if (!await hasModel()) return null;
+    return _generate(task: 'Evening recap', prompt, temperature: 0.5);
+  }
+
   /// The few words for the watch face's "Today" complication (today_brief.dart), or null without a model.
   Future<String?> todayHeadline(String prompt) async {
     if (!await hasModel()) return null;

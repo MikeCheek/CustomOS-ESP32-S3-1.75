@@ -52,6 +52,10 @@ void comp_set_brief(const char *value, const char *label, const char *line = "")
 // The Today brief for the Smart Stack's card: its few words and the full
 // sentence ("3 things left today: Design review at 15:00..."). False: none yet.
 bool comp_brief(char *head, int hn, char *line, int ln);
+// {"t":"recap","x":".."}: the evening recap, for the Smart Stack's RECAP card
+// until the next morning (4:00). False: none for tonight.
+void comp_set_recap(const char *text);
+bool comp_recap(char *text, int n);
 // The last weather the phone sent (false: none yet); the daily step goal.
 bool comp_weather_now(int &temp, char *cond, int n);
 uint32_t comp_step_goal();

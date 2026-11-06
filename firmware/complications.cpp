@@ -86,6 +86,30 @@ void comp_set_brief(const char *value, const char *label, const char *line) {
     ble_fold_utf8(s_brief_x);
 }
 
+static char s_recap[384] = "";
+static int s_recap_day = -1;   // yyyymmdd of the evening it belongs to
+
+// The evening a moment is in: before 4:00 it's still the day before.
+static int evening_of(const WatchTime &t) {
+    if (!t.valid) return -1;
+    int d = t.year * 10000 + t.month * 100 + t.day;
+    if (t.hour >= 4) return d;
+    // yesterday, roughly (the 1st after midnight counts as the last of the month)
+    return t.day > 1 ? d - 1 : d - 100 + 30;
+}
+
+void comp_set_recap(const char *text) {
+    snprintf(s_recap, sizeof(s_recap), "%s", text ? text : "");
+    ble_fold_utf8(s_recap);
+    s_recap_day = evening_of(rtc_now());
+}
+
+bool comp_recap(char *text, int n) {
+    if (!s_recap[0] || s_recap_day < 0 || evening_of(rtc_now()) != s_recap_day) return false;
+    snprintf(text, n, "%s", s_recap);
+    return true;
+}
+
 bool comp_brief(char *head, int hn, char *line, int ln) {
     if (!s_brief_l[0]) return false;
     snprintf(head, hn, "%s", s_brief_l);

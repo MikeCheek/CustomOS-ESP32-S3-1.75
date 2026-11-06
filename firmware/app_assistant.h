@@ -42,6 +42,8 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
 // assistant, for the next minute.
 void assistant_expect_speech();
 bool assistant_speech_expected();
+// The answers kept for the history (swipe up on an answer), up to 6.
+int assistant_history_count();
 
 // loop(): rings the timer when it's due, awake or asleep.
 void assistant_timer_update();

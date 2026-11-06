@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../providers/companion_provider.dart';
 import '../services/ai_catalog.dart';
 import '../services/ai_speed.dart';
 import '../services/diarization_service.dart';
@@ -33,7 +34,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _mirrorCtrl = TextEditingController();
   final Map<String, bool> _installed = {}, _selected = {};
   final Set<String> _open = {};
-  bool _loading = true, _diarOn = true, _ttsOn = true, _followOn = true, _briefAloud = true;
+  bool _loading = true, _diarOn = true, _ttsOn = true, _followOn = true, _briefAloud = true, _recapOn = true;
+  int _recapMin = 20 * 60 + 30;
   int _running = 0;
 
   @override
@@ -70,6 +72,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     _ttsOn = await TtsService.instance.enabled();
     _followOn = await TtsService.instance.followUps();
     _briefAloud = await TtsService.instance.briefingAloud();
+    _recapOn = await TtsService.instance.recapOn();
+    _recapMin = await TtsService.instance.recapMinute();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -466,6 +470,52 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                           await _refresh();
                         },
                       ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: Text(
+                          'Evening recap at ${_recapMin ~/ 60}:${(_recapMin % 60).toString().padLeft(2, '0')}',
+                          style: const TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Your day\'s memos, open to-dos and how tomorrow starts, said on the watch '
+                          '(and kept on its Smart Stack). Tap the time to change it',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _recapOn,
+                        onChanged: (v) async {
+                          await TtsService.instance.setRecapOn(v);
+                          await _refresh();
+                        },
+                      ),
+                      if (_recapOn)
+                        Row(
+                          children: [
+                            TextButton.icon(
+                              icon: const Icon(Icons.schedule_rounded, size: 18),
+                              label: const Text('Change the time'),
+                              onPressed: () async {
+                                final t = await showTimePicker(
+                                  context: context,
+                                  initialTime: TimeOfDay(hour: _recapMin ~/ 60, minute: _recapMin % 60),
+                                );
+                                if (t == null) return;
+                                await TtsService.instance.setRecapMinute(t.hour * 60 + t.minute);
+                                await _refresh();
+                              },
+                            ),
+                            TextButton.icon(
+                              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                              label: const Text('Send one now'),
+                              onPressed: () {
+                                ProviderScope.containerOf(
+                                  context,
+                                  listen: false,
+                                ).read(companionProvider.notifier).recapNow();
+                                showSnack(context, 'Making the recap - it goes to the watch');
+                              },
+                            ),
+                          ],
+                        ),
                     ],
                   ],
                 ),

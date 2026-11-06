@@ -27,6 +27,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   - the assistant listens for a follow-up after a spoken answer ("and tomorrow?"), with no wake word
   - spoken answers without an SD card; messages read aloud (hold one); the morning briefing said aloud
   - the "Today" complication and Smart Stack card, worded by the phone's AI (tap the card to hear it)
+  - an evening recap of the day, said on the watch and kept as a Smart Stack card; Catch me up read aloud; the
+    briefing said in the phone's language when there's a voice for it; the assistant's earlier answers (swipe up)
 - **New in the app, checked on a phone:** the voices speak again (sherpa-onnx 2 needs its text turned into phonemes
   first), model installs no longer fail, the language model runs on the GPU when it can, and AI models > Speed >
   Performance times every model run (average, fastest, slowest, where it ran, crashes). Not tried on a phone yet: a
@@ -35,7 +37,8 @@ Built on Arduino + Arduino_GFX, no LVGL.
   such in the app.
 - **Tests:** every push builds the firmware twice (PlatformIO and Arduino), runs the PC tests (falls, sleep,
   handwriting, motion, voice) and the emulator self-tests (storage, Wallet, home gestures, the sound switches,
-  Breathe, the Casino's payouts, poker hands and stats, the live view), analyzes and builds the Android app.
+  Breathe, the Casino's payouts, poker hands and stats, the assistant's follow-ups and spoken requests, the live
+  view), analyzes and builds the Android app.
 
 ## Screenshots
 

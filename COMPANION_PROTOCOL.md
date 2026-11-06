@@ -64,6 +64,7 @@ Phone → watch (`"t"` = type):
 | `{"t":"dict","id":123,"n":1,"tx":"text"}` / `{"t":"dict","id":123,"n":1,"err":"why"}` | voice reply transcription result (`n` echoes the watch's attempt number) |
 | `{"t":"ask","n":1,"st":"Thinking"}` | voice assistant progress (shown while the watch waits) |
 | `{"t":"ask","n":1,"q":"heard","a":"answer","do":"timer","s":300}` / `{"t":"ask","n":1,"err":"why"}` | voice assistant result; `do`/`s` optional: `timer` sets the watch timer to `s` seconds (0 cancels). `"sp":1`: the answer is being said (a `say:` file follows); `"fl":1` too: once it has played, the watch listens 4 s for a follow-up |
+| `{"t":"recap","x":"A calm day..."}` | the evening recap (at the time set in the app, or when the watch connects after it): kept for the Smart Stack's RECAP card until 4:00, and said right after (a `say:recap.wav` file) |
 | `{"t":"say","err":"why"}` | the phone couldn't say what the watch asked for (`e:"say"`): no voice installed, the message is gone... shown as a toast |
 
 Watch → phone (`"e"` = event):
@@ -75,7 +76,7 @@ Watch → phone (`"e"` = event):
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
 | `{"e":"ask","n":1,"f":"_ask.wav"}` | voice assistant question recorded: download `f`, transcribe, act on it, answer with `t:"ask"`. `"fu":1`: a follow-up to the last answer (no wake word), answered in its context |
-| `{"e":"say","w":"notif","id":7}` / `{"e":"say","w":"briefing","x":"Good morning..."}` / `{"e":"say","w":"brief"}` | say something on the watch's speaker: a message (held on the watch; its translation if it has one), the morning briefing (when "Read the morning briefing aloud" is on), the Today card. The answer is a `say:msg.wav` file, played for the next minute, or `t:"say"` with `err` |
+| `{"e":"say","w":"notif","id":7}` / `{"e":"say","w":"briefing","x":"Good morning..."}` / `{"e":"say","w":"brief"}` / `{"e":"say","w":"digest"}` / `{"e":"say","w":"recap"}` | say something on the watch's speaker (also Catch me up's summary and tonight's recap): a message (held on the watch; its translation if it has one), the morning briefing (when "Read the morning briefing aloud" is on), the Today card. The answer is a `say:msg.wav` file, played for the next minute, or `t:"say"` with `err` |
 | `{"e":"req"}` | please resend battery + now playing |
 | `{"e":"img","k":"i"\|"a","h":789}` | send this app icon / album cover (as `0x03` frames); asked once per image, again after 20 s if nothing came |
 | `{"e":"med","a":"toggle"\|"next"\|"prev"\|"volUp"\|"volDown"}` | media control |

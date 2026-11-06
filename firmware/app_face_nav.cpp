@@ -72,7 +72,7 @@ static void fit_text(char *out, int n, const char *in, int size, int w) {
 
 // CARD_TODAY comes after CARD_BATTERY: the tap counts kept in NVS stay as
 // they were (it isn't learned - it's about the whole day, not a habit).
-enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_LIFE, CARD_BATTERY, CARD_TODAY };
+enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_LIFE, CARD_BATTERY, CARD_TODAY, CARD_RECAP };
 struct Card {
     CardKind kind;
     Screen *open;          // tapping the card opens this (nullptr: nothing)
@@ -83,7 +83,7 @@ struct Card {
     float progress;        // < 0: no bar
 };
 
-static Card s_cards[15];
+static Card s_cards[16];
 static int  s_card_n = 0;
 static float s_scroll = 0, s_scroll_vel = 0;
 static bool  s_st_drag = false, s_st_moved = false;
@@ -172,6 +172,7 @@ static int card_score(const Card &c) {
     }
     }
     if (c.kind == CARD_TODAY) return 60 + (morning ? 85 : 0) + (evening ? 0 : 10);
+    if (c.kind == CARD_RECAP) return 75 + (evening ? 70 : 0);
     int taps = s_taps[quarter_now()][c.kind];
     int learned = 0;
     while (taps > 0 && learned < 40) { learned += 8; taps >>= 1; }   // ~8 x log2(taps)
@@ -179,7 +180,7 @@ static int card_score(const Card &c) {
 }
 
 static void sort_cards() {
-    int sc[15];
+    int sc[16];
     for (int i = 0; i < s_card_n; i++) sc[i] = card_score(s_cards[i]);
     for (int i = 1; i < s_card_n; i++)   // insertion sort: stable, a handful of cards
         for (int j = i; j > 0 && sc[j] > sc[j - 1]; j--) {
@@ -306,6 +307,14 @@ static void build_cards() {
             strlcpy(c.main, head, sizeof(c.main));
             strlcpy(c.sub, line[0] ? line : "Tap to hear your day", sizeof(c.sub));
         }
+        // tonight's recap, until the morning: tap to hear it again
+        char recap[384];
+        if (comp_recap(recap, sizeof(recap))) {
+            Card &r = add(CARD_RECAP, nullptr, COLOR_ACCENT3, "EVENING RECAP");
+            strlcpy(r.main, recap, sizeof(r.main));
+            ui_fit(r.main, 2, CARD_W - 120);
+            strlcpy(r.sub, "Tap to hear it", sizeof(r.sub));
+        }
     }
     {
         int p = power_get_battery_percent();
@@ -335,6 +344,13 @@ static int card_y(int i) { return 92 + i * CARD_STEP - (int)s_scroll; }   // top
 
 static void draw_card_icon(const Card &c, int cx, int cy) {
     if (c.kind == CARD_ACTIVITY) { fitness_draw_rings(cx, cy, 24, 6); return; }
+    if (c.kind == CARD_RECAP) {   // a crescent moon
+        Arduino_GFX *g = ui_gfx();
+        g->fillCircle(cx, cy, 24, ui_dim(COLOR_ACCENT3, 0.45f));
+        g->fillCircle(cx - 3, cy, 13, COLOR_TEXT);
+        g->fillCircle(cx + 4, cy - 4, 11, ui_dim(COLOR_ACCENT3, 0.45f));
+        return;
+    }
     if (c.kind == CARD_TODAY) {   // a sparkle: the AI's
         Arduino_GFX *g = ui_gfx();
         g->fillCircle(cx, cy, 24, ui_dim(COLOR_ACCENT, 0.45f));
@@ -432,9 +448,10 @@ static void stack_touch(int x, int y, bool pressed) {
     }
     for (int i = 0; i < s_card_n; i++) {
         int cy = card_y(i);
-        if (y >= cy && y < cy + CARD_H && s_cards[i].kind == CARD_TODAY) {
+        if (y >= cy && y < cy + CARD_H && (s_cards[i].kind == CARD_TODAY || s_cards[i].kind == CARD_RECAP)) {
             sleep_register_activity();
-            ui_show_toast(phone_link_say("brief") ? "Saying it on the watch" : "Phone not reachable", 1500);
+            bool ok = phone_link_say(s_cards[i].kind == CARD_TODAY ? "brief" : "recap");
+            ui_show_toast(ok ? "Saying it on the watch" : "Phone not reachable", 1500);
             return;
         }
         if (y >= cy && y < cy + CARD_H && s_cards[i].open) {
