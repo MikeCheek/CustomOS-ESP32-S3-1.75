@@ -346,7 +346,10 @@ static void apply_clear_and_fall() {
 }
 
 // ---- Round flow -------------------------------------------------------
+static int32_t s_round_cost = 0;   // what this spin took from the wallet (0: a free spin)
+
 static void begin_spin() {
+    s_round_cost = s_free_spins_active ? 0 : s_bet;
     for (int r = 0; r < GRID_H; r++)
         for (int c = 0; c < GRID_W; c++) {
             s_grid[r][c] = random_symbol();
@@ -379,6 +382,7 @@ static void end_round() {
         if (s_free_spins_left <= 0) s_free_spins_active = false;
     }
     save_money();
+    casino_record(CG_SLOTS, s_round_win - s_round_cost);
     if (s_round_win > 0) game_sfx_score(); else game_sfx_hit();
     s_state = SL_ROUND_END;
 }

@@ -70,6 +70,14 @@ class TtsService {
   Future<bool> enabled() async => (await SharedPreferences.getInstance()).getBool(_enabledKey) ?? true;
   Future<void> setEnabled(bool on) async => (await SharedPreferences.getInstance()).setBool(_enabledKey, on);
 
+  /// After a spoken answer the watch listens a few seconds for a follow-up (no wake word, no tap).
+  Future<bool> followUps() async => (await SharedPreferences.getInstance()).getBool('tts_follow_ups') ?? true;
+  Future<void> setFollowUps(bool on) async => (await SharedPreferences.getInstance()).setBool('tts_follow_ups', on);
+
+  /// The watch's morning briefing is also said, on its speaker.
+  Future<bool> briefingAloud() async => (await SharedPreferences.getInstance()).getBool('tts_briefing') ?? true;
+  Future<void> setBriefingAloud(bool on) async => (await SharedPreferences.getInstance()).setBool('tts_briefing', on);
+
   /// [onProgress] 0..1 (the last part, unpacking, has no steps).
   Future<void> install(TtsVoice v, {void Function(double)? onProgress}) async {
     final root = await _root();

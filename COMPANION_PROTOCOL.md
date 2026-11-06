@@ -63,7 +63,8 @@ Phone → watch (`"t"` = type):
 | `{"t":"crash"}` / `{"t":"crash","clr":1}` | send diagnostics (and clear the crash report) |
 | `{"t":"dict","id":123,"n":1,"tx":"text"}` / `{"t":"dict","id":123,"n":1,"err":"why"}` | voice reply transcription result (`n` echoes the watch's attempt number) |
 | `{"t":"ask","n":1,"st":"Thinking"}` | voice assistant progress (shown while the watch waits) |
-| `{"t":"ask","n":1,"q":"heard","a":"answer","do":"timer","s":300}` / `{"t":"ask","n":1,"err":"why"}` | voice assistant result; `do`/`s` optional: `timer` sets the watch timer to `s` seconds (0 cancels) |
+| `{"t":"ask","n":1,"q":"heard","a":"answer","do":"timer","s":300}` / `{"t":"ask","n":1,"err":"why"}` | voice assistant result; `do`/`s` optional: `timer` sets the watch timer to `s` seconds (0 cancels). `"sp":1`: the answer is being said (a `say:` file follows); `"fl":1` too: once it has played, the watch listens 4 s for a follow-up |
+| `{"t":"say","err":"why"}` | the phone couldn't say what the watch asked for (`e:"say"`): no voice installed, the message is gone... shown as a toast |
 
 Watch → phone (`"e"` = event):
 
@@ -73,7 +74,8 @@ Watch → phone (`"e"` = event):
 | `{"e":"wifi","st":"ready","ip":"192.168.1.20","port":8080,"k":"<key>"}` / `{"e":"wifi","st":"err","why":"..."}` / `{"e":"wifi","st":"off"}` | Wi-Fi transfer server state |
 | `{"e":"crash","id":7,"txt":"...","sys":"..."}` | diagnostics: last crash report (`txt`, empty if none) and system status text |
 | `{"e":"dict","id":123,"n":1,"f":"_reply.wav"}` | voice reply recorded: download `f` with the notes characteristic, transcribe, answer with `t:"dict"` |
-| `{"e":"ask","n":1,"f":"_ask.wav"}` | voice assistant question recorded: download `f`, transcribe, act on it, answer with `t:"ask"` |
+| `{"e":"ask","n":1,"f":"_ask.wav"}` | voice assistant question recorded: download `f`, transcribe, act on it, answer with `t:"ask"`. `"fu":1`: a follow-up to the last answer (no wake word), answered in its context |
+| `{"e":"say","w":"notif","id":7}` / `{"e":"say","w":"briefing","x":"Good morning..."}` / `{"e":"say","w":"brief"}` | say something on the watch's speaker: a message (held on the watch; its translation if it has one), the morning briefing (when "Read the morning briefing aloud" is on), the Today card. The answer is a `say:msg.wav` file, played for the next minute, or `t:"say"` with `err` |
 | `{"e":"req"}` | please resend battery + now playing |
 | `{"e":"img","k":"i"\|"a","h":789}` | send this app icon / album cover (as `0x03` frames); asked once per image, again after 20 s if nothing came |
 | `{"e":"med","a":"toggle"\|"next"\|"prev"\|"volUp"\|"volDown"}` | media control |
@@ -200,7 +202,7 @@ sounds; incoming calls still ring.
 |---|---|---|
 | phone → watch | `{"t":"comp","s":["steps","next_event","battery"]}` | the 3 slots on the Default/Minimal faces, left to right |
 | phone → watch | `{"t":"todo","n":4,"top":"Call Marco"}` | open to-dos from the voice memos (for the `todos` complication) |
-| phone → watch | `{"t":"brief","v":"3","l":"Call Marco first"}` | the `brief` ("Today") complication: things left today (`-`: none) and the one to keep in mind, worded by the phone's language model when the complication is on the face, else the next event / to-do |
+| phone → watch | `{"t":"brief","v":"3","l":"Call Marco first","x":"2 events left: ..."}` | the `brief` ("Today") complication: things left today (`-`: none) and the one to keep in mind, worded by the phone's language model when the complication is on the face, else the next event / to-do |
 | phone → watch | `{"t":"todos","r":1,"l":[{"k":"9f3a01bc","x":"Call Marco"},...]}` … `{"t":"todos","l":[...],"done":1}` | the open to-dos for the Reminders app (fw 3.5+), 7 per message; `r` starts a new list, `done` replaces the watch's. `k` = FNV-1a of the to-do's key, 8 hex digits |
 | watch → phone | `{"e":"todo","k":"9f3a01bc","d":1}` | ticked off on the watch; the phone marks it done and sends the list again |
 

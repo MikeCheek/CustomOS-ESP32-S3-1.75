@@ -33,7 +33,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   final _mirrorCtrl = TextEditingController();
   final Map<String, bool> _installed = {}, _selected = {};
   final Set<String> _open = {};
-  bool _loading = true, _diarOn = true, _ttsOn = true;
+  bool _loading = true, _diarOn = true, _ttsOn = true, _followOn = true, _briefAloud = true;
   int _running = 0;
 
   @override
@@ -68,6 +68,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     _mirrorCtrl.text = await ModelFetch.instance.mirror();
     _diarOn = await DiarizationService.instance.enabled();
     _ttsOn = await TtsService.instance.enabled();
+    _followOn = await TtsService.instance.followUps();
+    _briefAloud = await TtsService.instance.briefingAloud();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -431,6 +433,40 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                           await _refresh();
                         },
                       ),
+                    if (_ttsOn && AiCatalog.of(AiFeature.voice).any((i) => _installed[i.id] == true)) ...[
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text(
+                          'Listen for a follow-up',
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'After an answer, the watch listens a few seconds more - "and tomorrow?" - no wake word',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _followOn,
+                        onChanged: (v) async {
+                          await TtsService.instance.setFollowUps(v);
+                          await _refresh();
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        title: const Text(
+                          'Read the morning briefing aloud',
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Messages are read when you hold one on the watch, the Today card when you tap it',
+                          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+                        ),
+                        value: _briefAloud,
+                        onChanged: (v) async {
+                          await TtsService.instance.setBriefingAloud(v);
+                          await _refresh();
+                        },
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 10),

@@ -84,6 +84,7 @@ static void settle() {
     s_d2 = s_f2;
     s_won = dice_win(s_bets[0], s_bets[1], s_bets[2], total);
     if (s_won > 0) casino_set(casino_credit() + s_won);
+    casino_record(CG_DICE, s_won - s_staked);
     if (s_hist_n < 8) s_hist_n++;
     memmove(s_hist + 1, s_hist, sizeof(s_hist) - 1);
     s_hist[0] = (uint8_t)total;

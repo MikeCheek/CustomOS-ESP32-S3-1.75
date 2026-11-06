@@ -322,6 +322,7 @@ static void resolve_result() {
     else if (strcmp(s_player.result_text, "Bust") == 0 || strcmp(s_player.result_text, "Lose") == 0) game_sfx_gameover();
     else if (strcmp(s_player.result_text, "Surrendered") == 0) game_sfx_hit();
     save_money();
+    casino_record(CG_BLACKJACK, s_money - s_round_start_money);   // side bets and insurance included
     s_state = BJ_RESULT;
 }
 

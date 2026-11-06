@@ -66,6 +66,12 @@ bool phone_link_fall(bool ok);
 // Ask the phone's LLM: a summary of the recent notifications, a message translated.
 bool phone_link_notif_digest();
 bool phone_link_notif_translate(uint32_t id);
+// Ask the phone to say something on the watch's speaker (its voices, the
+// "say:" file comes back): {"e":"say","w":"notif","id":..} a message read
+// aloud, {"e":"say","w":"briefing","x":".."} the morning briefing,
+// {"e":"say","w":"brief"} the Today card. The phone answers
+// {"t":"say","err":".."} when it can't (no voice installed...).
+bool phone_link_say(const char *what, uint32_t id = 0, const char *text = nullptr);
 
 // Ask the phone to resend its state (battery, media) - e.g. when a screen
 // that shows it opens.

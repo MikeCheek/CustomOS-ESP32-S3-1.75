@@ -7,7 +7,10 @@
 #include "config.h"
 #include "board_pins.h"
 #include "game_audio.h"
+#include "hal_rtc.h"
 #include "ui.h"
+#include "ui_font.h"
+#include <stdlib.h>
 #include <Arduino_GFX_Library.h>
 #include <math.h>
 #include <string.h>
@@ -33,8 +36,14 @@ static Station STATIONS[N_ST] = {
     {"Roulette", "wheel", CX - 84, 316, 62, &roulette_screen},
     {"Hi-Lo dice", "dice", CX + 84, 316, 62, &dice_screen},
 };
-static const int CASHIER_Y = 432;
-static int s_press = -1;           // a station, or CASHIER
+static const int CASHIER_Y = 432, STATS = N_ST + 1;
+static int s_press = -1;           // a station, CASHIER or STATS
+extern Screen casino_stats_screen;
+
+static uint32_t today() {
+    WatchTime t = rtc_now();
+    return t.valid ? (uint32_t)t.year * 10000 + t.month * 100 + t.day : 0;
+}
 static bool s_prev = false;
 static uint32_t s_msg_ms = 0;
 static char s_msg[40] = "";
@@ -164,11 +173,19 @@ static void casino_draw() {
     }
     // the cashier
     bool broke = casino_credit() < CASINO_MIN_BET;
+    bool bonus = casino_daily_bonus_ready(today());
     if (s_msg[0] && now - s_msg_ms < 2200) {
         ui_text_center(CX, CASHIER_Y, COLOR_WARN, s_msg, 1);
     } else {
-        g->fillRoundRect(CX - 58, CASHIER_Y - 13, 116, 26, 13, s_press == CASHIER ? C_GOLD : broke ? C_RED : COLOR565(0x1a, 0x06, 0x12));
-        ui_text_center(CX, CASHIER_Y, s_press == CASHIER ? C_BLACK : COLOR_TEXT, broke ? "Cashier: top up" : "Cashier", 1);
+        // the cashier (a top-up when broke, else the day's bonus) and the stats
+        uint16_t cb = s_press == CASHIER ? C_GOLD : broke ? C_RED
+                      : bonus ? (((now / 500) % 2) ? COLOR565(0x8a, 0x6a, 0x10) : COLOR565(0x6a, 0x4a, 0x08))
+                      : COLOR565(0x1a, 0x06, 0x12);
+        g->fillRoundRect(CX - 110, CASHIER_Y - 13, 104, 26, 13, cb);
+        ui_text_center(CX - 58, CASHIER_Y, s_press == CASHIER ? C_BLACK : COLOR_TEXT,
+                       broke ? "Top up" : bonus ? "Daily bonus" : "Cashier", 1);
+        g->fillRoundRect(CX + 6, CASHIER_Y - 13, 104, 26, 13, s_press == STATS ? C_GOLD : COLOR565(0x1a, 0x06, 0x12));
+        ui_text_center(CX + 58, CASHIER_Y, s_press == STATS ? C_BLACK : COLOR_TEXT, "Stats", 1);
     }
 }
 
@@ -177,7 +194,8 @@ static int hit(int x, int y) {
         int dx = x - STATIONS[i].x, dy = y - STATIONS[i].y;
         if (dx * dx + dy * dy <= STATIONS[i].r * STATIONS[i].r) return i;
     }
-    if (abs(x - CX) < 64 && abs(y - CASHIER_Y) < 16) return CASHIER;
+    if (abs(y - CASHIER_Y) < 16 && x >= CX - 110 && x < CX - 6) return CASHIER;
+    if (abs(y - CASHIER_Y) < 16 && x >= CX + 6 && x < CX + 110) return STATS;
     return -1;
 }
 
@@ -189,10 +207,13 @@ static void casino_touch(int x, int y, bool pressed) {
     int p = s_press;
     s_press = -1;
     if (p < 0 || hit(x, y) != p) return;
+    if (p == STATS) { game_sfx_score(); ui_push(&casino_stats_screen); return; }
     if (p == CASHIER) {
         int32_t before = casino_credit(), after = casino_top_up();
+        int32_t bonus = after > before ? 0 : casino_daily_bonus(today());
         if (after > before) { snprintf(s_msg, sizeof(s_msg), "Here's $%ld - good luck!", (long)(after - before)); game_sfx_levelup(); }
-        else snprintf(s_msg, sizeof(s_msg), "Top-ups are for under $%d", CASINO_MIN_BET);
+        else if (bonus > 0) { snprintf(s_msg, sizeof(s_msg), "Today's bonus: $%ld!", (long)bonus); game_sfx_levelup(); }
+        else snprintf(s_msg, sizeof(s_msg), "Bonus taken - back tomorrow");
         s_msg_ms = millis();
         return;
     }
@@ -206,4 +227,51 @@ Screen casino_screen = {
     casino_create, casino_draw, casino_touch, nullptr, nullptr, nullptr,
     0, false, false, false, false,
     true,   // hide_status - the marquee lights run round the edge
+};
+
+// ---- the stats page ----------------------------------------------------------------------
+// Per game: rounds played, what it made or lost overall, the biggest win in
+// one round; Video Poker's best hand. Swipe sideways or tap: back.
+static void stats_draw() {
+    Arduino_GFX *g = ui_gfx();
+    if (!g) return;
+    g->fillScreen(C_CARPET);
+    ui_text_center(CX, 62, C_GOLD, "CASINO STATS", 2);
+    char b[48];
+    int32_t total = 0;
+    uint32_t rounds = 0;
+    for (int i = 0; i < CG_COUNT; i++) { CasinoGameStats s = casino_stats((CasinoGame)i); total += s.net; rounds += s.rounds; }
+    snprintf(b, sizeof(b), "%lu round%s  -  %s$%ld overall", (unsigned long)rounds, rounds == 1 ? "" : "s",
+             total < 0 ? "-" : "+", (long)labs(total));
+    ui_text_center(CX, 94, total < 0 ? COLOR_BAD : COLOR_GOOD, b, 1);
+    int y = 132;
+    for (int i = 0; i < CG_COUNT; i++, y += 52) {
+        CasinoGameStats s = casino_stats((CasinoGame)i);
+        g->fillRoundRect(CX - 180, y - 20, 360, 44, 14, COLOR565(0x1a, 0x06, 0x12));
+        ui_print(CX - 164, y - 8, 1, COLOR_TEXT, casino_game_name((CasinoGame)i));
+        if (!s.rounds) { ui_print(CX - 164, y + 8, 1, COLOR_TEXT_DIM, "not played yet"); continue; }
+        snprintf(b, sizeof(b), "%lu round%s  -  best win $%ld", (unsigned long)s.rounds, s.rounds == 1 ? "" : "s",
+                 (long)(s.best > 0 ? s.best : 0));
+        ui_print(CX - 164, y + 8, 1, COLOR_TEXT_DIM, b);
+        snprintf(b, sizeof(b), "%s$%ld", s.net < 0 ? "-" : "+", (long)labs(s.net));
+        ui_text_center(CX + 128, y, s.net < 0 ? COLOR_BAD : COLOR_GOOD, b, 2);
+    }
+    uint8_t h = casino_best_poker_hand();
+    snprintf(b, sizeof(b), "Best poker hand: %s", h < PH_NOTHING ? poker_name((PokerHand)h) : "none yet");
+    ui_text_center(CX, y + 4, C_GOLD, b, 1);
+}
+
+static void stats_touch(int, int, bool pressed) {
+    static bool down = false;
+    if (pressed) { down = true; return; }
+    if (down) { down = false; ui_pop_screen(); }
+}
+static void stats_gesture(Gesture g) { if (g == GESTURE_SWIPE_LEFT || g == GESTURE_SWIPE_RIGHT) ui_pop_screen(); }
+
+Screen casino_stats_screen = {
+    "", GESTURE_MODE_EDGE,
+    UI_FRAME_MS_DEFAULT,
+    nullptr, stats_draw, stats_touch, nullptr, nullptr, stats_gesture,
+    0, false, false, false, false,
+    true,   // hide_status
 };

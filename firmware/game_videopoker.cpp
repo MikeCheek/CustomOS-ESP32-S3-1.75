@@ -135,6 +135,8 @@ static void draw_cards() {
     s_hand = poker_hand(s_rank, s_suit);
     s_won = s_bet * poker_pays(s_hand);
     if (s_won > 0) casino_set(casino_credit() + s_won);
+    casino_record(CG_POKER, s_won - s_bet);
+    if (s_hand < PH_NOTHING) casino_record_poker_hand(s_hand);
     s_state = VP_RESULT;
     s_anim_ms = millis();
     if (s_hand <= PH_FOUR) game_sfx_levelup();

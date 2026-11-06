@@ -5,14 +5,33 @@
 class TodayBrief {
   final String value; // "3" (things left today), "-" when nothing is
   final String label; // "Call Marco first", "Design review", "Free day"
-  const TodayBrief(this.value, this.label);
+  final String line; // the whole day in a sentence, for the Smart Stack card and to say aloud
+  const TodayBrief(this.value, this.label, [this.line = '']);
 
-  Map<String, dynamic> toWatch() => {'t': 'brief', 'v': value, 'l': label};
+  Map<String, dynamic> toWatch() => {'t': 'brief', 'v': value, 'l': label, if (line.isNotEmpty) 'x': line};
 
   @override
-  bool operator ==(Object o) => o is TodayBrief && o.value == value && o.label == label;
+  bool operator ==(Object o) => o is TodayBrief && o.value == value && o.label == label && o.line == line;
   @override
-  int get hashCode => Object.hash(value, label);
+  int get hashCode => Object.hash(value, label, line);
+}
+
+/// The rest of today in a sentence: "2 events left: Design review at 15:00,
+/// Gym at 19:00. To do: Call Marco." / "Nothing left on the calendar today."
+String briefLine({required DateTime now, required List<BriefEvent> events, required List<String> todos}) {
+  String hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  final left = eventsLeftToday(events, now);
+  final parts = <String>[
+    if (left.isEmpty)
+      'Nothing left on the calendar today.'
+    else
+      '${left.length} event${left.length == 1 ? '' : 's'} left: '
+          '${left.take(3).map((e) => e.$3 ? e.$1 : '${e.$1} at ${hm(e.$2)}').join(', ')}.',
+    if (todos.isNotEmpty)
+      'To do: ${todos.take(2).join(', ')}${todos.length > 2 ? ' and ${todos.length - 2} more' : ''}.',
+  ];
+  final s = parts.join(' ');
+  return s.length > 118 ? '${s.substring(0, 115).trimRight()}...' : s;
 }
 
 /// Today's events still to come, as (title, start, all day).
@@ -46,7 +65,11 @@ TodayBrief ruleBrief({
       : todos.isNotEmpty
       ? todos.first
       : (memoTitle != null && memoTitle.trim().isNotEmpty ? memoTitle : 'Free day');
-  return TodayBrief(n == 0 ? '-' : (n > 9 ? '9+' : '$n'), shortLabel(label));
+  return TodayBrief(
+    n == 0 ? '-' : (n > 9 ? '9+' : '$n'),
+    shortLabel(label),
+    briefLine(now: now, events: events, todos: todos),
+  );
 }
 
 /// At most [max] characters, cut at a word ("Design review with the team" -> "Design review").

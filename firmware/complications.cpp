@@ -76,11 +76,21 @@ void comp_set_todos(int count, const char *top) {
 
 static char s_brief_v[8] = "";
 static char s_brief_l[40] = "";
+static char s_brief_x[120] = "";
 
-void comp_set_brief(const char *value, const char *label) {
+void comp_set_brief(const char *value, const char *label, const char *line) {
     snprintf(s_brief_v, sizeof(s_brief_v), "%s", value ? value : "");
     snprintf(s_brief_l, sizeof(s_brief_l), "%s", label ? label : "");
+    snprintf(s_brief_x, sizeof(s_brief_x), "%s", line ? line : "");
     ble_fold_utf8(s_brief_l);
+    ble_fold_utf8(s_brief_x);
+}
+
+bool comp_brief(char *head, int hn, char *line, int ln) {
+    if (!s_brief_l[0]) return false;
+    snprintf(head, hn, "%s", s_brief_l);
+    snprintf(line, ln, "%s", s_brief_x);
+    return true;
 }
 
 static uint32_t s_step_goal = 8000;

@@ -117,6 +117,30 @@ static void brief_draw() {
     ui_text_center(CX, LCD_HEIGHT - 48, COLOR_TEXT_DIM, "Tap to start the day", 1);
 }
 
+// The same card as one paragraph, for the phone to say on the watch's
+// speaker (it only does when "Read the morning briefing aloud" is on there).
+static void brief_create() {
+    if (!phone_link_active()) return;
+    char s[400], b[96];
+    int n = snprintf(s, sizeof(s), g_app_settings.user_name[0] ? "Good morning, %s." : "Good morning.",
+                     g_app_settings.user_name);
+    int temp;
+    char cond[32];
+    if (comp_weather_now(temp, cond, sizeof(cond)) && n < (int)sizeof(s))
+        n += snprintf(s + n, sizeof(s) - n, " It's %d degrees and %s.", temp, cond);
+    int sl = sleeptrack_last_night_min();
+    if (sl > 0 && n < (int)sizeof(s))
+        n += snprintf(s + n, sizeof(s) - n, " You slept %d hours %d minutes.", sl / 60, sl % 60);
+    CalEvent ev;
+    if (calendar_next(ev) && n < (int)sizeof(s)) {
+        calendar_format_when(ev, b, sizeof(b));
+        n += snprintf(s + n, sizeof(s) - n, " Up next: %s, %s.", ev.title, b);
+    }
+    char nx[48];
+    if (life_next(nx, sizeof(nx)) && n < (int)sizeof(s)) n += snprintf(s + n, sizeof(s) - n, " Then: %s.", nx);
+    phone_link_say("briefing", 0, s);
+}
+
 static void brief_touch(int, int, bool pressed) {
     static bool down = false;
     if (pressed) { down = true; return; }
@@ -130,6 +154,6 @@ static void brief_gesture(Gesture) { ui_pop_screen(); }
 
 Screen briefing_screen = {
     nullptr, GESTURE_MODE_EDGE, UI_FRAME_MS_DEFAULT,
-    nullptr, brief_draw, brief_touch, nullptr, nullptr, brief_gesture,
+    brief_create, brief_draw, brief_touch, nullptr, nullptr, brief_gesture,
     1000,
 };

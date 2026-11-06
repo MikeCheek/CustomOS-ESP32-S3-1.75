@@ -23,6 +23,8 @@
 #define ASK_MAX_S     10          // a question, not a memo - and it has to cross Bluetooth
 #define ASK_WAIT_MS   120000
 #define QUIET_STOP_MS 1300        // this long quiet after speaking ends the question
+#define FOLLOW_WAIT_MS 4000       // a follow-up: this long to start talking
+#define FOLLOW_MAX    3           // follow-ups in a row before it waits for a tap
 
 enum AskState { A_LISTEN, A_WAIT, A_ANSWER, A_ERROR };
 
@@ -40,6 +42,15 @@ static char s_chip[40] = "";        // what was done ("Timer 5:00")
 static int s_floor = 100;
 static bool s_spoke = false;
 static uint32_t s_last_voice_ms = 0;
+// follow-ups: the answer is spoken, then the watch listens again by itself
+static bool s_follow = false;        // this listen is a follow-up
+static bool s_speaks = false, s_follow_ok = false, s_heard_say = false;
+static int s_followups = 0;
+static uint32_t s_answer_ms = 0;
+static uint32_t s_expect_until = 0;
+
+void assistant_expect_speech() { s_expect_until = millis() + 60000; }
+bool assistant_speech_expected() { return s_expect_until && (int32_t)(s_expect_until - millis()) > 0; }
 
 static void set_state(AskState st) { s_state = st; s_state_ms = millis(); s_press = -1; }
 
@@ -95,8 +106,10 @@ static void fmt_dur(char *b, int n, uint32_t s) {
 }
 
 // ---- asking ------------------------------------------------------------------------------
-static void start_listening() {
-    s_question[0] = s_answer[0] = s_chip[0] = s_status[0] = 0;
+static void start_listening(bool follow = false) {
+    s_follow = follow;
+    if (!follow) { s_question[0] = s_answer[0] = s_chip[0] = s_status[0] = 0; s_followups = 0; }
+    s_speaks = false;
     if (!phone_link_active()) { fail("Connect the companion app to use the assistant"); return; }
     if (!sd_is_mounted()) { fail("The assistant needs the SD card"); return; }
     if (audio_is_playing()) audio_stop_playback();
@@ -111,13 +124,23 @@ static void start_listening() {
 static void send_ask() {
     char msg[80];
     s_seq++;
-    snprintf(msg, sizeof(msg), "{\"e\":\"ask\",\"n\":%lu,\"f\":\"" ASK_FILE "\"}", (unsigned long)s_seq);
+    snprintf(msg, sizeof(msg), "{\"e\":\"ask\",\"n\":%lu,\"f\":\"" ASK_FILE "\"%s}", (unsigned long)s_seq,
+             s_follow ? ",\"fu\":1" : "");
     if (!ble_link_send(msg)) { fail("Phone not reachable"); return; }
     snprintf(s_status, sizeof(s_status), "Sending");
     set_state(A_WAIT);
 }
 
+// A follow-up nobody asked: back to the answer, quietly.
+static void follow_give_up() {
+    audio_stop_record();
+    s_follow = false;
+    s_speaks = false;
+    set_state(A_ANSWER);
+}
+
 static void stop_and_send() {
+    if (s_follow && !s_spoke) { follow_give_up(); return; }
     audio_stop_record();
     if (!s_spoke && millis() - s_state_ms < 900) { fail("Didn't hear anything - tap and ask again"); return; }
     send_ask();
@@ -159,7 +182,7 @@ void assistant_on_status(uint32_t seq, const char *status) {
 }
 
 void assistant_on_result(uint32_t seq, const char *question, const char *answer, const char *action,
-                         int32_t seconds, const char *err) {
+                         int32_t seconds, const char *err, bool spoken, bool follow) {
     // The watch-side action happens even if the screen was closed meanwhile.
     if (action && !strcmp(action, "timer") && seq == s_seq) assistant_timer_set(seconds > 0 ? seconds : 0);
     if (!s_open || s_state != A_WAIT || seq != s_seq) return;
@@ -178,6 +201,11 @@ void assistant_on_result(uint32_t seq, const char *question, const char *answer,
         if (seconds > 0) { char d[16]; fmt_dur(d, sizeof(d), seconds); snprintf(s_chip, sizeof(s_chip), "Timer %s", d); }
         else snprintf(s_chip, sizeof(s_chip), "Timer cancelled");
     }
+    s_speaks = spoken;
+    s_follow_ok = spoken && follow;
+    s_heard_say = false;
+    s_answer_ms = millis();
+    s_follow = false;
     set_state(A_ANSWER);
 }
 
@@ -233,9 +261,12 @@ static void assist_draw() {
         g->fillCircle(CX, CY - 10, r + 10, ui_dim(COLOR_ACCENT, 0.18f));
         g->fillCircle(CX, CY - 10, r, ui_dim(COLOR_ACCENT, 0.45f));
         draw_mic_button(g, CY - 10, 44, COLOR_ACCENT);
-        ui_text_center(CX, CY + 92, COLOR_TEXT, "Listening", 2);
-        ui_text_center(CX, CY + 122, COLOR_TEXT_DIM, "Ask, then pause - or tap", 1);
-        ui_edge_ring(0, 360.0f * (now - s_state_ms) / (ASK_MAX_S * 1000.0f), COLOR_ACCENT, 4, 6, true);
+        ui_text_center(CX, CY + 92, COLOR_TEXT, s_follow ? "Anything else?" : "Listening", 2);
+        ui_text_center(CX, CY + 122, COLOR_TEXT_DIM, s_follow ? "Just ask - or tap to stop" : "Ask, then pause - or tap", 1);
+        if (s_follow && !s_spoke)
+            ui_edge_ring(0, 360.0f * (1.0f - (now - s_state_ms) / (float)FOLLOW_WAIT_MS), COLOR_ACCENT2, 4, 6, true);
+        else
+            ui_edge_ring(0, 360.0f * (now - s_state_ms) / (ASK_MAX_S * 1000.0f), COLOR_ACCENT, 4, 6, true);
         break;
     }
     case A_WAIT: {
@@ -300,8 +331,17 @@ static void assist_tick() {
         if (now - s_state_ms < 300) { if (lvl < s_floor) s_floor = lvl; return; }
         if (lvl > s_floor + 10) { s_spoke = true; s_last_voice_ms = now; }
         if (s_spoke && now - s_last_voice_ms > QUIET_STOP_MS) { stop_and_send(); return; }
+        if (s_follow && !s_spoke && now - s_state_ms > FOLLOW_WAIT_MS) { follow_give_up(); return; }
         if (!s_spoke && now - s_state_ms > 5000) { fail("Didn't hear anything - tap and ask again"); return; }
         if (now - s_state_ms > ASK_MAX_S * 1000UL) stop_and_send();
+    } else if (s_state == A_ANSWER && s_follow_ok) {
+        // the spoken answer: once it has played, listen for a follow-up
+        if (audio_is_playing()) s_heard_say = true;
+        else if (s_heard_say && s_followups < FOLLOW_MAX && phone_link_active()) {
+            s_follow_ok = false;
+            s_followups++;
+            start_listening(true);
+        } else if (!s_heard_say && now - s_answer_ms > 25000) s_follow_ok = false;   // the speech never came
     } else if (s_state == A_WAIT) {
         if (!ble_is_connected()) fail("Phone disconnected");
         else if (now - s_state_ms > ASK_WAIT_MS) fail("The phone didn't answer");
@@ -323,7 +363,7 @@ static void assist_touch(int x, int y, bool pressed) {
     if (pressed) return;
     int p = s_press;
     s_press = -1;
-    if (p == 0 && on_mic) start_listening();
+    if (p == 0 && on_mic) { s_follow_ok = false; start_listening(); }
 }
 
 static void assist_gesture(Gesture g) {

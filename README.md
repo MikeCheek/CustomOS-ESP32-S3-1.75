@@ -23,13 +23,19 @@ Built on Arduino + Arduino_GFX, no LVGL.
   - the camera remote, including with the phone's own camera app (Android)
   - the floating watch on Android
   - Breathe by sound; clearer sound switches
-  - the Casino (with Roulette, Video Poker and Hi-Lo Dice); the new Maze Raider
-  - spoken answers without an SD card; the "Today" complication, worded by the phone's AI
+  - the Casino (with Roulette, Video Poker and Hi-Lo Dice, stats and a daily bonus); the new Maze Raider
+  - the assistant listens for a follow-up after a spoken answer ("and tomorrow?"), with no wake word
+  - spoken answers without an SD card; messages read aloud (hold one); the morning briefing said aloud
+  - the "Today" complication and Smart Stack card, worded by the phone's AI (tap the card to hear it)
+- **New in the app, checked on a phone:** the voices speak again (sherpa-onnx 2 needs its text turned into phonemes
+  first), model installs no longer fail, the language model runs on the GPU when it can, and AI models > Speed >
+  Performance times every model run (average, fastest, slowest, where it ran, crashes). Not tried on a phone yet: a
+  play button on each voice, suggestions for the phone from those timings, and the model kept loaded between questions.
 - **iPhone:** the app builds in CI and an unsigned `.ipa` comes with each release. Android-only features are marked as
   such in the app.
 - **Tests:** every push builds the firmware twice (PlatformIO and Arduino), runs the PC tests (falls, sleep,
   handwriting, motion, voice) and the emulator self-tests (storage, Wallet, home gestures, the sound switches,
-  Breathe, roulette payouts, the live view), analyzes and builds the Android app.
+  Breathe, the Casino's payouts, poker hands and stats, the live view), analyzes and builds the Android app.
 
 ## Screenshots
 
@@ -121,7 +127,8 @@ The five most complete:
    - **Listen** plays a song by itself, with no score.
 2. **Casino**: a casino floor drawn on the round screen, with a slot machine, a blackjack table, a video poker
    machine, a roulette wheel and a dice table. Tap one to play.
-   - One wallet for all five. When you're out of chips, the cashier tops you up. Play money only.
+   - One wallet for all five. When you're out of chips, the cashier tops you up, and once a day there's a bonus. Play
+     money only. **Stats** shows each game's rounds, overall result and biggest win, and your best poker hand.
    - **Crystal Cavern**: cascading clusters, wilds, scatters and free spins.
    - **Blackjack**: side bets, insurance, other players at the table.
    - **Roulette**: a single-zero wheel. Bet on red/black, odd/even, halves, dozens or any number on a 0-36 table. The

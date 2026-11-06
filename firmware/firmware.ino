@@ -142,7 +142,7 @@ static void check_file_transfer() {
     if (st == BLE_FILE_COMPLETE && spoken) {
 #if FEATURE_SD_CARD && FEATURE_AUDIO
         int len = ble_file_bytes_received();
-        bool can = len > 44 && len <= 1024 * 1024 && ui_screen_on_top(&assistant_screen) && !audio_is_recording();
+        bool can = len > 44 && len <= 1024 * 1024 && (ui_screen_on_top(&assistant_screen) || assistant_speech_expected()) && !audio_is_recording();
         bool card = sd_is_mounted() && !usb_msc_host_active();
         if (can && !card && store_fs() && store_write("_say.wav", ble_file_data(), len)) {
             char p[48];

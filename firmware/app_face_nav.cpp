@@ -70,7 +70,9 @@ static void fit_text(char *out, int n, const char *in, int size, int w) {
 //  The Smart Stack
 // =========================================================================
 
-enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_LIFE, CARD_BATTERY };
+// CARD_TODAY comes after CARD_BATTERY: the tap counts kept in NVS stay as
+// they were (it isn't learned - it's about the whole day, not a habit).
+enum CardKind { CARD_WORKOUT, CARD_STOPWATCH, CARD_ALARM, CARD_REMINDERS, CARD_TIMER, CARD_NAV, CARD_MUSIC, CARD_EVENT, CARD_WEATHER, CARD_ACTIVITY, CARD_NOTIFS, CARD_LIFE, CARD_BATTERY, CARD_TODAY };
 struct Card {
     CardKind kind;
     Screen *open;          // tapping the card opens this (nullptr: nothing)
@@ -81,7 +83,7 @@ struct Card {
     float progress;        // < 0: no bar
 };
 
-static Card s_cards[14];
+static Card s_cards[15];
 static int  s_card_n = 0;
 static float s_scroll = 0, s_scroll_vel = 0;
 static bool  s_st_drag = false, s_st_moved = false;
@@ -125,6 +127,7 @@ static int quarter_now() {
 }
 
 static void count_tap(CardKind k) {
+    if (k > CARD_BATTERY) return;
     uint8_t *row = s_taps[quarter_now()];
     if (row[k] == 255)
         for (int i = 0; i <= CARD_BATTERY; i++) row[i] /= 2;   // keeps learning, recent habits weigh more
@@ -168,6 +171,7 @@ static int card_score(const Card &c) {
         break;
     }
     }
+    if (c.kind == CARD_TODAY) return 60 + (morning ? 85 : 0) + (evening ? 0 : 10);
     int taps = s_taps[quarter_now()][c.kind];
     int learned = 0;
     while (taps > 0 && learned < 40) { learned += 8; taps >>= 1; }   // ~8 x log2(taps)
@@ -175,7 +179,7 @@ static int card_score(const Card &c) {
 }
 
 static void sort_cards() {
-    int sc[14];
+    int sc[15];
     for (int i = 0; i < s_card_n; i++) sc[i] = card_score(s_cards[i]);
     for (int i = 1; i < s_card_n; i++)   // insertion sort: stable, a handful of cards
         for (int j = i; j > 0 && sc[j] > sc[j - 1]; j--) {
@@ -295,6 +299,15 @@ static void build_cards() {
     }
     if (has_ev && !ev_soon) event_card();
     {
+        // the phone's Today brief (complications.h): tap to hear it
+        char head[40], line[120];
+        if (comp_brief(head, sizeof(head), line, sizeof(line))) {
+            Card &c = add(CARD_TODAY, nullptr, COLOR_ACCENT, "TODAY");
+            strlcpy(c.main, head, sizeof(c.main));
+            strlcpy(c.sub, line[0] ? line : "Tap to hear your day", sizeof(c.sub));
+        }
+    }
+    {
         int p = power_get_battery_percent();
         Card &c = add(CARD_BATTERY, &battery_screen, p >= 0 && p <= 20 ? COLOR_BAD : COLOR_GOOD, "BATTERY");
         if (p < 0) snprintf(c.main, sizeof(c.main), "--");
@@ -322,6 +335,16 @@ static int card_y(int i) { return 92 + i * CARD_STEP - (int)s_scroll; }   // top
 
 static void draw_card_icon(const Card &c, int cx, int cy) {
     if (c.kind == CARD_ACTIVITY) { fitness_draw_rings(cx, cy, 24, 6); return; }
+    if (c.kind == CARD_TODAY) {   // a sparkle: the AI's
+        Arduino_GFX *g = ui_gfx();
+        g->fillCircle(cx, cy, 24, ui_dim(COLOR_ACCENT, 0.45f));
+        g->fillTriangle(cx, cy - 15, cx - 5, cy, cx + 5, cy, COLOR_TEXT);
+        g->fillTriangle(cx, cy + 15, cx - 5, cy, cx + 5, cy, COLOR_TEXT);
+        g->fillTriangle(cx - 15, cy, cx, cy - 5, cx, cy + 5, COLOR_TEXT);
+        g->fillTriangle(cx + 15, cy, cx, cy - 5, cx, cy + 5, COLOR_TEXT);
+        g->fillCircle(cx + 11, cy - 11, 3, COLOR_TEXT);
+        return;
+    }
     if (c.kind == CARD_WEATHER) {
         int t; char cond[32];
         ui_gfx()->fillCircle(cx, cy, 24, 0x2A9F);
@@ -409,6 +432,11 @@ static void stack_touch(int x, int y, bool pressed) {
     }
     for (int i = 0; i < s_card_n; i++) {
         int cy = card_y(i);
+        if (y >= cy && y < cy + CARD_H && s_cards[i].kind == CARD_TODAY) {
+            sleep_register_activity();
+            ui_show_toast(phone_link_say("brief") ? "Saying it on the watch" : "Phone not reachable", 1500);
+            return;
+        }
         if (y >= cy && y < cy + CARD_H && s_cards[i].open) {
             sleep_register_activity();
             count_tap(s_cards[i].kind);

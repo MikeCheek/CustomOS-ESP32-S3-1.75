@@ -4,7 +4,8 @@
  * (5:00-11:00, after the night or the alarm), one card - good morning,
  * the weather with today's high and low, last night's sleep, the first
  * event, what the Life plan has next, and the battery. A tap or a swipe
- * closes it. Settings > Wake & quiet > Morning briefing.
+ * closes it. Settings > Wake & quiet > Morning briefing. With a voice on the
+ * phone (and "Read the morning briefing aloud" on), it's also said.
  */
 #pragma once
 #include "ui.h"

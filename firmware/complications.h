@@ -48,7 +48,10 @@ void   comp_load();
 // Phone link (phone_link.cpp)
 void comp_set_todos(int count, const char *top);
 // {"t":"brief","v":"3","l":"Call Marco first"}: the "Today" complication.
-void comp_set_brief(const char *value, const char *label);
+void comp_set_brief(const char *value, const char *label, const char *line = "");
+// The Today brief for the Smart Stack's card: its few words and the full
+// sentence ("3 things left today: Design review at 15:00..."). False: none yet.
+bool comp_brief(char *head, int hn, char *line, int ln);
 // The last weather the phone sent (false: none yet); the daily step goal.
 bool comp_weather_now(int &temp, char *cond, int n);
 uint32_t comp_step_goal();

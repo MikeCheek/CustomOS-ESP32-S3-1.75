@@ -503,6 +503,23 @@ __attribute__((visibility("default"))) int emu_selftest() {
         check(dice_win(10, 0, 0, 6) == 20 && dice_win(10, 0, 0, 7) == 0, "dice: under 7 pays 1:1, not on 7");
         check(dice_win(0, 10, 0, 7) == 50 && dice_win(0, 0, 10, 12) == 20 && dice_win(0, 0, 10, 7) == 0,
               "dice: seven pays 4:1, over 7 pays 1:1");
+        // stats and the daily bonus
+        casino_stats_reset();
+        casino_record(CG_POKER, 20);
+        casino_record(CG_POKER, -5);
+        casino_record_poker_hand(PH_TWO_PAIR);
+        casino_record_poker_hand(PH_JACKS);   // worse: two pair stays the best
+        CasinoGameStats ps = casino_stats(CG_POKER);
+        check(ps.rounds == 2 && ps.net == 15 && ps.best == 20 && casino_best_poker_hand() == PH_TWO_PAIR,
+              "casino: stats per game and the best poker hand");
+        {
+            int32_t before = casino_credit();
+            check(casino_daily_bonus(20261106) == CASINO_DAILY_BONUS && casino_credit() == before + CASINO_DAILY_BONUS,
+                  "casino: the daily bonus");
+            check(casino_daily_bonus(20261106) == 0 && casino_daily_bonus_ready(20261107), "casino: once a day");
+            casino_set(before);
+        }
+        casino_stats_reset();
         int32_t keep = casino_credit();
         casino_set(3);
         check(casino_top_up() == CASINO_TOP_UP, "casino: the cashier tops up an empty wallet");

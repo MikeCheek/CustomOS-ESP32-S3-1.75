@@ -6,6 +6,7 @@
 #include "config.h"
 #include "ui.h"
 #include "app_face_nav.h"
+#include "complications.h"
 extern Screen settings_body_screen;
 #define settings_body_screen_ref settings_body_screen
 extern Screen contacts_screen;
@@ -61,7 +62,7 @@ extern Screen menu_screen, watchface_minimal_screen, nowplaying_screen, calendar
     flappy_screen, fruitninja_screen, battery_screen, recorder_screen, piano_screen, assistant_screen,
     fall_alert_screen, sleep_screen, draw_screen, activity_screen;
 void sleep_load_demo();
-void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *);
+void assistant_on_result(uint32_t, const char *, const char *, const char *, int32_t, const char *, bool, bool);
 
 // Local epoch seconds of today (2026-10-08) at hh:mm, like calendar_now().
 static uint32_t at(int hh, int mm) { return 20734u * 86400u + hh * 3600u + mm * 60u; }
@@ -255,6 +256,7 @@ void sim_scenarios() {
     shot(&pet_screen_ref, "review_pet");
     shot(&diagnostics_screen_ref, "review_diagnostics");
     shot(&snake_screen_ref, "review_snake", 600);
+    comp_set_brief("3", "Prep the review", "2 events left: Design review at 15:00, Gym at 19:00. To do: Call Marco.");
     shot(&smart_stack_screen, "smart_stack");
     // more from one app: they stack up
     sim_link("{\"t\":\"ntf\",\"id\":14,\"ap\":\"WhatsApp\",\"ti\":\"Marco\",\"tx\":\"Are you coming tonight?\",\"rp\":1}");
@@ -307,7 +309,7 @@ void sim_scenarios() {
     shot(&assistant_screen, "assistant_listen", 900);
     sim_tap(233, 233);
     sim_run(200);
-    assistant_on_result(1, "Set a timer for 10 minutes for the pasta", "Timer set for 10 minutes.", "timer", 600, "");
+    assistant_on_result(1, "Set a timer for 10 minutes for the pasta", "Timer set for 10 minutes.", "timer", 600, "", false, false);
     sim_run(1500);
     sim_save("assistant_answer");
     g_sim.recording = false;
@@ -372,6 +374,8 @@ void sim_scenarios() {
       sim_tap(81, 209); sim_tap(157, 209); sim_run(300); sim_save("videopoker_hold");   // the first two cards held
       sim_tap(233 + 80, 341); sim_run(1000); sim_save("videopoker_result");
       ui_pop_screen(); sim_run(500); }
+    // The Casino's stats page (after the rounds above)
+    { extern Screen casino_stats_screen; shot(&casino_stats_screen, "casino_stats"); }
     // Hi-Lo Dice: chips on Under 7 and Seven, the roll, the result
     { extern Screen dice_screen;
       shot(&dice_screen, "dice");

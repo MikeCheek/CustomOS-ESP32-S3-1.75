@@ -426,7 +426,8 @@ class GemmaService {
   /// (services/assistant_intents.dart): maps [request] to one of the same
   /// actions, or answers it. Returns {"tool": ..., ...} - "answer" with
   /// "text" for a plain answer - or null without a model.
-  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now) async {
+  /// [previous]: the exchange just before, when this is a follow-up to it.
+  Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now, {String? previous}) async {
     if (!await hasModel()) return null;
     final out = await _generate(
       task: 'Assistant',
@@ -441,6 +442,7 @@ class GemmaService {
       '{"tool":"dnd","on":true}  {"tool":"memos","query":"what to look for in the user\'s voice memos"}\n'
       'Otherwise answer it yourself, in the language of the request, in at most 2 short sentences:\n'
       '{"tool":"answer","text":"..."}\n\n'
+      '${previous == null ? '' : 'This follows on from:\n$previous\n\n'}'
       'Request: $request /no_think',
       temperature: 0.2,
     );

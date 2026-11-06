@@ -31,6 +31,7 @@ import '../services/smart_replies.dart';
 import '../services/tts_service.dart';
 import '../services/safety.dart';
 import '../services/notif_ai.dart';
+import '../services/text_insights.dart';
 import '../services/memo_embeddings.dart';
 
 /// One calendar event instance, in local time.
@@ -473,7 +474,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
             debugPrintSafe('[brief] headline failed: $e');
           }
         }
-        if (_headline != null) brief = TodayBrief(brief.value, _headline!);
+        if (_headline != null) brief = TodayBrief(brief.value, _headline!, brief.line);
       }
       if (!force && brief == _lastBrief) return;
       _lastBrief = brief;
@@ -537,7 +538,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         );
         break;
       case 'ask':
-        await _assistant((e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '');
+        await _assistant((e['n'] as num?)?.toInt() ?? 0, e['f'] as String? ?? '', followUp: e['fu'] == 1);
         break;
       case 'med':
         await _native.mediaCommand(e['a'] as String? ?? '');
@@ -574,6 +575,9 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
             await _ble.sendLink({'t': 'digest', 'err': _clip(err.toString().replaceFirst('Exception: ', ''), 120)});
           }
         }());
+        break;
+      case 'say':
+        unawaited(_sayForWatch(e));
         break;
       case 'tr':
         final trId = (e['id'] as num?)?.toInt() ?? 0;
@@ -957,7 +961,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
   /// recording, transcribe it, work out what it asks for - the rules in
   /// assistant_intents.dart first, then the local LLM - do it, and send the
   /// answer back. Timers run on the watch; everything else happens here.
-  Future<void> _assistant(int seq, String file) async {
+  /// The last question and answer from the watch, for a follow-up ("and tomorrow?").
+  ({String q, String a, DateTime at})? _lastAsk;
+
+  Future<void> _assistant(int seq, String file, {bool followUp = false}) async {
     Future<void> status(String st) => _ble.sendLink({'t': 'ask', 'n': seq, 'st': st});
     Future<void> fail(String why) => _ble.sendLink({'t': 'ask', 'n': seq, 'err': why});
     if (file.isEmpty) return fail('Nothing recorded');
@@ -986,7 +993,15 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         return;
       }
       if (mounted) state = state.copyWith(dictation: 'Assistant: "$heard"');
-      final reply = await _assistantReply(heard, () => status('Thinking'));
+      final prev = _lastAsk;
+      final context = followUp && prev != null && DateTime.now().difference(prev.at).inMinutes < 3 ? prev : null;
+      final reply = await _assistantReply(heard, () => status('Thinking'), previous: context);
+      _lastAsk = (q: heard, a: reply.answer, at: DateTime.now());
+      // Said out loud too when a voice is installed - and then, if follow-ups
+      // are on, the watch listens a few seconds for one.
+      final lang = parseAssistantIntent(heard, DateTime.now()).italian ? 'it' : 'en';
+      final tts = TtsService.instance;
+      final speaks = reply.answer.trim().isNotEmpty && await tts.enabled() && await tts.voiceFor(lang) != null;
       await _ble.sendLink({
         't': 'ask',
         'n': seq,
@@ -994,9 +1009,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
         'a': _clip(reply.answer, 360),
         if (reply.timer != null) 'do': 'timer',
         if (reply.timer != null) 's': reply.timer,
+        if (speaks) 'sp': 1,
+        if (speaks && await tts.followUps()) 'fl': 1,
       });
-      // Then say it on the watch's speaker, when a voice is installed.
-      unawaited(_speakAnswer(reply.answer, parseAssistantIntent(heard, DateTime.now()).italian ? 'it' : 'en'));
+      if (speaks) unawaited(_speakAnswer(reply.answer, lang));
     } catch (e) {
       await fail(_clip(e.toString().replaceFirst('Exception: ', ''), 90));
     } finally {
@@ -1024,6 +1040,61 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     } catch (e) {
       print('[Companion] ${sos ? 'SOS' : 'fall alert'} text failed: $e');
       if (sos) await _ble.sendLink({'t': 'sos', 'ok': 0});
+    }
+  }
+
+  /// The watch asked for something to be said on its speaker (phone_link_say):
+  /// a message read aloud (its translation, if it was translated), the
+  /// morning briefing, the Today card.
+  Future<void> _sayForWatch(Map<String, dynamic> e) async {
+    Future<void> no(String why) => _ble.sendLink({'t': 'say', 'err': why});
+    final tts = TtsService.instance;
+    try {
+      String text;
+      var lang = 'en';
+      switch (e['w']) {
+        case 'notif':
+          final n = NotifAi.instance.byId((e['id'] as num?)?.toInt() ?? 0);
+          if (n == null) {
+            await no('That message is gone from the phone');
+            return;
+          }
+          final tr = n.translation;
+          final body = tr ?? n.text;
+          text = [if (n.title.isNotEmpty) n.title, body].join('. ');
+          text = '${n.app.isEmpty ? '' : '${n.app}. '}$text';
+          final code = tr != null
+              ? Platform.localeName.split(RegExp('[_-]')).first.toLowerCase()
+              : TextInsights.detectLanguage(n.text).code;
+          if (code.isNotEmpty) lang = code;
+        case 'briefing':
+          if (!await tts.briefingAloud()) return; // off: the card is enough
+          text = (e['x'] as String? ?? '').trim();
+        case 'brief':
+          final b = _lastBrief;
+          if (b == null) {
+            await no('Nothing for today yet');
+            return;
+          }
+          text = [if (b.label.isNotEmpty && b.label != 'Free day') '${b.label}.', b.line].join(' ');
+        default:
+          return;
+      }
+      if (text.trim().isEmpty) return;
+      if (!await tts.enabled()) {
+        await no('Spoken answers are off in the app');
+        return;
+      }
+      final voice = await tts.voiceFor(lang);
+      if (voice == null) {
+        await no('Install a voice in the app (AI models)');
+        return;
+      }
+      final wav = await tts.speak(voice, _clip(text, 360));
+      if (_ble.isConnected) await _ble.sendFile('say:msg.wav', wav);
+    } catch (err) {
+      debugPrintSafe('[say] $err');
+      await no(_clip(err.toString().replaceFirst('Exception: ', ''), 80));
     }
   }
 
@@ -1066,9 +1137,15 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   /// What to say back to [heard] (and a watch timer to set, in seconds;
   /// 0 cancels it). [thinking] is called before the LLM is asked.
-  Future<({String answer, int? timer})> _assistantReply(String heard, Future<void> Function() thinking) async {
+  Future<({String answer, int? timer})> _assistantReply(
+    String heard,
+    Future<void> Function() thinking, {
+    ({String q, String a, DateTime at})? previous,
+  }) async {
     final now = DateTime.now();
     var intent = parseAssistantIntent(heard, now);
+    // A follow-up the rules don't get on their own ("and tomorrow?", "what
+    // about Rome?") goes to the language model with the exchange before it.
     final it = intent.italian;
     String t(String en, String itx) => it ? itx : en;
     final gemma = GemmaService.instance;
@@ -1076,7 +1153,11 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     // Not something the rules know: let the LLM map it to an action or answer.
     if (intent.kind == IntentKind.none) {
       await thinking();
-      final r = await gemma.assistantRoute(heard, now);
+      final r = await gemma.assistantRoute(
+        heard,
+        now,
+        previous: previous == null ? null : 'User: ${previous.q}\nAssistant: ${previous.a}',
+      );
       if (r == null) {
         return (
           answer: t(
