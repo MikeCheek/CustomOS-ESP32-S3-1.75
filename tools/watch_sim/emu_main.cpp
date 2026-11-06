@@ -469,6 +469,73 @@ __attribute__((visibility("default"))) int emu_selftest() {
         tiles_defaults(g_app_settings.tiles);
         pop_all(m, sizeof(m), "\"e\":\"home\"");
     }
+    // ---- the assistant: a follow-up after a spoken answer, speech asked for
+    {
+        bool was = g_sim.phone;
+        emu_set_connected(1);
+        emu_link_push("{\"t\":\"hi\"}");
+        emu_step();
+        pop_all(m, sizeof(m), "\"e\"");
+        auto run = [](int ms, int mic) {
+            sim_set_mic_level(mic);
+            uint32_t t0 = millis();
+            while (millis() - t0 < (uint32_t)ms) { emu_step(); delay(20); }
+        };
+        auto speak = [&]() { run(400, 5); run(700, 60); run(1700, 5); };   // the room, a few words, a pause
+        auto seq_of = [](const char *msg) { JsonDocument d; deserializeJson(d, msg); return (int)(d["n"] | 0); };
+        auto answer = [&](int n, bool follow) {
+            char r[160];
+            snprintf(r, sizeof(r), "{\"t\":\"ask\",\"n\":%d,\"q\":\"Weather?\",\"a\":\"Sunny all day.\",\"sp\":1%s}", n,
+                     follow ? ",\"fl\":1" : "");
+            emu_link_push(r);
+            run(150, 5);
+        };
+        auto said = [&]() { sim_set_playing(true); run(250, 5); sim_set_playing(false); run(250, 5); };
+
+        ui_push(&assistant_screen);
+        speak();
+        check(pop_all(m, sizeof(m), "\"e\":\"ask\"") == 1 && !strstr(m, "\"fu\""), "assistant: the question goes to the phone");
+        answer(seq_of(m), true);
+        check(!audio_is_recording(), "assistant: no listening before the answer is said");
+        sim_set_playing(true);
+        run(250, 5);
+        check(!audio_is_recording(), "assistant: no listening while it's said");
+        sim_set_playing(false);
+        run(250, 5);
+        check(audio_is_recording(), "assistant: once said, it listens for a follow-up");
+        run(700, 60);
+        run(1700, 5);
+        check(pop_all(m, sizeof(m), "\"e\":\"ask\"") == 1 && strstr(m, "\"fu\":1"), "assistant: the follow-up is sent as one");
+        answer(seq_of(m), true);
+        said();
+        check(audio_is_recording(), "assistant: and listens again after that answer");
+        run(4500, 5);
+        check(!audio_is_recording() && pop_all(m, sizeof(m), "\"e\":\"ask\"") == 0,
+              "assistant: a follow-up nobody asks - back to the answer, nothing sent");
+        // follow-ups off on the phone: no listening after the answer
+        emu_touch(233, LCD_HEIGHT - 92, 1); emu_step(); emu_touch(233, LCD_HEIGHT - 92, 0);   // the mic
+        speak();
+        check(pop_all(m, sizeof(m), "\"e\":\"ask\"") == 1, "assistant: the mic asks again");
+        answer(seq_of(m), false);
+        said();
+        run(400, 5);
+        check(!audio_is_recording(), "assistant: without \"fl\" it doesn't listen by itself");
+        ui_pop_screen();
+        emu_step();
+        // speech the watch asked for: played outside the assistant for a while
+        check(phone_link_say("notif", 7) && pop_all(m, sizeof(m), "\"e\":\"say\"") == 1 && strstr(m, "\"id\":7") &&
+                  assistant_speech_expected(), "assistant: a message to read aloud, and its speech expected");
+        phone_link_say("briefing", 0, "Good morning.");
+        check(pop_all(m, sizeof(m), "\"w\":\"briefing\"") == 1 && strstr(m, "Good morning."), "assistant: the briefing to say");
+        // the Today brief, for the face and the Smart Stack card
+        emu_link_push("{\"t\":\"brief\",\"v\":\"2\",\"l\":\"Prep the review\",\"x\":\"2 events left: Review at 15:00.\"}");
+        emu_step();
+        char head[40], line[120];
+        check(comp_brief(head, sizeof(head), line, sizeof(line)) && !strcmp(head, "Prep the review") &&
+                  !strcmp(line, "2 events left: Review at 15:00."), "today: the brief and its sentence arrive");
+        sim_set_mic_level(0);
+        emu_set_connected(was);
+    }
     // ---- the Casino: roulette pays, the shared wallet
     {
         int32_t out[9] = {}, num[37] = {};
