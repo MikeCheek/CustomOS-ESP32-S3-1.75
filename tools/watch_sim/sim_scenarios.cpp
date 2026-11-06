@@ -313,6 +313,15 @@ void sim_scenarios() {
     sim_run(1500);
     sim_save("assistant_answer");
     g_sim.recording = false;
+    // a word wider than the screen (a link, run-together text): broken to fit
+    shot(&assistant_screen, "assistant_listen", 900);
+    sim_tap(233, 233);
+    sim_run(200);
+    assistant_on_result(2, "Where is it?", "It's at https://maps.example.com/place/thereallylongaddresswithoutanyspaces in town.",
+                        "", 0, "", false, false);
+    sim_run(800);
+    sim_save("assistant_long_word");
+    g_sim.recording = false;
 
     // Fall detection asking
     shot(&fall_alert_screen, "fall_alert", 8000);

@@ -245,7 +245,19 @@ static int wrap_center(const char *text, int y, int width, int size, uint16_t co
             best = e; n = e;
             if (!p[e]) break;
         }
-        if (best == 0) { best = n > 0 ? n : (int)strlen(p); if (best > (int)sizeof(line) - 1) best = sizeof(line) - 1; }
+        if (best == 0) {
+            // one word wider than the line (a long link, run-together text): break it to fit
+            int e = 0;
+            while (p[e] && p[e] != ' ' && e < (int)sizeof(line) - 1) e++;
+            best = e > 0 ? e : (int)strlen(p);
+            if (best > (int)sizeof(line) - 1) best = sizeof(line) - 1;
+            memcpy(line, p, best); line[best] = 0;
+            while (best > 1 && ui_text_width(line, size) > width) {
+                best--;
+                while (best > 1 && ((uint8_t)p[best] & 0xC0) == 0x80) best--;   // whole UTF-8 letters
+                line[best] = 0;
+            }
+        }
         memcpy(line, p, best); line[best] = 0;
         ui_utf8_trim(line);
         int used = (int)strlen(line);

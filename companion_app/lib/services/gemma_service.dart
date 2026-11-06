@@ -10,6 +10,7 @@ import 'text_insights.dart';
 import 'smart_replies.dart';
 import 'ai_speed.dart';
 import 'ai_profiler.dart';
+import 'llm_text.dart';
 import 'model_fetch.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
@@ -385,20 +386,35 @@ class GemmaService {
       print('[LLM] load failed: $e');
     }
     if (model == null) return null;
-    final chat = await model.createChat(temperature: temperature, topK: 20, modelType: byKey(_loadedKey).type);
-    final response = await AiProfiler.instance.track(
-      model: byKey(_loadedKey).name,
-      task: task,
-      where: _where,
-      input: prompt.length.toDouble(),
-      unit: 'chars',
-      run: () async {
-        await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
-        return chat.generateChatResponse();
-      },
-    );
-    final raw = response is TextResponse ? response.token : response.toString();
-    return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').trim();
+    // A garbled answer (control tokens leaked, a word repeated - llm_text.dart)
+    // counts as a failed run; it's tried once more, a little warmer, then given up.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final chat = await model.createChat(
+        temperature: attempt == 0 ? temperature : (temperature + 0.4).clamp(0.0, 1.0),
+        topK: 20,
+        modelType: byKey(_loadedKey).type,
+      );
+      try {
+        return await AiProfiler.instance.track(
+          model: byKey(_loadedKey).name,
+          task: task,
+          where: _where,
+          input: prompt.length.toDouble(),
+          unit: 'chars',
+          run: () async {
+            await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
+            final response = await chat.generateChatResponse();
+            final raw = response is TextResponse ? response.token : response.toString();
+            final out = cleanLlmText(raw);
+            if (out == null) throw const GarbledAnswer();
+            return out;
+          },
+        );
+      } on GarbledAnswer {
+        print('[LLM] garbled answer (attempt ${attempt + 1})');
+      }
+    }
+    throw const GarbledAnswer();
   });
 
   /// Answers [question] from memo excerpts ([contexts], numbered 1..n), citing
@@ -720,4 +736,11 @@ class GemmaService {
       'people': TextInsights.people(transcript),
     };
   }
+}
+
+/// The model's answer came out garbled twice (llm_text.dart).
+class GarbledAnswer implements Exception {
+  const GarbledAnswer();
+  @override
+  String toString() => 'The AI\'s answer came out garbled - try again, or pick another model';
 }
