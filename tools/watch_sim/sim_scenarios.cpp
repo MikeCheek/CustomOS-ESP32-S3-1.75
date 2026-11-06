@@ -365,6 +365,20 @@ void sim_scenarios() {
       sim_tap(233 + 55, 415); sim_run(2600); sim_save("roulette_spin");
       sim_run(3400); sim_save("roulette_result");
       ui_pop_screen(); sim_run(500); }
+    // Video Poker: dealt, two cards held, drawn
+    { extern Screen videopoker_screen;
+      shot(&videopoker_screen, "videopoker");
+      sim_tap(233 + 80, 341); sim_run(900); sim_save("videopoker_deal");
+      sim_tap(81, 209); sim_tap(157, 209); sim_run(300); sim_save("videopoker_hold");   // the first two cards held
+      sim_tap(233 + 80, 341); sim_run(1000); sim_save("videopoker_result");
+      ui_pop_screen(); sim_run(500); }
+    // Hi-Lo Dice: chips on Under 7 and Seven, the roll, the result
+    { extern Screen dice_screen;
+      shot(&dice_screen, "dice");
+      sim_tap(233 - 126, 298); sim_tap(233 - 126, 298); sim_tap(233, 298); sim_run(300); sim_save("dice_bets");
+      sim_tap(233, 422); sim_run(500); sim_save("dice_roll");
+      sim_run(1600); sim_save("dice_result");
+      ui_pop_screen(); sim_run(500); }
     // Maze Raider: the title, then a few seconds in
     { extern Screen maze_screen; shot(&maze_screen, "game_maze_title");
       sim_tap(233, 300); sim_run(6000); sim_save("game_maze"); }

@@ -15,6 +15,8 @@
 // ESP-SR (chip-only libraries).
 #include "store.h"
 #include "game_roulette.h"
+#include "game_videopoker.h"
+#include "game_dice.h"
 #include "casino_wallet.h"
 #include <SD.h>
 #include "game_audio.h"
@@ -477,6 +479,30 @@ __attribute__((visibility("default"))) int emu_selftest() {
         check(roulette_win(out, num, 30) == 30 && roulette_win(out, num, 12) == 0, "roulette: a dozen pays 2:1");
         out[8] = 0; num[17] = 5; num[0] = 5;           // straight up on 17 and on 0
         check(roulette_win(out, num, 17) == 180 && roulette_win(out, num, 0) == 180, "roulette: a number pays 35:1");
+        // video poker: the hands, with the ace low and high
+        auto ph = [](const char *cards) {   // "AS KS QS JS TS": rank then suit (S H D C)
+            uint8_t r[5], s[5];
+            for (int i = 0; i < 5; i++) {
+                const char *c = cards + i * 3;
+                const char *R = "A23456789TJQK", *S = "SHDC";
+                r[i] = (uint8_t)(strchr(R, c[0]) - R + 1);
+                s[i] = (uint8_t)(strchr(S, c[1]) - S);
+            }
+            return poker_hand(r, s);
+        };
+        check(ph("AS KS QS JS TS") == PH_ROYAL && poker_pays(PH_ROYAL) == 250, "poker: royal flush pays 250");
+        check(ph("9H 8H 7H 6H 5H") == PH_STRAIGHT_FLUSH, "poker: straight flush");
+        check(ph("AD 2C 3H 4S 5D") == PH_STRAIGHT && ph("TD JC QH KS AD") == PH_STRAIGHT, "poker: the ace low and high");
+        check(ph("QD KC AH 2S 3D") == PH_NOTHING, "poker: no wrapping round the ace");
+        check(ph("7S 7H 7D 7C 2S") == PH_FOUR && ph("7S 7H 7D 2C 2S") == PH_FULL_HOUSE, "poker: four of a kind, full house");
+        check(ph("2H 9H 4H JH KH") == PH_FLUSH && ph("5S 5H 5D 2C 9S") == PH_THREE, "poker: flush, three of a kind");
+        check(ph("5S 5H 9D 9C 2S") == PH_TWO_PAIR, "poker: two pair");
+        check(ph("JS JH 4D 9C 2S") == PH_JACKS && ph("AS AH 4D 9C 2S") == PH_JACKS, "poker: jacks or better");
+        check(ph("TS TH 4D 9C 2S") == PH_NOTHING && poker_pays(PH_NOTHING) == 0, "poker: a low pair pays nothing");
+        // hi-lo dice
+        check(dice_win(10, 0, 0, 6) == 20 && dice_win(10, 0, 0, 7) == 0, "dice: under 7 pays 1:1, not on 7");
+        check(dice_win(0, 10, 0, 7) == 50 && dice_win(0, 0, 10, 12) == 20 && dice_win(0, 0, 10, 7) == 0,
+              "dice: seven pays 4:1, over 7 pays 1:1");
         int32_t keep = casino_credit();
         casino_set(3);
         check(casino_top_up() == CASINO_TOP_UP, "casino: the cashier tops up an empty wallet");

@@ -1,7 +1,8 @@
 /*
  * casino_wallet.h
  * One credit for every game in the Casino (casino.h): Crystal Cavern,
- * Blackjack and Roulette all bet from it and pay into it, and the
+ * Blackjack, Video Poker, Roulette and Hi-Lo Dice all bet from it and pay
+ * into it, and the
  * Casino's map shows it. Play money only. Kept in the game save
  * ("casino_wallet"); the first time, it starts from what the two older
  * games had saved on their own (their balances added), else $1000.
