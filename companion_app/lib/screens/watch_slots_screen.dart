@@ -19,6 +19,7 @@ class WatchSlotsScreen extends ConsumerWidget {
     'notifications': ('Messages', Icons.notifications_rounded),
     'navigation': ('Next turn', Icons.navigation_rounded),
     'todos': ('Memo to-dos', Icons.task_alt_rounded),
+    'brief': ('Today (AI brief)', Icons.auto_awesome_rounded),
     'seconds': ('Seconds', Icons.timer_rounded),
     'rings': ('Activity rings', Icons.donut_large_rounded),
   };

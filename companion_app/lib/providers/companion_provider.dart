@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/ble_protocol.dart';
 import '../services/ble_service.dart';
 import '../services/native_service.dart';
+import '../services/today_brief.dart';
 import '../services/weather_service.dart';
 import '../services/whisper_service.dart';
 import '../services/assistant_intents.dart';
@@ -279,7 +280,10 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     if (_ble.hasPhoneLink && prev != null) {
       if (prev.bedtimeOn != s.bedtimeOn || prev.bedFrom != s.bedFrom || prev.bedTo != s.bedTo) _sendBedtime();
       if (prev.quickReplies.join('\u0001') != s.quickReplies.join('\u0001')) _sendQuickReplies();
-      if (prev.compSlots.join(',') != s.compSlots.join(',')) _sendComplications();
+      if (prev.compSlots.join(',') != s.compSlots.join(',')) {
+        _sendComplications();
+        _sendBrief(force: true);
+      }
     }
     _native.setAutoForward(s.forwardNotifications, packages: s.notifPackages);
     _native.setCallAlerts(s.callAlerts);
@@ -320,6 +324,8 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     await _ref.read(lifeProvider.notifier).sendAll(); // the Life plan and today's meal ideas
     _lastTodo = '';
     await _sendTodos();
+    _lastBrief = null;
+    unawaited(_sendBrief());
     if (_settings.dndSync) {
       final d = await _native.getDnd();
       await _ble.sendLink({'t': 'dnd', 'on': d.on ? 1 : 0});
@@ -412,7 +418,69 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
 
   void _todosChanged() {
     _todoDebounce?.cancel();
-    _todoDebounce = Timer(const Duration(seconds: 2), _sendTodos);
+    _todoDebounce = Timer(const Duration(seconds: 2), () async {
+      await _sendTodos();
+      await _sendBrief();
+    });
+  }
+
+  // ---- the "Today" complication (today_brief.dart) ----------------------------------
+
+  TodayBrief? _lastBrief;
+  String _headlineKey = '';
+  String? _headline;
+  DateTime _headlineAt = DateTime(2000);
+  bool _briefBusy = false;
+
+  /// What's left today and the one thing to remember, for the watch face's
+  /// "Today" complication. The language model words it when the complication
+  /// is on the face (it reruns when the day's content changes, or after two
+  /// hours); otherwise, and without a model, the next event / to-do is used.
+  Future<void> _sendBrief({bool force = false}) async {
+    if (!_ble.hasPhoneLink || _briefBusy) return;
+    _briefBusy = true;
+    try {
+      final now = DateTime.now();
+      final events = [for (final e in state.agenda) (e.title, e.start, e.allDay)];
+      final done = _ref.read(doneActionsProvider);
+      final todos = [
+        for (final a in _ref.read(knowledgeProvider).actions())
+          if (!done.contains(a.key)) a.text,
+      ];
+      final memos = [
+        for (final r in _ref.read(notesProvider).recordings)
+          if (r.summary.isNotEmpty && r.recordedAt != null && now.difference(r.recordedAt!).inHours < 24) r,
+      ]..sort((a, b) => b.recordedAt!.compareTo(a.recordedAt!));
+      final memo = memos.firstOrNull;
+      var brief = ruleBrief(now: now, events: events, todos: todos, memoTitle: memo?.title);
+      if (_settings.compSlots.contains('brief')) {
+        final w = state.weather;
+        final prompt = briefPrompt(
+          now: now,
+          events: events,
+          todos: todos,
+          memoSummary: memo?.summary,
+          weather: w == null ? null : '${w.tempC.round()}°C, ${w.condition}',
+        );
+        final key = prompt.substring(prompt.indexOf('\n') + 1); // all but the time
+        if (key != _headlineKey || now.difference(_headlineAt) > const Duration(hours: 2)) {
+          try {
+            final h = cleanHeadline(await GemmaService.instance.todayHeadline(prompt));
+            _headlineKey = key;
+            _headlineAt = now;
+            _headline = h;
+          } catch (e) {
+            debugPrintSafe('[brief] headline failed: $e');
+          }
+        }
+        if (_headline != null) brief = TodayBrief(brief.value, _headline!);
+      }
+      if (!force && brief == _lastBrief) return;
+      _lastBrief = brief;
+      await _ble.sendLink(brief.toWatch());
+    } finally {
+      _briefBusy = false;
+    }
   }
 
   Future<void> _sendBedtime() async {
@@ -690,6 +758,7 @@ class CompanionNotifier extends StateNotifier<CompanionState> {
     } else if (_ble.hasPhoneLink) {
       await _sendAgenda(items);
     }
+    unawaited(_sendBrief());
   }
 
   /// Calendar off / not allowed: the watch forgets its agenda and reminders.

@@ -331,6 +331,7 @@ class _WatchfaceDesignerState extends ConsumerState<WatchfaceDesigner> {
       _PickerItem('comp:phone_battery', 'Phone battery', Icons.smartphone),
       _PickerItem('comp:notifications', 'Messages', Icons.notifications),
       _PickerItem('comp:todos', 'Memo to-dos', Icons.task_alt),
+      _PickerItem('comp:brief', 'Today (AI brief)', Icons.auto_awesome),
       _PickerItem('comp:navigation', 'Next turn', Icons.navigation),
     ];
 
@@ -484,7 +485,7 @@ class WatchfacePainter extends CustomPainter {
               ring..color = paint.color);
           const sample = {
             'steps': '6240', 'next_event': '25m', 'weather': '22C', 'phone_battery': '81%',
-            'notifications': '3', 'todos': '4', 'navigation': '300 m', 'battery': '75%', 'seconds': '42',
+            'notifications': '3', 'todos': '4', 'brief': '3', 'navigation': '300 m', 'battery': '75%', 'seconds': '42',
           };
           _drawText(canvas, Offset(w.x, w.y), sample[w.dataSrc] ?? '--', 16, Paint()..color = Colors.white);
           break;

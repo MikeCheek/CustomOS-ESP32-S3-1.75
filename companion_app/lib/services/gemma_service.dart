@@ -558,6 +558,12 @@ class GemmaService {
     return out?.replaceAll(RegExp(r'^["“]|["”]$'), '').trim();
   }
 
+  /// The few words for the watch face's "Today" complication (today_brief.dart), or null without a model.
+  Future<String?> todayHeadline(String prompt) async {
+    if (!await hasModel()) return null;
+    return _generate(task: 'Today brief', prompt, temperature: 0.3);
+  }
+
   /// A 1-4 word name for a group of memos about [keywords], or null.
   Future<String?> nameCollection(List<String> keywords, List<String> titles) async {
     if (!await hasModel()) return null;

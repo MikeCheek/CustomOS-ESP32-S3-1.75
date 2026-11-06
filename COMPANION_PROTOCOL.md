@@ -200,10 +200,11 @@ sounds; incoming calls still ring.
 |---|---|---|
 | phone → watch | `{"t":"comp","s":["steps","next_event","battery"]}` | the 3 slots on the Default/Minimal faces, left to right |
 | phone → watch | `{"t":"todo","n":4,"top":"Call Marco"}` | open to-dos from the voice memos (for the `todos` complication) |
+| phone → watch | `{"t":"brief","v":"3","l":"Call Marco first"}` | the `brief` ("Today") complication: things left today (`-`: none) and the one to keep in mind, worded by the phone's language model when the complication is on the face, else the next event / to-do |
 | phone → watch | `{"t":"todos","r":1,"l":[{"k":"9f3a01bc","x":"Call Marco"},...]}` … `{"t":"todos","l":[...],"done":1}` | the open to-dos for the Reminders app (fw 3.5+), 7 per message; `r` starts a new list, `done` replaces the watch's. `k` = FNV-1a of the to-do's key, 8 hex digits |
 | watch → phone | `{"e":"todo","k":"9f3a01bc","d":1}` | ticked off on the watch; the phone marks it done and sends the list again |
 
 Keys: `none`, `steps`, `battery`, `phone_battery`, `next_event`, `weather`, `notifications`, `navigation`, `todos`,
-`seconds`. Custom watchface JSON: `{"type":"complication","dataSrc":"next_event","x":120,"y":330,"radius":42}`.
+`seconds`, `rings`, `brief`. Custom watchface JSON: `{"type":"complication","dataSrc":"next_event","x":120,"y":330,"radius":42}`.
 
 Firmware update end status `0x84` 11 = image older than the installed firmware (only when signed updates are on).

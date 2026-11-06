@@ -19,10 +19,10 @@
 #include <string.h>
 
 static const char *const KEYS[COMP_COUNT] = {
-    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings",
+    "none", "steps", "battery", "phone_battery", "next_event", "weather", "notifications", "navigation", "todos", "seconds", "rings", "brief",
 };
 static const char *const LABELS[COMP_COUNT] = {
-    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings",
+    "Empty", "Steps", "Battery", "Phone battery", "Next event", "Weather", "Notifications", "Navigation", "To-dos", "Seconds", "Activity rings", "Today",
 };
 
 const char *comp_key(CompId id) { return id < COMP_COUNT ? KEYS[id] : "none"; }
@@ -72,6 +72,15 @@ void comp_set_todos(int count, const char *top) {
     s_todo_n = count;
     snprintf(s_todo_top, sizeof(s_todo_top), "%s", top ? top : "");
     ble_fold_utf8(s_todo_top);
+}
+
+static char s_brief_v[8] = "";
+static char s_brief_l[40] = "";
+
+void comp_set_brief(const char *value, const char *label) {
+    snprintf(s_brief_v, sizeof(s_brief_v), "%s", value ? value : "");
+    snprintf(s_brief_l, sizeof(s_brief_l), "%s", label ? label : "");
+    ble_fold_utf8(s_brief_l);
 }
 
 static uint32_t s_step_goal = 8000;
@@ -208,6 +217,12 @@ void comp_draw(Arduino_GFX *g, CompId id, int cx, int cy, int r, uint16_t accent
         if (s_todo_n < 0) snprintf(v, sizeof(v), "--");
         else snprintf(v, sizeof(v), "%d", s_todo_n);
         value_label(cx, cy, r, v, s_todo_n > 0 && s_todo_top[0] ? s_todo_top : "to-dos", COLOR_TEXT);
+        break;
+    }
+    case COMP_BRIEF: {
+        bool some = s_brief_v[0] && strcmp(s_brief_v, "-") != 0;
+        ring(cx, cy, r, some ? 1.0f : 0, some ? accent : COLOR_PANEL);
+        value_label(cx, cy, r, s_brief_v[0] ? s_brief_v : "--", s_brief_l[0] ? s_brief_l : "today", COLOR_TEXT);
         break;
     }
     case COMP_RINGS: {

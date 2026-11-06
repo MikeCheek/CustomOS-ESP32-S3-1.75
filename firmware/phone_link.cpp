@@ -231,6 +231,8 @@ static void handle(const char *msg) {
         reminders_on_link(doc);
     } else if (!strcmp(t, "todo")) {
         comp_set_todos(doc["n"] | 0, doc["top"] | "");
+    } else if (!strcmp(t, "brief")) {
+        comp_set_brief(doc["v"] | "", doc["l"] | "");
     } else if (!strcmp(t, "dnd")) {
         if (doc["on"].is<int>()) dnd_set((doc["on"] | 0) != 0, true);
         if (doc["bed"].is<int>()) {            // bedtime schedule from the app
