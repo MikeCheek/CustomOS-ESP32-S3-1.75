@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'model_fetch.dart';
+import 'ai_speed.dart';
 import 'speaker_merge.dart';
 
 /// "Who said what": speaker diarization with sherpa-onnx (Apache-2.0), on
@@ -145,7 +146,7 @@ class DiarizationService {
 // Top level: runs in the isolate (sherpa-onnx is bound per isolate).
 List<List<double>> _diarize(String seg, String emb, String wav) {
   sherpa.initBindings();
-  final threads = Platform.numberOfProcessors >= 4 ? 2 : 1;
+  final threads = AiSpeed.threads();
   final sd = sherpa.OfflineSpeakerDiarization(
     sherpa.OfflineSpeakerDiarizationConfig(
       segmentation: sherpa.OfflineSpeakerSegmentationModelConfig(

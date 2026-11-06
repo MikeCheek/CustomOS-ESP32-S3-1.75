@@ -5,6 +5,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
+import 'ai_speed.dart';
 import 'model_fetch.dart';
 
 /// A Piper voice (MIT, rhasspy/piper), packaged for sherpa-onnx.
@@ -120,7 +121,7 @@ Uint8List _synthesize(String model, String dir, String text) {
     sherpa.OfflineTtsConfig(
       model: sherpa.OfflineTtsModelConfig(
         vits: sherpa.OfflineTtsVitsModelConfig(model: model, tokens: '$dir/tokens.txt', dataDir: '$dir/espeak-ng-data'),
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
       maxNumSentences: 2,

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'text_insights.dart';
 import 'smart_replies.dart';
+import 'ai_speed.dart';
 import 'model_fetch.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
@@ -247,7 +248,7 @@ class GemmaService {
     return _serial(() async {
       await _closeModel();
       await _activate(m);
-      final model = await FlutterGemma.getActiveModel(maxTokens: 2048, supportImage: true, maxNumImages: 1);
+      final model = await AiSpeed.load(maxTokens: 2048, supportImage: true, maxNumImages: 1); // GPU when it can
       try {
         final chat = await model.createChat(temperature: 0.2, topK: 20, supportImage: true, modelType: m.type);
         await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
@@ -275,6 +276,9 @@ class GemmaService {
     }
   }
 
+  /// Drops the loaded model, so the next request loads it again (on the CPU / GPU now chosen).
+  Future<void> reload() => _serial(_closeModel);
+
   Future<void> _closeModel() async {
     final m = _model;
     _model = null;
@@ -296,7 +300,7 @@ class GemmaService {
     await _closeModel();
     // Re-activate it (cheap if already installed) so the spec matches.
     await _activate(info);
-    _model = await FlutterGemma.getActiveModel(maxTokens: 2048);
+    _model = await AiSpeed.load(maxTokens: 2048); // GPU when it can
     _loadedKey = key;
     return _model;
   }

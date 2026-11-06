@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/ai_catalog.dart';
+import '../services/ai_speed.dart';
 import '../services/diarization_service.dart';
 import '../services/gemma_service.dart';
 import '../services/model_fetch.dart';
@@ -422,6 +423,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   AppColors.warning,
                   'The phone listens for doorbells, alarms, a baby crying',
                 ),
+                const SectionLabel('Speed'),
+                const _SpeedPanel(),
                 const SectionLabel('On the watch'),
                 RowGroup(
                   children: [
@@ -805,6 +808,89 @@ class _ModelCard extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Where the language model runs (summaries, answers, smart replies, translation, Look).
+class _SpeedPanel extends StatefulWidget {
+  const _SpeedPanel();
+
+  @override
+  State<_SpeedPanel> createState() => _SpeedPanelState();
+}
+
+class _SpeedPanelState extends State<_SpeedPanel> {
+  String _mode = 'auto';
+  bool _gpuFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final m = await AiSpeed.mode();
+    final f = await AiSpeed.gpuFailed();
+    if (mounted) {
+      setState(() {
+        _mode = m;
+        _gpuFailed = f;
+      });
+    }
+  }
+
+  Future<void> _set(String m) async {
+    await AiSpeed.setMode(m);
+    await GemmaService.instance.reload(); // the next request loads it on the new choice
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = AiSpeed.lastBackend;
+    final note = _mode == 'cpu'
+        ? 'The CPU: slower, but it works on every phone.'
+        : _gpuFailed && _mode == 'auto'
+        ? 'The GPU didn\'t work on this phone, so it uses the CPU. Choose GPU to try again.'
+        : 'The GPU reads a long memo many times faster than the CPU; '
+              'if it doesn\'t work, the CPU takes over by itself.';
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Run the language model on',
+            style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'auto', label: Text('Auto')),
+              ButtonSegment(value: 'gpu', label: Text('GPU')),
+              ButtonSegment(value: 'cpu', label: Text('CPU')),
+            ],
+            selected: {_mode},
+            onSelectionChanged: (v) => _set(v.first),
+          ),
+          const SizedBox(height: 8),
+          Text(note, style: const TextStyle(color: AppColors.textDim, fontSize: 12, height: 1.35)),
+          if (now != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Last loaded on the ${now.toUpperCase()}.',
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            'Transcription, who said what and the voices use ${AiSpeed.threads()} CPU cores.',
+            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+          ),
         ],
       ),
     );

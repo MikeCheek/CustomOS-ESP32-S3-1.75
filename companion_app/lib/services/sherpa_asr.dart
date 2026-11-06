@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'model_fetch.dart';
+import 'ai_speed.dart';
 import 'speaker_merge.dart';
 
 enum AsrKind { whisper, moonshine, senseVoice }
@@ -222,7 +223,7 @@ void _run(List<dynamic> a) {
           task: 'transcribe',
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
       AsrKind.moonshine => sherpa.OfflineModelConfig(
@@ -233,7 +234,7 @@ void _run(List<dynamic> a) {
           cachedDecoder: f['cached']!,
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
       AsrKind.senseVoice => sherpa.OfflineModelConfig(
@@ -243,7 +244,7 @@ void _run(List<dynamic> a) {
           useInverseTextNormalization: true,
         ),
         tokens: f['tokens']!,
-        numThreads: 2,
+        numThreads: AiSpeed.threads(),
         debug: false,
       ),
     };
