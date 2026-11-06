@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'ai_speed.dart';
+import 'ai_profiler.dart';
 import 'model_fetch.dart';
 
 /// A Piper voice (MIT, rhasspy/piper), packaged for sherpa-onnx.
@@ -110,7 +111,14 @@ class TtsService {
     final dir = '${(await _root()).path}/${v.id}';
     final model = await _model(Directory(dir));
     if (model == null) throw Exception('Voice not installed');
-    return Isolate.run(() => _synthesize(model, dir, text));
+    return AiProfiler.instance.track(
+      model: 'Voice: ${v.label}',
+      task: 'Speech',
+      where: () => 'CPU, ${AiSpeed.threads()} threads',
+      input: text.length.toDouble(),
+      unit: 'chars',
+      run: () => Isolate.run(() => _synthesize(model, dir, text)),
+    );
   }
 }
 

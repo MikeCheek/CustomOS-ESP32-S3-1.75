@@ -7,6 +7,7 @@ import 'providers/notes_provider.dart';
 import 'services/ai_catalog.dart';
 import 'services/gemma_service.dart';
 import 'services/model_fetch.dart';
+import 'services/ai_profiler.dart';
 import 'emulator/emulator_controller.dart';
 
 /// Runs once per app process. The process can start without any UI (the
@@ -15,6 +16,9 @@ import 'emulator/emulator_controller.dart';
 /// widget - and keep running while no screen is shown.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // a model run that never finished last time (a crash) becomes a crash entry
+  AiProfiler.instance.init().catchError((Object e) => debugPrint('[main] AI profiler: $e'));
 
   try {
     await GemmaService.initializeEngine();

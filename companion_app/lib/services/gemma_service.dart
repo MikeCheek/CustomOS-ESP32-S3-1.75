@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'text_insights.dart';
 import 'smart_replies.dart';
 import 'ai_speed.dart';
+import 'ai_profiler.dart';
 import 'model_fetch.dart';
 
 /// On-device summaries with flutter_gemma (LiteRT-LM engine).
@@ -248,11 +249,25 @@ class GemmaService {
     return _serial(() async {
       await _closeModel();
       await _activate(m);
-      final model = await AiSpeed.load(maxTokens: 2048, supportImage: true, maxNumImages: 1); // GPU when it can
+      final model = await AiProfiler.instance.track(
+        model: m.name,
+        task: 'Load',
+        where: _where,
+        run: () => AiSpeed.load(maxTokens: 2048, supportImage: true, maxNumImages: 1), // GPU when it can
+      );
       try {
         final chat = await model.createChat(temperature: 0.2, topK: 20, supportImage: true, modelType: m.type);
-        await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
-        final r = await chat.generateChatResponse();
+        final r = await AiProfiler.instance.track(
+          model: m.name,
+          task: 'Look',
+          where: _where,
+          input: prompt.length.toDouble(),
+          unit: 'chars',
+          run: () async {
+            await chat.addQueryChunk(Message.withImage(text: prompt, imageBytes: jpeg, isUser: true));
+            return chat.generateChatResponse();
+          },
+        );
         final raw = r is TextResponse ? r.token : r.toString();
         return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').replaceAll(RegExp(r'[*#`]'), '').trim();
       } finally {
@@ -300,7 +315,12 @@ class GemmaService {
     await _closeModel();
     // Re-activate it (cheap if already installed) so the spec matches.
     await _activate(info);
-    _model = await AiSpeed.load(maxTokens: 2048); // GPU when it can
+    _model = await AiProfiler.instance.track(
+      model: info.name,
+      task: 'Load',
+      where: _where,
+      run: () => AiSpeed.load(maxTokens: 2048), // GPU when it can
+    );
     _loadedKey = key;
     return _model;
   }
@@ -318,7 +338,10 @@ class GemmaService {
     return r;
   }
 
-  Future<String?> _generate(String prompt, {double temperature = 0.2}) => _serial(() async {
+  /// Where the language model runs now, for the profiler.
+  String _where() => AiSpeed.lastBackend?.toUpperCase() ?? '?';
+
+  Future<String?> _generate(String prompt, {double temperature = 0.2, String task = 'Answer'}) => _serial(() async {
     InferenceModel? model;
     try {
       model = await _ensureModel();
@@ -327,8 +350,17 @@ class GemmaService {
     }
     if (model == null) return null;
     final chat = await model.createChat(temperature: temperature, topK: 20, modelType: byKey(_loadedKey).type);
-    await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
-    final response = await chat.generateChatResponse();
+    final response = await AiProfiler.instance.track(
+      model: byKey(_loadedKey).name,
+      task: task,
+      where: _where,
+      input: prompt.length.toDouble(),
+      unit: 'chars',
+      run: () async {
+        await chat.addQueryChunk(Message.text(isUser: true, text: prompt));
+        return chat.generateChatResponse();
+      },
+    );
     final raw = response is TextResponse ? response.token : response.toString();
     return raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '').trim();
   });
@@ -345,6 +377,7 @@ class GemmaService {
       budget -= c.length;
     }
     final out = await _generate(
+      task: 'Ask AI',
       'Answer the question using ONLY these notes from the user\'s voice memos. '
       'Cite the notes you used like [1] or [2]. If the notes don\'t contain the answer, say so briefly. '
       'Answer in the language of the question, in at most 5 sentences.\n\n'
@@ -360,6 +393,7 @@ class GemmaService {
   Future<Map<String, dynamic>?> assistantRoute(String request, DateTime now) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Assistant',
       'You are the voice assistant of a smartwatch. It is ${now.toIso8601String().substring(0, 16)}.\n'
       'Reply with ONLY one JSON object, no other text.\n'
       'If the request is one of these actions, reply with it:\n'
@@ -392,7 +426,7 @@ class GemmaService {
   /// or null without a model.
   Future<List<String>?> suggestReplies(String app, String sender, String message) async {
     if (!await hasModel()) return null;
-    final out = await _generate(SmartReplies.prompt(app, sender, message), temperature: 0.6);
+    final out = await _generate(task: 'Smart replies', SmartReplies.prompt(app, sender, message), temperature: 0.6);
     if (out == null) return null;
     final r = SmartReplies.parse(out);
     return r.isEmpty ? null : r;
@@ -405,6 +439,7 @@ class GemmaService {
     var buf = lines.join('\n');
     if (buf.length > 3000) buf = buf.substring(buf.length - 3000);
     final out = await _generate(
+      task: 'Catch me up',
       'These are the user\'s phone notifications, oldest first:\n$buf\n\n'
       'Summarize them for a smartwatch screen in $language, in at most 6 short lines. '
       'First what needs a reply or action (who, what), then the rest grouped by app or person. '
@@ -443,6 +478,7 @@ class GemmaService {
     ];
     final d = day ?? DateTime.now();
     final out = await _generate(
+      task: 'Meal ideas',
       'Suggest today\'s meals for a healthy, balanced day. Diet: $diet. '
       '${notes.trim().isEmpty ? '' : 'About the person (follow it strictly, e.g. allergies): ${notes.trim()}. '}'
       '${training ? 'It is a training day: a little more protein and carbohydrates. ' : ''}'
@@ -479,6 +515,7 @@ class GemmaService {
   Future<String?> translate(String text, String language) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Translate',
       'Translate this message into $language. Reply with the translation only.\n\n$text /no_think',
       temperature: 0.1,
     );
@@ -489,6 +526,7 @@ class GemmaService {
   Future<String?> nameCollection(List<String> keywords, List<String> titles) async {
     if (!await hasModel()) return null;
     final out = await _generate(
+      task: 'Collection name',
       'These voice memos were grouped together.\nKeywords: ${keywords.join(', ')}\n'
       'Titles: ${titles.take(6).join('; ')}\n'
       'Give the group a short name (1-4 words, no quotes, no punctuation at the end). Reply with the name only. /no_think',
@@ -519,24 +557,33 @@ class GemmaService {
     final text = transcript.length > 3000 ? transcript.substring(0, 3000) : transcript;
     try {
       final chat = await model.createChat(temperature: 0.2, topK: 20, modelType: byKey(_loadedKey).type);
-      await chat.addQueryChunk(
-        Message.text(
-          isUser: true,
-          text:
-              'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
-              'Answer with ONLY a JSON object, no other text, all text in '
-              '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
-              '{"title": "3-6 word title", '
-              '"summary": "2-3 sentences", '
-              '"importance": 1-5, '
-              '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
-              '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
-              '"actions": ["concrete things to do mentioned, short, empty if none"], '
-              '"people": ["names of people mentioned, empty if none"]}\n\n'
-              'Memo:\n$text /no_think',
-        ),
+      final response = await AiProfiler.instance.track(
+        model: byKey(_loadedKey).name,
+        task: 'Memo summary',
+        where: _where,
+        input: text.length.toDouble(),
+        unit: 'chars',
+        run: () async {
+          await chat.addQueryChunk(
+            Message.text(
+              isUser: true,
+              text:
+                  'You organize voice memos recorded on a smartwatch into a personal knowledge base.\n'
+                  'Answer with ONLY a JSON object, no other text, all text in '
+                  '${language == null || language.isEmpty ? 'the language of the memo' : language}:\n'
+                  '{"title": "3-6 word title", '
+                  '"summary": "2-3 sentences", '
+                  '"importance": 1-5, '
+                  '"tags": ["up to 4 of: work, personal, idea, todo, meeting, health, call, errand, finance, travel, family, project, deadline, reminder"], '
+                  '"topics": ["2-4 short topic phrases (1-3 words) the memo is about"], '
+                  '"actions": ["concrete things to do mentioned, short, empty if none"], '
+                  '"people": ["names of people mentioned, empty if none"]}\n\n'
+                  'Memo:\n$text /no_think',
+            ),
+          );
+          return chat.generateChatResponse();
+        },
       );
-      final response = await chat.generateChatResponse();
       final raw = response is TextResponse ? response.token : response.toString();
       final parsed = _parse(raw);
       if (parsed != null) return parsed;

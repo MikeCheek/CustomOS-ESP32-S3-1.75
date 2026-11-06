@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 import 'model_fetch.dart';
 import 'ai_speed.dart';
+import 'ai_profiler.dart';
 import 'speaker_merge.dart';
 
 /// "Who said what": speaker diarization with sherpa-onnx (Apache-2.0), on
@@ -138,7 +139,14 @@ class DiarizationService {
   Future<List<SpeakerTurn>> run(String mono16kWav) async {
     final d = await _dir();
     final seg = '${d.path}/$_segFile', emb = '${d.path}/$_embFile';
-    final raw = await Isolate.run(() => _diarize(seg, emb, mono16kWav));
+    final raw = await AiProfiler.instance.track(
+      model: 'Speakers: ${await installedVoiceModel() ?? 'pyannote'}',
+      task: 'Who said what',
+      where: () => 'CPU, ${AiSpeed.threads()} threads',
+      input: AiProfiler.wavSeconds(mono16kWav),
+      unit: 's',
+      run: () => Isolate.run(() => _diarize(seg, emb, mono16kWav)),
+    );
     return [for (final r in raw) SpeakerTurn(r[0], r[1], r[2].toInt())];
   }
 }

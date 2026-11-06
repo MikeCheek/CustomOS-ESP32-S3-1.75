@@ -9,6 +9,7 @@ import '../services/tts_service.dart';
 import '../services/whisper_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'ai_profile_screen.dart';
 import 'wake_word_screen.dart';
 
 /// The on-device AI: one card per feature with its status; open it to
@@ -890,6 +891,12 @@ class _SpeedPanelState extends State<_SpeedPanel> {
           Text(
             'Transcription, who said what and the voices use ${AiSpeed.threads()} CPU cores.',
             style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiProfileScreen())),
+            icon: const Icon(Icons.speed_rounded, size: 18),
+            label: const Text('Performance: run times, GPU or CPU, crashes'),
           ),
         ],
       ),

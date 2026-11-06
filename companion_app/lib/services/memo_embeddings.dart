@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'ble_protocol.dart';
 import 'gemma_service.dart';
 import 'knowledge_base.dart';
+import 'ai_profiler.dart';
 import 'model_fetch.dart';
 
 /// Search by meaning: memos and questions as vectors from an on-phone
@@ -133,7 +134,14 @@ class MemoEmbeddings {
       changed = true;
     }
     if (changed) await _save();
-    final q = await model.generateEmbedding(query, taskType: TaskType.retrievalQuery);
+    final q = await AiProfiler.instance.track(
+      model: 'EmbeddingGemma',
+      task: 'Search by meaning',
+      where: () => 'CPU',
+      input: query.length.toDouble(),
+      unit: 'chars',
+      run: () => model.generateEmbedding(query, taskType: TaskType.retrievalQuery),
+    );
     final scored = [
       for (final e in entries)
         if (cache[e.name] != null) (e, _cos(q, cache[e.name]!.v)),
