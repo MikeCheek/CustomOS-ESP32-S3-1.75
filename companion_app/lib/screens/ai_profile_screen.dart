@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/ai_advice.dart';
 import '../services/ai_profiler.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -82,6 +83,7 @@ class _AiProfileScreenState extends State<AiProfileScreen> {
                     style: TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
+                  if (aiAdvice(s).isNotEmpty) _Advice(aiAdvice(s)),
                   for (final m in s) _ModelCard(m),
                 ],
               ),
@@ -202,6 +204,40 @@ class _ModelCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What the numbers suggest for this phone (ai_advice.dart).
+class _Advice extends StatelessWidget {
+  final List<String> tips;
+  const _Advice(this.tips);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Panel(
+      color: AppColors.accent.withValues(alpha: 0.10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.tips_and_updates_outlined, size: 18, color: AppColors.accent),
+              SizedBox(width: 8),
+              Text(
+                'For this phone',
+                style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          for (final t in tips)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(t, style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4)),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _Chip extends StatelessWidget {
